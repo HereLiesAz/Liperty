@@ -2,6 +2,7 @@ package com.HereLiesAz.Liperty
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.Bundle
 import android.util.Log
@@ -14,6 +15,7 @@ import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import com.HereLiesAz.Liperty.camera.CameraManager
 import com.HereLiesAz.Liperty.ml.FaceLandmarkerHelper
+import com.HereLiesAz.Liperty.ml.VSRInference
 import com.HereLiesAz.Liperty.ui.OverlayView
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
 import java.util.concurrent.ExecutorService
@@ -26,6 +28,12 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
     private lateinit var overlayView: OverlayView
     private lateinit var transcriptionText: TextView
     private lateinit var cameraExecutor: ExecutorService
+    private lateinit var vsrInference: VSRInference
+
+    // Cached dummy bitmap for VSR placeholder to avoid garbage collection churn
+    private val dummyBitmap: Bitmap by lazy {
+        Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+    }
 
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
@@ -45,6 +53,7 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
 
         cameraManager = CameraManager(this)
         faceLandmarkerHelper = FaceLandmarkerHelper(this, this)
+        vsrInference = VSRInference(this)
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         if (allPermissionsGranted()) {
@@ -94,8 +103,19 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
     override fun onResults(result: FaceLandmarkerResult) {
         runOnUiThread {
             // Draw bounding boxes for lips/face
-            // This is simplified. Actual mapping from normalized coordinates to View coordinates needed.
-            transcriptionText.text = "Tracking ${result.faceLandmarks().size} faces..."
+            // We use overlayView dimensions to scale the normalized landmarks to screen coordinates
+            val lipBox = faceLandmarkerHelper.extractLipBoundingBox(result, overlayView.width, overlayView.height)
+
+            if (lipBox != null) {
+                overlayView.setResults(emptyList(), listOf(lipBox))
+
+                // Dummy VSR call with placeholder bitmap
+                val vsrResult = vsrInference.runInference(dummyBitmap)
+                transcriptionText.text = vsrResult.text
+            } else {
+                overlayView.clear()
+                transcriptionText.text = "No face detected"
+            }
         }
     }
 }
