@@ -113,7 +113,7 @@ This document provides a granular breakdown of tasks required to build the Liper
 - [ ] **Legal Review**
     - [ ] Verify "Recording" indicator visibility.
     - [ ] Add "Consent" checkbox in onboarding flow.
-    - [ ] Ensure no data persistence (files delete on exit).
+    - [ ] Ensure no data persistence (files are deleted on exit).
 - [ ] **Documentation**
     - [ ] Write USER_GUIDE.md.
     - [ ] Generate JavaDocs/KDocs.
