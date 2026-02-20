@@ -2,7 +2,7 @@
 
 ## Overview
 
-The LipRead-Android application architecture is designed for real-time, on-device execution of Visual Speech Recognition (VSR) models. It prioritizes low latency (sub-100ms) and privacy (zero-cloud dependencies).
+The Liperty application architecture is designed for real-time, on-device execution of Visual Speech Recognition (VSR) models. It prioritizes low latency (sub-100ms) and privacy (zero-cloud dependencies).
 
 ## High-Level Pipeline
 
