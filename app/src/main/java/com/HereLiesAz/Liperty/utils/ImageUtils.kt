@@ -7,6 +7,7 @@ import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.Rect
 import androidx.camera.core.ImageProxy
+import java.nio.ByteBuffer
 
 object ImageUtils {
 
@@ -33,6 +34,10 @@ object ImageUtils {
         val safeTop = rect.top.coerceAtLeast(0)
         val safeWidth = rect.width().coerceAtMost(bitmap.width - safeLeft)
         val safeHeight = rect.height().coerceAtMost(bitmap.height - safeTop)
+
+        if (safeWidth <= 0 || safeHeight <= 0) {
+             return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888) // Return 1x1 empty bitmap to avoid crash
+        }
 
         return Bitmap.createBitmap(bitmap, safeLeft, safeTop, safeWidth, safeHeight)
     }
