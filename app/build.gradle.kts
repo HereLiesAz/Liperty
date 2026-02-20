@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.lipread"
+    namespace = "com.HereLiesAz.Liperty"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.lipread"
+        applicationId = "com.HereLiesAz.Liperty"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

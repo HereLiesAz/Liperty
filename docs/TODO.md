@@ -1,6 +1,6 @@
 # Comprehensive Todo List
 
-This document provides a granular breakdown of tasks required to build the LipRead-Android application, from initial research to deployment.
+This document provides a granular breakdown of tasks required to build the Liperty application, from initial research to deployment.
 
 ## Phase 1: Research & Prerequisites (Completed)
 

@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "LipRead-Android"
+rootProject.name = "Liperty"
 include(":app")

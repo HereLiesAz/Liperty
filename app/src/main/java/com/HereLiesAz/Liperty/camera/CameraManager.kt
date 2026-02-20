@@ -1,4 +1,4 @@
-package com.example.lipread.camera
+package com.HereLiesAz.Liperty.camera
 
 import android.content.Context
 import android.hardware.camera2.CameraCharacteristics

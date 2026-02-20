@@ -1,6 +1,6 @@
 # Legal & Privacy Guidelines
 
-The LipRead-Android application processes sensitive biometric data (facial geometry) and potentially records private conversations. Strict adherence to legal and ethical guidelines is mandatory.
+The Liperty application processes sensitive biometric data (facial geometry) and potentially records private conversations. Strict adherence to legal and ethical guidelines is mandatory.
 
 ## 1. Wiretap Laws & Recording Consent
 

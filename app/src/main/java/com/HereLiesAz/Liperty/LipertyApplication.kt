@@ -1,8 +1,8 @@
-package com.example.lipread
+package com.HereLiesAz.Liperty
 
 import android.app.Application
 
-class LipReadApplication : Application() {
+class LipertyApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         // Initialize global dependencies if needed (e.g. logging)

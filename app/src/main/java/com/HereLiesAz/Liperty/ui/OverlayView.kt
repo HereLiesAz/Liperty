@@ -1,4 +1,4 @@
-package com.example.lipread.ui
+package com.HereLiesAz.Liperty.ui
 
 import android.content.Context
 import android.graphics.Canvas

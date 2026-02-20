@@ -1,4 +1,4 @@
-package com.example.lipread
+package com.HereLiesAz.Liperty
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -12,9 +12,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
-import com.example.lipread.camera.CameraManager
-import com.example.lipread.ml.FaceLandmarkerHelper
-import com.example.lipread.ui.OverlayView
+import com.HereLiesAz.Liperty.camera.CameraManager
+import com.HereLiesAz.Liperty.ml.FaceLandmarkerHelper
+import com.HereLiesAz.Liperty.ui.OverlayView
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -60,7 +60,7 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
         // Setup Image Analyzer to pipe frames to MediaPipe
         val analyzer = ImageAnalysis.Analyzer { imageProxy ->
             // Convert ImageProxy to Bitmap using the optimized CameraX extension (via ImageUtils)
-            val bitmap = com.example.lipread.utils.ImageUtils.imageProxyToBitmap(imageProxy)
+            val bitmap = com.HereLiesAz.Liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy)
 
             // Note: For actual VSR, we would crop the lip region here and convert to grayscale.
             // We should reuse a shared Bitmap for grayscale conversion to avoid allocation churn.

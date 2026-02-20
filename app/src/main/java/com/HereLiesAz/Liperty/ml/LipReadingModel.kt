@@ -1,4 +1,4 @@
-package com.example.lipread.ml
+package com.HereLiesAz.Liperty.ml
 
 import android.content.Context
 import android.graphics.Bitmap

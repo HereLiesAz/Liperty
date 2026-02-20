@@ -1,6 +1,6 @@
-# LipRead-Android
+# Liperty
 
-**LipRead-Android** is a real-time, on-device Visual Speech Recognition (VSR) application designed for the Deaf, Hard-of-Hearing, and Speech-Impaired communities. It utilizes advanced deep learning models to convert lip movements into text (for lipreading) or synthesized speech (for silent speech interfaces), operating entirely offline to ensure privacy and low latency.
+**Liperty** is a real-time, on-device Visual Speech Recognition (VSR) application designed for the Deaf, Hard-of-Hearing, and Speech-Impaired communities. It utilizes advanced deep learning models to convert lip movements into text (for lipreading) or synthesized speech (for silent speech interfaces), operating entirely offline to ensure privacy and low latency.
 
 ## Features
 
