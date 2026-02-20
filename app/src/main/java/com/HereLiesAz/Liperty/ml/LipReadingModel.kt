@@ -39,8 +39,10 @@ class LipReadingModel(context: Context) {
             outputBuffer = ByteBuffer
                 .allocateDirect(requiredBytes)
                 .order(ByteOrder.nativeOrder())
+            outputBuffer?.limit(requiredBytes) // Ensure limit matches tensor size
         } else {
             outputBuffer?.clear()
+            outputBuffer?.limit(requiredBytes) // Reset limit to required bytes for this inference
         }
 
         val outBuffer = outputBuffer!!
