@@ -40,7 +40,7 @@ class FaceLandmarkerHelper(
         }
     }
 
-    fun detectLiveStream(imageBitmap: Bitmap, isFrontCamera: Boolean) {
+    fun detectLiveStream(imageBitmap: Bitmap) {
         if (faceLandmarker == null) return
 
         val frameTime = SystemClock.uptimeMillis()

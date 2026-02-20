@@ -65,7 +65,7 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
             // Note: For actual VSR, we would crop the lip region here and convert to grayscale.
             // We should reuse a shared Bitmap for grayscale conversion to avoid allocation churn.
 
-            faceLandmarkerHelper.detectLiveStream(bitmap, false) // false = rear camera default
+            faceLandmarkerHelper.detectLiveStream(bitmap)
 
             imageProxy.close()
         }

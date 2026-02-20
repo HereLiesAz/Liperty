@@ -9,6 +9,7 @@ import java.nio.ByteOrder
 
 class LipReadingModel(context: Context) {
     private var interpreter: Interpreter? = null
+    private var outputBuffer: ByteBuffer? = null
 
     init {
         try {
@@ -23,18 +24,31 @@ class LipReadingModel(context: Context) {
     }
 
     fun runInference(inputData: ByteBuffer): String {
-        if (interpreter == null) return "Model not loaded"
+        val tflite = interpreter ?: return "Model not loaded"
 
-        // Prepare output buffer
-        // Depending on the model (CTC vs Seq2Seq), the output shape will vary.
-        // Assuming a simple classification or CTC logits for now.
-        val outputBuffer = ByteBuffer.allocateDirect(1024 * 4) // Example size
-        outputBuffer.order(ByteOrder.nativeOrder())
+        // Lazily allocate / resize and reuse the output buffer based on the
+        // actual output tensor shape and data type.
+        val outputTensor = tflite.getOutputTensor(0)
+        val outputShape = outputTensor.shape() // e.g. [batch, classes] or [time, batch, classes]
+        val elementCount = outputShape.fold(1) { acc, dim -> acc * dim }
+        val bytesPerElement = outputTensor.dataType().byteSize()
+        val requiredBytes = elementCount * bytesPerElement
 
-        interpreter?.run(inputData, outputBuffer)
+        val buffer = outputBuffer
+        if (buffer == null || buffer.capacity() < requiredBytes) {
+            outputBuffer = ByteBuffer
+                .allocateDirect(requiredBytes)
+                .order(ByteOrder.nativeOrder())
+        } else {
+            outputBuffer?.clear()
+        }
+
+        val outBuffer = outputBuffer!!
+        // Run inference into the reused output buffer
+        tflite.run(inputData, outBuffer)
 
         // Decode output (CTC Decoding / Greedy Search)
-        return decodeOutput(outputBuffer)
+        return decodeOutput(outBuffer)
     }
 
     private fun decodeOutput(buffer: ByteBuffer): String {
