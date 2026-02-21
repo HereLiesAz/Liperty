@@ -264,7 +264,7 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
                             // For prototype, we strip the prefix or just append.
                             // Let's assume it returns a word/sentence.
                             // The dummy returns "Pred: ...". We'll just clean it for the demo.
-                            val rawText = vsrResult.text.replace("Pred: ", "").replace(Regex("\\(.*\\)"), "")
+                            val rawText = vsrResult.text
                             if (rawText.isNotBlank()) {
                                 transcriptionManager.appendText(rawText)
                                 updateTranscriptionUI()
