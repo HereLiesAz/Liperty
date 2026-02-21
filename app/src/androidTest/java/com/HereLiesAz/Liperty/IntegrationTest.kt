@@ -29,5 +29,8 @@ class IntegrationTest {
 
         // Verify Settings Button
         onView(withId(R.id.btn_settings)).check(matches(isDisplayed()))
+
+        // Verify Recording Indicator (might take a moment to appear after camera start, but usually fast enough in tests)
+        onView(withId(R.id.indicator_recording)).check(matches(isDisplayed()))
     }
 }

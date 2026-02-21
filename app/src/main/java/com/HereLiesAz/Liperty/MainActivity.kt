@@ -53,6 +53,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var frameBuffer: FrameBuffer
     private lateinit var switchCameraButton: Button
     private lateinit var settingsButton: Button
+    private lateinit var recordingIndicator: TextView
 
     private lateinit var gestureDetector: GestureDetector
     private val transcriptionManager = TranscriptionManager()
@@ -82,6 +83,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         transcriptionText = findViewById(R.id.text_transcription)
         switchCameraButton = findViewById(R.id.btn_switch_camera)
         settingsButton = findViewById(R.id.btn_settings)
+        recordingIndicator = findViewById(R.id.indicator_recording)
 
         cameraManager = CameraManager(this)
         faceLandmarkerHelper = FaceLandmarkerHelper(this)
@@ -253,6 +255,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         // But for this step, we just restart.
 
         cameraManager.startCamera(this, previewView, analyzer, currentLensFacing)
+
+        // Show recording indicator when camera starts
+        recordingIndicator.visibility = android.view.View.VISIBLE
     }
 
     private fun processFrame(bitmap: Bitmap, result: FaceLandmarkerResult) {
