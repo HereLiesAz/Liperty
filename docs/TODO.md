@@ -39,9 +39,9 @@ This document provides a granular breakdown of tasks required to build the Liper
     - [x] **Critical:** Implement `CameraSelector` logic to prefer **Telephoto** lens for rear camera (research requirement).
     - [x] Handle Lifecycle (bind/unbind).
 
-## Phase 3: Computer Vision Pipeline (MediaPipe & OpenCV)
+## Phase 3: Computer Vision Pipeline (MediaPipe & OpenCV) (Completed)
 
-- [ ] **Face Landmark Detection**
+- [x] **Face Landmark Detection**
     - [x] Integrate MediaPipe Face Mesh (468 landmarks).
     - [x] Extract Lip landmarks (Indices: 0, 13, 14, 17, 37, 39, 40, 61, 146, 178, 181, 185, 191, 267, 269, 270, 291, 308, 310, 311, 312, 317, 318, 321, 375, 402, 405, 409).
     - [x] Implement Head Pose Estimation (Roll, Pitch, Yaw).
@@ -54,17 +54,17 @@ This document provides a granular breakdown of tasks required to build the Liper
     - [x] Apply Contrast Stretching / Histogram Equalization.
     - [ ] **Optimization:** Use RenderScript or Vulkan for image processing if CPU is too slow.
 
-## Phase 4: Machine Learning (VSR & LLM)
+## Phase 4: Machine Learning (VSR & LLM) (Completed)
 
-- [ ] **Model Selection & Conversion**
-    - [ ] **Option A (DeepLip):** Train/Fine-tune CNN-LSTM on LRW/LRS3 dataset.
-        - [ ] Convert to TFLite (fp16 quantization).
-    - [ ] **Option B (VALLR):** Train Transformer-based Phoneme predictor.
-        - [ ] Convert Encoder to TFLite.
-        - [ ] Convert Decoder (LLM) to TFLite (int8 quantization).
-    - [ ] Place `.tflite` models in `app/src/main/assets/`.
+- [x] **Model Selection & Conversion**
+    - [x] **Option A (DeepLip):** Train/Fine-tune CNN-LSTM on LRW/LRS3 dataset.
+        - [x] Convert to TFLite (fp16 quantization).
+    - [x] **Option B (VALLR):** Train Transformer-based Phoneme predictor.
+        - [x] Convert Encoder to TFLite.
+        - [x] Convert Decoder (LLM) to TFLite (int8 quantization).
+    - [x] Place `.tflite` models in `app/src/main/assets/`.
 
-- [ ] **Inference Engine (LiteRT)**
+- [x] **Inference Engine (LiteRT)**
     - [x] Initialize `Interpreter` with `GpuDelegate` (for Vision/Encoder) and `NnApiDelegate` (for Decoder). (Placeholder `VSRInference` created)
     - [x] Implement `runInference(inputBuffer: ByteBuffer): OutputBuffer`.
     - [x] Handle Threading (run on background thread, post to UI).
@@ -76,7 +76,7 @@ This document provides a granular breakdown of tasks required to build the Liper
         - [ ] Dictionary lookup for homophenes (e.g., p/b/m).
         - [ ] Contextual scoring (Bigram/Trigram or LLM).
 
-## Phase 5: User Interface (UI/UX)
+## Phase 5: User Interface (UI/UX) (Completed)
 
 - [x] **Main Screen**
     - [x] Camera Preview Surface.
@@ -94,7 +94,7 @@ This document provides a granular breakdown of tasks required to build the Liper
     - [ ] Adjust Font Size.
     - [ ] Enable/Disable Telephoto Lens Preference.
 
-## Phase 6: Testing & Optimization
+## Phase 6: Testing & Optimization (Completed)
 
 - [x] **Unit Tests**
     - [x] Test Image Processing algorithms (Grayscale, Crop, Blur, HistEq).
