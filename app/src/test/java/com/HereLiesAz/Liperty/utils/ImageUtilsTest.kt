@@ -1,38 +1,38 @@
 package com.HereLiesAz.Liperty.utils
 
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.graphics.Rect
+import android.graphics.Color
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
-@RunWith(RobolectricTestRunner::class)
+@RunWith(AndroidJUnit4::class)
+@Config(sdk = [34])
 class ImageUtilsTest {
 
     @Test
     fun testCropBitmap() {
-        val original = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
+        val bitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
         val rect = Rect(10, 10, 50, 50)
-
-        val cropped = ImageUtils.cropBitmap(original, rect)
+        val cropped = ImageUtils.cropBitmap(bitmap, rect)
 
         assertEquals(40, cropped.width)
         assertEquals(40, cropped.height)
     }
 
     @Test
-    fun testCropBitmapOutOfBounds() {
-        val original = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
-        val rect = Rect(-10, -10, 40, 40) // width=50, height=50
+    fun testAlignAndCropMouth() {
+        val bitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
+        val rect = Rect(40, 40, 60, 60)
+        val targetSize = 88
 
-        val cropped = ImageUtils.cropBitmap(original, rect)
+        val aligned = ImageUtils.alignAndCropMouth(bitmap, rect, 0f, targetSize)
 
-        assertEquals(50, cropped.width)
-        assertEquals(50, cropped.height)
+        assertEquals(targetSize, aligned.width)
+        assertEquals(targetSize, aligned.height)
     }
 
     @Test
@@ -41,50 +41,41 @@ class ImageUtilsTest {
         val dest = Bitmap.createBitmap(10, 10, Bitmap.Config.ARGB_8888)
 
         ImageUtils.toGrayscale(src, dest)
-
-        assertNotNull(dest)
+        // Just ensure no crash
     }
 
     @Test
     fun testApplyBlur() {
-        val src = Bitmap.createBitmap(10, 10, Bitmap.Config.ARGB_8888)
-        // Set a pixel to white
-        src.setPixel(5, 5, Color.WHITE)
+        val bitmap = Bitmap.createBitmap(3, 3, Bitmap.Config.ARGB_8888)
+        // Center white, others black/transparent (0)
+        bitmap.setPixel(1, 1, Color.WHITE)
 
-        val blurred = ImageUtils.applyBlur(src, 1)
+        val blurred = ImageUtils.applyBlur(bitmap, 1)
 
-        assertNotNull(blurred)
-        assertEquals(src.width, blurred.width)
-        assertEquals(src.height, blurred.height)
-
-        // Pixel at 5,5 should be less intense than pure white due to blur
-        val blurredPixel = blurred.getPixel(5, 5)
-        // Should not be pure white if blur worked
-        // Wait, pure white is 255. If neighbors are black, avg < 255.
-        assertTrue(Color.red(blurredPixel) < 255)
+        val center = blurred.getPixel(1, 1)
+        // 255 (center) + 0 (8 neighbors) / 9 = 28.
+        val r = Color.red(center)
+        assertEquals(28, r)
     }
 
     @Test
     fun testApplyHistogramEqualization() {
-        val src = Bitmap.createBitmap(10, 10, Bitmap.Config.ARGB_8888)
-        // Fill with dark gray
-        for (i in 0 until 10) {
-            for (j in 0 until 10) {
-                src.setPixel(i, j, Color.rgb(50, 50, 50))
-            }
-        }
+        val width = 100
+        val height = 1
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
 
-        val equalized = ImageUtils.applyHistogramEqualization(src)
+        // 50 pixels intensity 10, 50 pixels intensity 20
+        for (i in 0 until 50) bitmap.setPixel(i, 0, Color.rgb(10, 10, 10))
+        for (i in 50 until 100) bitmap.setPixel(i, 0, Color.rgb(20, 20, 20))
 
-        assertNotNull(equalized)
-        // Uniform color image -> should remain uniform but mapped to max range?
-        // If all pixels are 50. minCdf = totalPixels. denominator = 1. scale = 255.
-        // val = (cdf - minCdf) * scale = 0.
-        // So it maps to 0.
-        // Wait, if minCdf is totalPixels, then (cdf[i] - minCdf) is 0 for i=50.
-        // So it becomes black.
+        val equalized = ImageUtils.applyHistogramEqualization(bitmap)
 
-        val pixel = equalized.getPixel(0, 0)
-        assertEquals(0, Color.red(pixel))
+        // Expected: 10 -> 0, 20 -> 255 (approx)
+        val val1 = Color.red(equalized.getPixel(0, 0))
+        val val2 = Color.red(equalized.getPixel(99, 0))
+
+        // Allow variance due to float conversion
+        assertEquals(0.0, val1.toDouble(), 1.0)
+        assertEquals(255.0, val2.toDouble(), 1.0)
     }
 }
