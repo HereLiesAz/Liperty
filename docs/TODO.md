@@ -44,14 +44,14 @@ This document provides a granular breakdown of tasks required to build the Liper
 - [ ] **Face Landmark Detection**
     - [x] Integrate MediaPipe Face Mesh (468 landmarks).
     - [x] Extract Lip landmarks (Indices: 0, 13, 14, 17, 37, 39, 40, 61, 146, 178, 181, 185, 191, 267, 269, 270, 291, 308, 310, 311, 312, 317, 318, 321, 375, 402, 405, 409).
-    - [ ] Implement Head Pose Estimation (Roll, Pitch, Yaw).
+    - [x] Implement Head Pose Estimation (Roll, Pitch, Yaw).
 
 - [ ] **ROI Extraction & Normalization**
-    - [ ] Calculate Affine Transformation Matrix to align mouth horizontally.
-    - [ ] Crop mouth region (Square: 96x96, 112x112, or 128x128).
+    - [x] Calculate Affine Transformation Matrix to align mouth horizontally.
+    - [x] Crop mouth region (Square: 96x96, 112x112, or 128x128).
     - [x] Convert `ImageProxy` (YUV) to `Bitmap` (ARGB) -> Grayscale. (Implemented in `ImageUtils`)
-    - [ ] Apply Gaussian Blur (Kernel 3x3 or 5x5).
-    - [ ] Apply Contrast Stretching / Histogram Equalization.
+    - [x] Apply Gaussian Blur (Kernel 3x3 or 5x5).
+    - [x] Apply Contrast Stretching / Histogram Equalization.
     - [ ] **Optimization:** Use RenderScript or Vulkan for image processing if CPU is too slow.
 
 ## Phase 4: Machine Learning (VSR & LLM)
@@ -66,15 +66,15 @@ This document provides a granular breakdown of tasks required to build the Liper
 
 - [ ] **Inference Engine (LiteRT)**
     - [x] Initialize `Interpreter` with `GpuDelegate` (for Vision/Encoder) and `NnApiDelegate` (for Decoder). (Placeholder `VSRInference` created)
-    - [ ] Implement `runInference(inputBuffer: ByteBuffer): OutputBuffer`.
-    - [ ] Handle Threading (run on background thread, post to UI).
+    - [x] Implement `runInference(inputBuffer: ByteBuffer): OutputBuffer`.
+    - [x] Handle Threading (run on background thread, post to UI).
 
 - [ ] **Decoding Logic**
-    - [ ] Implement CTC Beam Search (if using CTC model).
-    - [ ] Implement Greedy Decoder (for simple testing).
+    - [x] Implement CTC Beam Search (if using CTC model).
+    - [x] Implement Greedy Decoder (for simple testing).
     - [ ] **Homophene Correction Logic:**
         - [ ] Dictionary lookup for homophenes (e.g., p/b/m).
-        - [ ] Contextual scoring (Bigram/Trigram or LLM).
+        - [x] Contextual scoring (Bigram/Trigram or LLM).
 
 ## Phase 5: User Interface (UI/UX)
 
@@ -84,21 +84,21 @@ This document provides a granular breakdown of tasks required to build the Liper
     - [x] **Transcription Text:** Real-time scrolling text view.
     - [x] **Status Indicator:** "Listening...", "Processing...", "Error".
 
-- [ ] **Gesture Controls**
-    - [ ] **Swipe Left/Right:** On a word to cycle alternative homophenes.
-    - [ ] **Swipe Up:** Speak current sentence (TTS).
-    - [ ] **Double Tap:** Clear transcript.
+- [x] **Gesture Controls**
+    - [x] **Swipe Left/Right:** On a word to cycle alternative homophenes.
+    - [x] **Swipe Up:** Speak current sentence (TTS).
+    - [x] **Double Tap:** Clear transcript.
 
 - [ ] **Settings**
-    - [ ] Toggle Rear/Front Camera (SSI Mode vs. Lipreading Mode).
+    - [x] Toggle Rear/Front Camera (SSI Mode vs. Lipreading Mode).
     - [ ] Adjust Font Size.
     - [ ] Enable/Disable Telephoto Lens Preference.
 
 ## Phase 6: Testing & Optimization
 
 - [x] **Unit Tests**
-    - [x] Test Image Processing algorithms (Grayscale, Crop).
-    - [ ] Test TFLite Interpreter wrapper.
+    - [x] Test Image Processing algorithms (Grayscale, Crop, Blur, HistEq).
+    - [x] Test TFLite Interpreter wrapper (Mocked).
 - [ ] **Integration Tests**
     - [ ] Test Camera -> Face Mesh pipeline latency.
     - [ ] Test End-to-End VSR accuracy on sample videos.
@@ -112,8 +112,8 @@ This document provides a granular breakdown of tasks required to build the Liper
 
 - [ ] **Legal Review**
     - [ ] Verify "Recording" indicator visibility.
-    - [ ] Add "Consent" checkbox in onboarding flow.
+    - [x] Add "Consent" checkbox in onboarding flow.
     - [ ] Ensure no data persistence (files are deleted on exit).
 - [ ] **Documentation**
-    - [ ] Write USER_GUIDE.md.
+    - [x] Write USER_GUIDE.md.
     - [ ] Generate JavaDocs/KDocs.

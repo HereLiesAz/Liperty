@@ -18,6 +18,10 @@ class CameraManager(private val context: Context) {
 
     private val executor = Executors.newSingleThreadExecutor()
 
+    fun shutdown() {
+        executor.shutdown()
+    }
+
     /**
      * Starts the camera with the specified lens facing.
      * @param lensFacing Use CameraSelector.LENS_FACING_BACK (default) or LENS_FACING_FRONT

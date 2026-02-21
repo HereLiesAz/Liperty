@@ -24,6 +24,7 @@ import androidx.lifecycle.lifecycleScope
 import com.HereLiesAz.Liperty.camera.CameraManager
 import com.HereLiesAz.Liperty.ml.FaceLandmarkerHelper
 import com.HereLiesAz.Liperty.ml.FrameBuffer
+import com.HereLiesAz.Liperty.ml.TFLiteEngine
 import com.HereLiesAz.Liperty.ml.VSRInference
 import com.HereLiesAz.Liperty.ui.GestureListener
 import com.HereLiesAz.Liperty.ui.OverlayView
@@ -37,7 +38,7 @@ import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerListener, TextToSpeech.OnInitListener {
+class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private lateinit var cameraManager: CameraManager
     private lateinit var faceLandmarkerHelper: FaceLandmarkerHelper
@@ -54,11 +55,6 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
 
     // Camera State
     private var currentLensFacing = CameraSelector.LENS_FACING_BACK
-
-    // Cached dummy bitmap for VSR placeholder to avoid garbage collection churn
-    private val dummyBitmap: Bitmap by lazy {
-        Bitmap.createBitmap(640, 480, Bitmap.Config.ARGB_8888)
-    }
 
     // Flag to prevent overlapping inference calls
     private var isInferencing = false
@@ -81,8 +77,8 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
         switchCameraButton = findViewById(R.id.btn_switch_camera)
 
         cameraManager = CameraManager(this)
-        faceLandmarkerHelper = FaceLandmarkerHelper(this, this)
-        vsrInference = VSRInference(this)
+        faceLandmarkerHelper = FaceLandmarkerHelper(this)
+        vsrInference = VSRInference(TFLiteEngine(this))
         frameBuffer = FrameBuffer(capacity = 50) // 2 seconds at 25fps
         cameraExecutor = Executors.newSingleThreadExecutor()
 
@@ -199,11 +195,81 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
 
         val analyzer = ImageAnalysis.Analyzer { imageProxy ->
             val bitmap = com.HereLiesAz.Liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy)
-            faceLandmarkerHelper.detectLiveStream(bitmap)
+            // Synchronous detection
+            val result = faceLandmarkerHelper.detectSynchronously(bitmap)
+
             imageProxy.close()
+
+            if (result != null) {
+                processFrame(bitmap, result)
+            } else {
+                runOnUiThread { overlayView.clear() }
+                // Don't clear frame buffer immediately on one missed face?
+                // Maybe better to clear if face is lost to prevent mixing sentences.
+                frameBuffer.clear()
+            }
         }
 
         cameraManager.startCamera(this, previewView, analyzer, currentLensFacing)
+    }
+
+    private fun processFrame(bitmap: Bitmap, result: FaceLandmarkerResult) {
+        val lipBox = faceLandmarkerHelper.extractLipBoundingBox(result, bitmap.width, bitmap.height)
+
+        if (lipBox != null) {
+            runOnUiThread {
+                val scaleX = overlayView.width.toFloat() / bitmap.width
+                val scaleY = overlayView.height.toFloat() / bitmap.height
+
+                val scaledRect = Rect(
+                    (lipBox.left * scaleX).toInt(),
+                    (lipBox.top * scaleY).toInt(),
+                    (lipBox.right * scaleX).toInt(),
+                    (lipBox.bottom * scaleY).toInt()
+                )
+                overlayView.setResults(emptyList(), listOf(scaledRect))
+            }
+
+            // Head Pose (calculated but currently just for logging/debug)
+            val matrix = faceLandmarkerHelper.extractFacialTransformationMatrix(result)
+            if (matrix != null) {
+                 val pose = FaceLandmarkerHelper.calculateHeadPose(matrix)
+                 // pose is Triple(Roll, Pitch, Yaw)
+            }
+
+            // Crop & Align
+            val rotation = FaceLandmarkerHelper.calculateLipRotation(result)
+            val alignedMouth = ImageUtils.alignAndCropMouth(bitmap, lipBox, rotation, 88)
+
+            // Preprocess
+            val processedMouth = ImageUtils.applyHistogramEqualization(alignedMouth)
+
+            // Add to Buffer
+            frameBuffer.addFrame(processedMouth)
+
+            // Inference
+            if (frameBuffer.isFull() && !isInferencing) {
+                isInferencing = true
+                val framesToProcess = frameBuffer.getFrames()
+
+                lifecycleScope.launch(Dispatchers.Default) {
+                    val vsrResult = vsrInference.runInference(framesToProcess)
+
+                    withContext(Dispatchers.Main) {
+                        val rawText = vsrResult.text.replace("Pred: ", "").replace(Regex("\\(.*\\)"), "")
+                        if (rawText.isNotBlank()) {
+                            transcriptionManager.appendText(rawText)
+                            updateTranscriptionUI()
+                        }
+                        isInferencing = false
+                        frameBuffer.clear()
+                    }
+                }
+            }
+        } else {
+            runOnUiThread { overlayView.clear() }
+            frameBuffer.clear()
+        }
     }
 
     private fun allPermissionsGranted() = ContextCompat.checkSelfPermission(
@@ -213,79 +279,11 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
     override fun onDestroy() {
         super.onDestroy()
         cameraExecutor.shutdown()
+        cameraManager.shutdown()
         faceLandmarkerHelper.close()
         vsrInference.close()
         tts?.stop()
         tts?.shutdown()
-    }
-
-    // FaceLandmarkerListener Implementation
-    override fun onError(error: String) {
-        runOnUiThread {
-            // Suppress toast spam in production
-            // Toast.makeText(this, error, Toast.LENGTH_SHORT).show()
-            Log.e("MainActivity", error)
-        }
-    }
-
-    override fun onResults(result: FaceLandmarkerResult) {
-        runOnUiThread {
-            // Draw bounding boxes for lips/face
-            val lipBox = faceLandmarkerHelper.extractLipBoundingBox(result, overlayView.width, overlayView.height)
-
-            if (lipBox != null) {
-                overlayView.setResults(emptyList(), listOf(lipBox))
-
-                // 1. Calculate Rotation
-                val rotation = FaceLandmarkerHelper.calculateLipRotation(result)
-
-                // 2. Crop & Align (Placeholder logic using dummyBitmap as previously requested)
-                val alignedMouth = ImageUtils.alignAndCropMouth(dummyBitmap, lipBox, rotation, 88)
-
-                // 3. Preprocess
-                val processedMouth = ImageUtils.applyHistogramEqualization(alignedMouth)
-
-                // 4. Add to Buffer
-                frameBuffer.addFrame(processedMouth)
-
-                // 5. Run Inference if ready and not currently running
-                if (frameBuffer.isFull() && !isInferencing) {
-                    isInferencing = true
-                    // Clone buffer or pass data safely to background thread
-                    val framesToProcess = frameBuffer.getFrames()
-
-                    lifecycleScope.launch(Dispatchers.Default) {
-                        val vsrResult = vsrInference.runInference(framesToProcess)
-
-                        withContext(Dispatchers.Main) {
-                            // Append new text to manager
-                            // Note: VSRResult currently returns a full string "Pred: ...".
-                            // Real VSR would return words.
-                            // For prototype, we strip the prefix or just append.
-                            // Let's assume it returns a word/sentence.
-                            // The dummy returns "Pred: ...". We'll just clean it for the demo.
-                            val rawText = vsrResult.text.replace("Pred: ", "").replace(Regex("\\(.*\\)"), "")
-                            if (rawText.isNotBlank()) {
-                                transcriptionManager.appendText(rawText)
-                                updateTranscriptionUI()
-                            }
-
-                            isInferencing = false
-                            // In a real sliding window, we might remove N frames.
-                            // For this dummy logic, we clear to prevent spamming "HELLO".
-                            frameBuffer.clear()
-                        }
-                    }
-                } else if (!frameBuffer.isFull()) {
-                    // Update UI status if needed, or just show transcript
-                    // transcriptionText.text = "Buffering... (${frameBuffer.getFrames().size}/50)"
-                    // Don't overwrite transcript with status
-                }
-            } else {
-                overlayView.clear()
-                frameBuffer.clear()
-            }
-        }
     }
 
     override fun onInit(status: Int) {

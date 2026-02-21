@@ -3,20 +3,16 @@ package com.HereLiesAz.Liperty.ml
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Rect
-import android.os.SystemClock
 import android.util.Log
 import com.google.mediapipe.framework.image.BitmapImageBuilder
-import com.google.mediapipe.framework.image.MPImage
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
-import java.util.Optional
 import kotlin.math.atan2
 
 class FaceLandmarkerHelper(
-    val context: Context,
-    val faceLandmarkerListener: FaceLandmarkerListener
+    val context: Context
 ) {
     private var faceLandmarker: FaceLandmarker? = null
 
@@ -34,39 +30,27 @@ class FaceLandmarkerHelper(
                 .setBaseOptions(baseOptions)
                 .setMinFaceDetectionConfidence(0.5f)
                 .setMinTrackingConfidence(0.5f)
-                .setRunningMode(RunningMode.LIVE_STREAM)
+                .setRunningMode(RunningMode.IMAGE)
                 .setOutputFacialTransformationMatrixes(true)
-                .setResultListener(this::returnLivestreamResult)
-                .setErrorListener(this::returnLivestreamError)
                 .build()
 
             faceLandmarker = FaceLandmarker.createFromOptions(context, options)
         } catch (e: Exception) {
-            faceLandmarkerListener.onError("Face Landmarker failed to initialize: ${e.message}")
             Log.e("FaceLandmarkerHelper", "Error initializing FaceLandmarker", e)
         }
     }
 
-    fun detectLiveStream(imageBitmap: Bitmap) {
-        if (faceLandmarker == null) return
+    fun detectSynchronously(imageBitmap: Bitmap): FaceLandmarkerResult? {
+        if (faceLandmarker == null) return null
 
-        val frameTime = SystemClock.uptimeMillis()
-
-        // Convert Bitmap to MP Image
         val mpImage = BitmapImageBuilder(imageBitmap).build()
 
-        faceLandmarker?.detectAsync(mpImage, frameTime)
-    }
-
-    private fun returnLivestreamResult(
-        result: FaceLandmarkerResult,
-        input: MPImage
-    ) {
-        faceLandmarkerListener.onResults(result)
-    }
-
-    private fun returnLivestreamError(error: RuntimeException) {
-        faceLandmarkerListener.onError(error.message ?: "Unknown error")
+        return try {
+            faceLandmarker?.detect(mpImage)
+        } catch (e: Exception) {
+            Log.e("FaceLandmarkerHelper", "Error during detection", e)
+            null
+        }
     }
 
     fun close() {
@@ -93,7 +77,6 @@ class FaceLandmarkerHelper(
             }
         }
 
-        // Return null if min/max were not updated (empty indices or invalid landmarks)
         if (minX == Float.MAX_VALUE) return null
 
         val left = (minX * imageWidth).toInt().coerceAtLeast(0)
@@ -107,16 +90,9 @@ class FaceLandmarkerHelper(
     fun extractFacialTransformationMatrix(result: FaceLandmarkerResult): FloatArray? {
         val matrixOptional = result.facialTransformationMatrixes()
         if (matrixOptional.isPresent && matrixOptional.get().isNotEmpty()) {
-            val matrix = matrixOptional.get()[0] // First face
-            // It appears matrix is already a FloatArray based on compiler error analysis
-            return matrix
+            return matrixOptional.get()[0] // First face
         }
         return null
-    }
-
-    interface FaceLandmarkerListener {
-        fun onError(error: String)
-        fun onResults(result: FaceLandmarkerResult)
     }
 
     companion object {
