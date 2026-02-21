@@ -48,6 +48,8 @@ jobs:
           echo "ARCORE_API_KEY=$ARCORE_API_KEY" >> local.properties
 
       - name: Generate Keystore from Secrets
+        id: generate-keystore
+        if: ${{ secrets.KEYSTORE_PRIVATE != '' }}
         env:
           KEYSTORE_PRIVATE: ${{ secrets.KEYSTORE_PRIVATE }}
           KEYSTORE_CHAIN: ${{ secrets.KEYSTORE_CHAIN }}
@@ -101,12 +103,20 @@ jobs:
           set +e
           export BUILD_NUMBER=$(git rev-list --count HEAD)
           
+          # Determine signing configuration
+          if [ -f "app/keystore.jks" ]; then
+             echo "Signing with generated keystore..."
+             SIGNING_ARGS="-Pandroid.injected.signing.store.file=$(pwd)/app/keystore.jks \
+                -Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD \
+                -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
+                -Pandroid.injected.signing.key.password=$KEY_PASSWORD"
+          else
+             echo "No keystore found. Using default debug signing."
+             SIGNING_ARGS=""
+          fi
+
           # Build the APK
-          ./gradlew assembleDebug -PversionBuild=$BUILD_NUMBER --build-cache \
-            -Pandroid.injected.signing.store.file=$(pwd)/app/keystore.jks \
-            -Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD \
-            -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
-            -Pandroid.injected.signing.key.password=$KEY_PASSWORD > build.log 2>&1
+          ./gradlew assembleDebug -PversionBuild=$BUILD_NUMBER --build-cache $SIGNING_ARGS > build.log 2>&1
           
           EXIT_CODE=$?
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
