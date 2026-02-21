@@ -11,6 +11,8 @@ import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
+import java.util.Optional
+import kotlin.math.atan2
 
 class FaceLandmarkerHelper(
     val context: Context,
@@ -33,6 +35,7 @@ class FaceLandmarkerHelper(
                 .setMinFaceDetectionConfidence(0.5f)
                 .setMinTrackingConfidence(0.5f)
                 .setRunningMode(RunningMode.LIVE_STREAM)
+                .setOutputFacialTransformationMatrixes(true)
                 .setResultListener(this::returnLivestreamResult)
                 .setErrorListener(this::returnLivestreamError)
                 .build()
@@ -101,6 +104,16 @@ class FaceLandmarkerHelper(
         return Rect(left, top, right, bottom)
     }
 
+    fun extractFacialTransformationMatrix(result: FaceLandmarkerResult): FloatArray? {
+        val matrixOptional = result.facialTransformationMatrixes()
+        if (matrixOptional.isPresent && matrixOptional.get().isNotEmpty()) {
+            val matrix = matrixOptional.get()[0] // First face
+            // It appears matrix is already a FloatArray based on compiler error analysis
+            return matrix
+        }
+        return null
+    }
+
     interface FaceLandmarkerListener {
         fun onError(error: String)
         fun onResults(result: FaceLandmarkerResult)
@@ -111,5 +124,50 @@ class FaceLandmarkerHelper(
         private val LIP_INDICES = listOf(
             0, 13, 14, 17, 37, 39, 40, 61, 146, 178, 181, 185, 191, 267, 269, 270, 291, 308, 310, 311, 312, 317, 318, 321, 375, 402, 405, 409
         )
+
+        /**
+         * Calculates Head Pose (Roll, Pitch, Yaw) from the transformation matrix.
+         * The matrix is a 4x4 row-major array.
+         * Returns Triple(Roll, Pitch, Yaw) in radians.
+         */
+        fun calculateHeadPose(matrix: FloatArray): Triple<Float, Float, Float>? {
+            if (matrix.size != 16) return null
+
+            // Rotation matrix elements (top-left 3x3)
+            val r11 = matrix[0]; val r21 = matrix[4]; val r31 = matrix[8]
+            val r32 = matrix[9]; val r33 = matrix[10]
+
+            // Calculating Euler angles
+            // Pitch (X-axis rotation)
+            val pitch = atan2(r32, r33)
+
+            // Yaw (Y-axis rotation)
+            val yaw = atan2(-r31, kotlin.math.sqrt(r32 * r32 + r33 * r33))
+
+            // Roll (Z-axis rotation)
+            val roll = atan2(r21, r11)
+
+            return Triple(roll, pitch, yaw)
+        }
+
+        /**
+         * Calculates the rotation angle (in degrees) required to align the lips horizontally.
+         * Uses landmarks 61 (left corner) and 291 (right corner).
+         */
+        fun calculateLipRotation(result: FaceLandmarkerResult): Float {
+            if (result.faceLandmarks().isEmpty()) return 0f
+            val landmarks = result.faceLandmarks()[0]
+
+            if (landmarks.size <= 291) return 0f
+
+            val leftCorner = landmarks[61]
+            val rightCorner = landmarks[291]
+
+            val deltaX = rightCorner.x() - leftCorner.x()
+            val deltaY = rightCorner.y() - leftCorner.y() // Note: y-axis points down in image coordinates
+
+            val radians = atan2(deltaY, deltaX)
+            return Math.toDegrees(radians.toDouble()).toFloat()
+        }
     }
 }
