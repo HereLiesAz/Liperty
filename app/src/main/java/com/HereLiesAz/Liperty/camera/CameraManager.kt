@@ -18,18 +18,27 @@ class CameraManager(private val context: Context) {
 
     private val executor = Executors.newSingleThreadExecutor()
 
+    /**
+     * Starts the camera with the specified lens facing.
+     * @param lensFacing Use CameraSelector.LENS_FACING_BACK (default) or LENS_FACING_FRONT
+     */
     fun startCamera(
         lifecycleOwner: LifecycleOwner,
         previewView: PreviewView,
-        analyzer: ImageAnalysis.Analyzer
+        analyzer: ImageAnalysis.Analyzer,
+        lensFacing: Int = CameraSelector.LENS_FACING_BACK
     ) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
 
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
 
-            // Select Lens: Prefer Telephoto for Rear Camera to reduce distortion (Research)
-            val cameraSelector = selectBestCamera(cameraProvider)
+            // Select Lens
+            val cameraSelector = if (lensFacing == CameraSelector.LENS_FACING_BACK) {
+                selectBestBackCamera(cameraProvider)
+            } else {
+                CameraSelector.DEFAULT_FRONT_CAMERA
+            }
 
             // Preview Use Case
             val preview = Preview.Builder()
@@ -66,7 +75,7 @@ class CameraManager(private val context: Context) {
      * Research indicates telephoto lenses reduce perspective distortion ("moustache distortion").
      */
     @androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
-    private fun selectBestCamera(cameraProvider: ProcessCameraProvider): CameraSelector {
+    private fun selectBestBackCamera(cameraProvider: ProcessCameraProvider): CameraSelector {
         var bestCameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
         var maxFocalLength = 0f
         var foundTelephoto = false
