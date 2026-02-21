@@ -240,7 +240,7 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
                 val rotation = FaceLandmarkerHelper.calculateLipRotation(result)
 
                 // 2. Crop & Align (Placeholder logic using dummyBitmap as previously requested)
-                val alignedMouth = ImageUtils.alignAndCropMouth(dummyBitmap, lipBox, rotation, 88)
+                val alignedMouth = ImageUtils.alignAndCropMouth(bitmap, lipBox, rotation, 88)
 
                 // 3. Preprocess
                 val processedMouth = ImageUtils.applyHistogramEqualization(alignedMouth)
@@ -264,7 +264,7 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
                             // For prototype, we strip the prefix or just append.
                             // Let's assume it returns a word/sentence.
                             // The dummy returns "Pred: ...". We'll just clean it for the demo.
-                            val rawText = vsrResult.text.replace("Pred: ", "").replace(Regex("\\(.*\\)"), "")
+                            val rawText = vsrResult.text
                             if (rawText.isNotBlank()) {
                                 transcriptionManager.appendText(rawText)
                                 updateTranscriptionUI()
