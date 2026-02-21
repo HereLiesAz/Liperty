@@ -9,47 +9,47 @@ This document provides a granular breakdown of tasks required to build the Liper
 - [x] Establish Legal Guidelines (docs/LEGAL.md)
 - [x] Create Repository Skeleton
 
-## Phase 2: Core Infrastructure
+## Phase 2: Core Infrastructure (Completed)
 
-- [ ] **Project Setup**
-    - [ ] Create `settings.gradle.kts`
-    - [ ] Create root `build.gradle.kts`
-    - [ ] Create `app/` module
-    - [ ] Add dependencies:
-        - [ ] `androidx.camera:camera-core` (1.3.0+)
-        - [ ] `androidx.camera:camera-camera2`
-        - [ ] `androidx.camera:camera-lifecycle`
-        - [ ] `androidx.camera:camera-view`
-        - [ ] `com.google.mlkit:face-detection` (or MediaPipe Face Mesh)
-        - [ ] `org.tensorflow:tensorflow-lite` (2.14.0+)
-        - [ ] `org.tensorflow:tensorflow-lite-gpu`
-        - [ ] `org.tensorflow:tensorflow-lite-support`
-        - [ ] `org.jetbrains.kotlinx:kotlinx-coroutines-android`
+- [x] **Project Setup**
+    - [x] Create `settings.gradle.kts`
+    - [x] Create root `build.gradle.kts`
+    - [x] Create `app/` module
+    - [x] Add dependencies:
+        - [x] `androidx.camera:camera-core` (1.3.0+)
+        - [x] `androidx.camera:camera-camera2`
+        - [x] `androidx.camera:camera-lifecycle`
+        - [x] `androidx.camera:camera-view`
+        - [x] `com.google.mlkit:face-detection` (or MediaPipe Face Mesh)
+        - [x] `org.tensorflow:tensorflow-lite` (2.14.0+)
+        - [x] `org.tensorflow:tensorflow-lite-gpu`
+        - [x] `org.tensorflow:tensorflow-lite-support`
+        - [x] `org.jetbrains.kotlinx:kotlinx-coroutines-android`
 
-- [ ] **Android Manifest & Permissions**
-    - [ ] `android.permission.CAMERA`
-    - [ ] `android.hardware.camera.autofocus`
-    - [ ] `android.hardware.camera.flash` (optional)
-    - [ ] Handle runtime permission requests (ActivityResultContracts).
+- [x] **Android Manifest & Permissions**
+    - [x] `android.permission.CAMERA`
+    - [x] `android.hardware.camera.autofocus`
+    - [x] `android.hardware.camera.flash` (optional)
+    - [x] Handle runtime permission requests (ActivityResultContracts).
 
-- [ ] **CameraX Implementation**
-    - [ ] Initialize `ProcessCameraProvider`
-    - [ ] Implement `Preview` use case
-    - [ ] Implement `ImageAnalysis` use case (Backpressure strategy: STRATEGY_KEEP_ONLY_LATEST)
-    - [ ] **Critical:** Implement `CameraSelector` logic to prefer **Telephoto** lens for rear camera (research requirement).
-    - [ ] Handle Lifecycle (bind/unbind).
+- [x] **CameraX Implementation**
+    - [x] Initialize `ProcessCameraProvider`
+    - [x] Implement `Preview` use case
+    - [x] Implement `ImageAnalysis` use case (Backpressure strategy: STRATEGY_KEEP_ONLY_LATEST)
+    - [x] **Critical:** Implement `CameraSelector` logic to prefer **Telephoto** lens for rear camera (research requirement).
+    - [x] Handle Lifecycle (bind/unbind).
 
 ## Phase 3: Computer Vision Pipeline (MediaPipe & OpenCV)
 
 - [ ] **Face Landmark Detection**
-    - [ ] Integrate MediaPipe Face Mesh (468 landmarks).
-    - [ ] Extract Lip landmarks (Indices: 0, 13, 14, 17, 37, 39, 40, 61, 146, 178, 181, 185, 191, 267, 269, 270, 291, 308, 310, 311, 312, 317, 318, 321, 375, 402, 405, 409).
+    - [x] Integrate MediaPipe Face Mesh (468 landmarks).
+    - [x] Extract Lip landmarks (Indices: 0, 13, 14, 17, 37, 39, 40, 61, 146, 178, 181, 185, 191, 267, 269, 270, 291, 308, 310, 311, 312, 317, 318, 321, 375, 402, 405, 409).
     - [ ] Implement Head Pose Estimation (Roll, Pitch, Yaw).
 
 - [ ] **ROI Extraction & Normalization**
     - [ ] Calculate Affine Transformation Matrix to align mouth horizontally.
     - [ ] Crop mouth region (Square: 96x96, 112x112, or 128x128).
-    - [ ] Convert `ImageProxy` (YUV) to `Bitmap` (ARGB) -> Grayscale.
+    - [x] Convert `ImageProxy` (YUV) to `Bitmap` (ARGB) -> Grayscale. (Implemented in `ImageUtils`)
     - [ ] Apply Gaussian Blur (Kernel 3x3 or 5x5).
     - [ ] Apply Contrast Stretching / Histogram Equalization.
     - [ ] **Optimization:** Use RenderScript or Vulkan for image processing if CPU is too slow.
@@ -65,7 +65,7 @@ This document provides a granular breakdown of tasks required to build the Liper
     - [ ] Place `.tflite` models in `app/src/main/assets/`.
 
 - [ ] **Inference Engine (LiteRT)**
-    - [ ] Initialize `Interpreter` with `GpuDelegate` (for Vision/Encoder) and `NnApiDelegate` (for Decoder).
+    - [x] Initialize `Interpreter` with `GpuDelegate` (for Vision/Encoder) and `NnApiDelegate` (for Decoder). (Placeholder `VSRInference` created)
     - [ ] Implement `runInference(inputBuffer: ByteBuffer): OutputBuffer`.
     - [ ] Handle Threading (run on background thread, post to UI).
 
@@ -78,11 +78,11 @@ This document provides a granular breakdown of tasks required to build the Liper
 
 ## Phase 5: User Interface (UI/UX)
 
-- [ ] **Main Screen**
-    - [ ] Camera Preview Surface.
-    - [ ] **OverlayView:** Draw bounding box (Green = Face Detected, Blue = Lips Tracked).
-    - [ ] **Transcription Text:** Real-time scrolling text view.
-    - [ ] **Status Indicator:** "Listening...", "Processing...", "Error".
+- [x] **Main Screen**
+    - [x] Camera Preview Surface.
+    - [x] **OverlayView:** Draw bounding box (Green = Face Detected, Blue = Lips Tracked).
+    - [x] **Transcription Text:** Real-time scrolling text view.
+    - [x] **Status Indicator:** "Listening...", "Processing...", "Error".
 
 - [ ] **Gesture Controls**
     - [ ] **Swipe Left/Right:** On a word to cycle alternative homophenes.
@@ -96,8 +96,8 @@ This document provides a granular breakdown of tasks required to build the Liper
 
 ## Phase 6: Testing & Optimization
 
-- [ ] **Unit Tests**
-    - [ ] Test Image Processing algorithms (Grayscale, Crop).
+- [x] **Unit Tests**
+    - [x] Test Image Processing algorithms (Grayscale, Crop).
     - [ ] Test TFLite Interpreter wrapper.
 - [ ] **Integration Tests**
     - [ ] Test Camera -> Face Mesh pipeline latency.
