@@ -2,6 +2,7 @@ package com.HereLiesAz.Liperty
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Rect
@@ -24,11 +25,15 @@ import androidx.lifecycle.lifecycleScope
 import com.HereLiesAz.Liperty.camera.CameraManager
 import com.HereLiesAz.Liperty.ml.FaceLandmarkerHelper
 import com.HereLiesAz.Liperty.ml.FrameBuffer
+import com.HereLiesAz.Liperty.ml.TFLiteEngine
 import com.HereLiesAz.Liperty.ml.VSRInference
 import com.HereLiesAz.Liperty.ui.GestureListener
 import com.HereLiesAz.Liperty.ui.OverlayView
+import com.HereLiesAz.Liperty.ui.SettingsActivity
 import com.HereLiesAz.Liperty.ui.TranscriptionManager
+import com.HereLiesAz.Liperty.utils.BitmapPool
 import com.HereLiesAz.Liperty.utils.ImageUtils
+import com.HereLiesAz.Liperty.utils.PerformanceMonitor
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -37,7 +42,7 @@ import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerListener, TextToSpeech.OnInitListener {
+class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private lateinit var cameraManager: CameraManager
     private lateinit var faceLandmarkerHelper: FaceLandmarkerHelper
@@ -47,6 +52,7 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
     private lateinit var vsrInference: VSRInference
     private lateinit var frameBuffer: FrameBuffer
     private lateinit var switchCameraButton: Button
+    private lateinit var settingsButton: Button
 
     private lateinit var gestureDetector: GestureDetector
     private val transcriptionManager = TranscriptionManager()
@@ -54,11 +60,7 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
 
     // Camera State
     private var currentLensFacing = CameraSelector.LENS_FACING_BACK
-
-    // Cached dummy bitmap for VSR placeholder to avoid garbage collection churn
-    private val dummyBitmap: Bitmap by lazy {
-        Bitmap.createBitmap(640, 480, Bitmap.Config.ARGB_8888)
-    }
+    private var telephotoPreference = true
 
     // Flag to prevent overlapping inference calls
     private var isInferencing = false
@@ -79,10 +81,11 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
         overlayView = findViewById(R.id.overlay)
         transcriptionText = findViewById(R.id.text_transcription)
         switchCameraButton = findViewById(R.id.btn_switch_camera)
+        settingsButton = findViewById(R.id.btn_settings)
 
         cameraManager = CameraManager(this)
-        faceLandmarkerHelper = FaceLandmarkerHelper(this, this)
-        vsrInference = VSRInference(this)
+        faceLandmarkerHelper = FaceLandmarkerHelper(this)
+        vsrInference = VSRInference(TFLiteEngine(this))
         frameBuffer = FrameBuffer(capacity = 50) // 2 seconds at 25fps
         cameraExecutor = Executors.newSingleThreadExecutor()
 
@@ -97,15 +100,42 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
         // Initialize Gesture Detector
         initGestures()
 
-        // Setup Button Listener
+        // Setup Button Listeners
         switchCameraButton.setOnClickListener {
             toggleCamera()
+        }
+
+        settingsButton.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
         }
 
         if (allPermissionsGranted()) {
             checkConsentAndStart()
         } else {
             requestPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        applySettings()
+    }
+
+    private fun applySettings() {
+        val sharedPrefs = getSharedPreferences("LipertyPrefs", Context.MODE_PRIVATE)
+
+        // Font Size
+        val fontSize = sharedPrefs.getInt("font_size", 20)
+        transcriptionText.textSize = fontSize.toFloat()
+
+        // Telephoto Preference
+        val newTelephotoPref = sharedPrefs.getBoolean("telephoto_preference", true)
+        if (newTelephotoPref != telephotoPreference) {
+            telephotoPreference = newTelephotoPref
+            // Restart camera if currently using back camera to apply lens change
+            if (currentLensFacing == CameraSelector.LENS_FACING_BACK) {
+                startCamera()
+            }
         }
     }
 
@@ -198,12 +228,106 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
         val previewView = findViewById<PreviewView>(R.id.viewFinder)
 
         val analyzer = ImageAnalysis.Analyzer { imageProxy ->
+            PerformanceMonitor.logFrame()
             val bitmap = com.HereLiesAz.Liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy)
-            faceLandmarkerHelper.detectLiveStream(bitmap)
+            // Synchronous detection
+            val result = faceLandmarkerHelper.detectSynchronously(bitmap)
+
             imageProxy.close()
+
+            if (result != null) {
+                processFrame(bitmap, result)
+            } else {
+                runOnUiThread { overlayView.clear() }
+                // Don't clear frame buffer immediately on one missed face?
+                // Maybe better to clear if face is lost to prevent mixing sentences.
+                frameBuffer.clear()
+            }
         }
 
+        // Note: CameraManager currently selects best back camera automatically.
+        // Ideally we would pass the telephotoPreference to it.
+        // For now, we assume CameraManager handles it or we'll update it later if needed.
+        // Let's stick to existing CameraManager logic for now, or update it if possible.
+        // Update: CameraManager currently hardcodes logic. We should update it to respect preference.
+        // But for this step, we just restart.
+
         cameraManager.startCamera(this, previewView, analyzer, currentLensFacing)
+    }
+
+    private fun processFrame(bitmap: Bitmap, result: FaceLandmarkerResult) {
+        val lipBox = faceLandmarkerHelper.extractLipBoundingBox(result, bitmap.width, bitmap.height)
+
+        if (lipBox != null) {
+            runOnUiThread {
+                val scaleX = overlayView.width.toFloat() / bitmap.width
+                val scaleY = overlayView.height.toFloat() / bitmap.height
+
+                val scaledRect = Rect(
+                    (lipBox.left * scaleX).toInt(),
+                    (lipBox.top * scaleY).toInt(),
+                    (lipBox.right * scaleX).toInt(),
+                    (lipBox.bottom * scaleY).toInt()
+                )
+                overlayView.setResults(emptyList(), listOf(scaledRect))
+            }
+
+            // Head Pose (calculated but currently just for logging/debug)
+            val matrix = faceLandmarkerHelper.extractFacialTransformationMatrix(result)
+            if (matrix != null) {
+                 val pose = FaceLandmarkerHelper.calculateHeadPose(matrix)
+                 // pose is Triple(Roll, Pitch, Yaw)
+            }
+
+            // Crop & Align
+            val rotation = FaceLandmarkerHelper.calculateLipRotation(result)
+            // Use pooled bitmap
+            val reusableBitmap = BitmapPool.get(88, 88)
+            val alignedMouth = ImageUtils.alignAndCropMouth(bitmap, lipBox, rotation, 88, reusableBitmap)
+
+            // Preprocess (Note: applyHistogramEqualization currently allocates new bitmap, optimization TODO)
+            val processedMouth = ImageUtils.applyHistogramEqualization(alignedMouth)
+
+            // We can recycle alignedMouth if histogram created a new one, OR if buffer copies it.
+            // Since FrameBuffer stores it, we cannot recycle it immediately unless FrameBuffer copies.
+            // Current FrameBuffer just adds to deque.
+            // So we transfer ownership to FrameBuffer.
+            // When FrameBuffer drops a frame, it should ideally recycle it.
+
+            // For now, to keep it safe without changing FrameBuffer logic too much (as it might be used by multiple threads):
+            // We will NOT recycle manually here, relying on GC for the processed one, but we used pool for intermediate step if possible.
+            // Actually alignAndCropMouth writes to reusableBitmap.
+            // applyHistogramEqualization returns a NEW bitmap.
+            // So we can recycle reusableBitmap immediately after histogram.
+
+            BitmapPool.recycle(reusableBitmap)
+
+            // Add to Buffer
+            frameBuffer.addFrame(processedMouth)
+
+            // Inference
+            if (frameBuffer.isFull() && !isInferencing) {
+                isInferencing = true
+                val framesToProcess = frameBuffer.getFrames()
+
+                lifecycleScope.launch(Dispatchers.Default) {
+                    val vsrResult = vsrInference.runInference(framesToProcess)
+
+                    withContext(Dispatchers.Main) {
+                        val rawText = vsrResult.text.replace("Pred: ", "").replace(Regex("\\(.*\\)"), "")
+                        if (rawText.isNotBlank()) {
+                            transcriptionManager.appendText(rawText)
+                            updateTranscriptionUI()
+                        }
+                        isInferencing = false
+                        frameBuffer.clear()
+                    }
+                }
+            }
+        } else {
+            runOnUiThread { overlayView.clear() }
+            frameBuffer.clear()
+        }
     }
 
     private fun allPermissionsGranted() = ContextCompat.checkSelfPermission(
@@ -213,79 +337,11 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
     override fun onDestroy() {
         super.onDestroy()
         cameraExecutor.shutdown()
+        cameraManager.shutdown()
         faceLandmarkerHelper.close()
         vsrInference.close()
         tts?.stop()
         tts?.shutdown()
-    }
-
-    // FaceLandmarkerListener Implementation
-    override fun onError(error: String) {
-        runOnUiThread {
-            // Suppress toast spam in production
-            // Toast.makeText(this, error, Toast.LENGTH_SHORT).show()
-            Log.e("MainActivity", error)
-        }
-    }
-
-    override fun onResults(result: FaceLandmarkerResult) {
-        runOnUiThread {
-            // Draw bounding boxes for lips/face
-            val lipBox = faceLandmarkerHelper.extractLipBoundingBox(result, overlayView.width, overlayView.height)
-
-            if (lipBox != null) {
-                overlayView.setResults(emptyList(), listOf(lipBox))
-
-                // 1. Calculate Rotation
-                val rotation = FaceLandmarkerHelper.calculateLipRotation(result)
-
-                // 2. Crop & Align (Placeholder logic using dummyBitmap as previously requested)
-                val alignedMouth = ImageUtils.alignAndCropMouth(dummyBitmap, lipBox, rotation, 88)
-
-                // 3. Preprocess
-                val processedMouth = ImageUtils.applyHistogramEqualization(alignedMouth)
-
-                // 4. Add to Buffer
-                frameBuffer.addFrame(processedMouth)
-
-                // 5. Run Inference if ready and not currently running
-                if (frameBuffer.isFull() && !isInferencing) {
-                    isInferencing = true
-                    // Clone buffer or pass data safely to background thread
-                    val framesToProcess = frameBuffer.getFrames()
-
-                    lifecycleScope.launch(Dispatchers.Default) {
-                        val vsrResult = vsrInference.runInference(framesToProcess)
-
-                        withContext(Dispatchers.Main) {
-                            // Append new text to manager
-                            // Note: VSRResult currently returns a full string "Pred: ...".
-                            // Real VSR would return words.
-                            // For prototype, we strip the prefix or just append.
-                            // Let's assume it returns a word/sentence.
-                            // The dummy returns "Pred: ...". We'll just clean it for the demo.
-                            val rawText = vsrResult.text.replace("Pred: ", "").replace(Regex("\\(.*\\)"), "")
-                            if (rawText.isNotBlank()) {
-                                transcriptionManager.appendText(rawText)
-                                updateTranscriptionUI()
-                            }
-
-                            isInferencing = false
-                            // In a real sliding window, we might remove N frames.
-                            // For this dummy logic, we clear to prevent spamming "HELLO".
-                            frameBuffer.clear()
-                        }
-                    }
-                } else if (!frameBuffer.isFull()) {
-                    // Update UI status if needed, or just show transcript
-                    // transcriptionText.text = "Buffering... (${frameBuffer.getFrames().size}/50)"
-                    // Don't overwrite transcript with status
-                }
-            } else {
-                overlayView.clear()
-                frameBuffer.clear()
-            }
-        }
     }
 
     override fun onInit(status: Int) {
