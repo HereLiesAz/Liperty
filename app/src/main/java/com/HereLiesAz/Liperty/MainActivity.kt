@@ -1,6 +1,7 @@
 package com.HereLiesAz.Liperty
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Rect
@@ -9,10 +10,13 @@ import android.speech.tts.TextToSpeech
 import android.util.Log
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
@@ -42,10 +46,14 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var vsrInference: VSRInference
     private lateinit var frameBuffer: FrameBuffer
+    private lateinit var switchCameraButton: Button
 
     private lateinit var gestureDetector: GestureDetector
     private val transcriptionManager = TranscriptionManager()
     private var tts: TextToSpeech? = null
+
+    // Camera State
+    private var currentLensFacing = CameraSelector.LENS_FACING_BACK
 
     // Cached dummy bitmap for VSR placeholder to avoid garbage collection churn
     private val dummyBitmap: Bitmap by lazy {
@@ -58,7 +66,7 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
             if (isGranted) {
-                startCamera()
+                checkConsentAndStart()
             } else {
                 Toast.makeText(this, "Permission Denied", Toast.LENGTH_SHORT).show()
             }
@@ -70,6 +78,7 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
 
         overlayView = findViewById(R.id.overlay)
         transcriptionText = findViewById(R.id.text_transcription)
+        switchCameraButton = findViewById(R.id.btn_switch_camera)
 
         cameraManager = CameraManager(this)
         faceLandmarkerHelper = FaceLandmarkerHelper(this, this)
@@ -88,11 +97,59 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
         // Initialize Gesture Detector
         initGestures()
 
+        // Setup Button Listener
+        switchCameraButton.setOnClickListener {
+            toggleCamera()
+        }
+
         if (allPermissionsGranted()) {
-            startCamera()
+            checkConsentAndStart()
         } else {
             requestPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
+    }
+
+    private fun checkConsentAndStart() {
+        val sharedPrefs = getSharedPreferences("LipertyPrefs", Context.MODE_PRIVATE)
+        val consentGranted = sharedPrefs.getBoolean("consent_granted", false)
+
+        if (consentGranted) {
+            startCamera()
+        } else {
+            showConsentDialog()
+        }
+    }
+
+    private fun showConsentDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Legal Consent Required")
+            .setMessage("This application records video and processes facial landmarks to provide visual speech recognition.\n\n" +
+                    "By proceeding, you consent to the real-time processing of your biometric data on this device. " +
+                    "No data is sent to the cloud or permanently stored without your explicit action.\n\n" +
+                    "Do you agree?")
+            .setPositiveButton("I Agree") { _, _ ->
+                val sharedPrefs = getSharedPreferences("LipertyPrefs", Context.MODE_PRIVATE)
+                with(sharedPrefs.edit()) {
+                    putBoolean("consent_granted", true)
+                    apply()
+                }
+                startCamera()
+            }
+            .setNegativeButton("Decline") { _, _ ->
+                Toast.makeText(this, "Consent declined. App cannot function.", Toast.LENGTH_LONG).show()
+                finish()
+            }
+            .setCancelable(false)
+            .show()
+    }
+
+    private fun toggleCamera() {
+        currentLensFacing = if (currentLensFacing == CameraSelector.LENS_FACING_BACK) {
+            CameraSelector.LENS_FACING_FRONT
+        } else {
+            CameraSelector.LENS_FACING_BACK
+        }
+        startCamera()
     }
 
     private fun initGestures() {
@@ -146,7 +203,7 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
             imageProxy.close()
         }
 
-        cameraManager.startCamera(this, previewView, analyzer)
+        cameraManager.startCamera(this, previewView, analyzer, currentLensFacing)
     }
 
     private fun allPermissionsGranted() = ContextCompat.checkSelfPermission(
