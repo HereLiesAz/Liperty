@@ -2,9 +2,13 @@ package com.HereLiesAz.Liperty
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.Bundle
+import android.speech.tts.TextToSpeech
 import android.util.Log
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -12,20 +16,44 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import com.HereLiesAz.Liperty.camera.CameraManager
 import com.HereLiesAz.Liperty.ml.FaceLandmarkerHelper
+import com.HereLiesAz.Liperty.ml.FrameBuffer
+import com.HereLiesAz.Liperty.ml.VSRInference
+import com.HereLiesAz.Liperty.ui.GestureListener
 import com.HereLiesAz.Liperty.ui.OverlayView
+import com.HereLiesAz.Liperty.ui.TranscriptionManager
+import com.HereLiesAz.Liperty.utils.ImageUtils
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerListener {
+class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerListener, TextToSpeech.OnInitListener {
 
     private lateinit var cameraManager: CameraManager
     private lateinit var faceLandmarkerHelper: FaceLandmarkerHelper
     private lateinit var overlayView: OverlayView
     private lateinit var transcriptionText: TextView
     private lateinit var cameraExecutor: ExecutorService
+    private lateinit var vsrInference: VSRInference
+    private lateinit var frameBuffer: FrameBuffer
+
+    private lateinit var gestureDetector: GestureDetector
+    private val transcriptionManager = TranscriptionManager()
+    private var tts: TextToSpeech? = null
+
+    // Cached dummy bitmap for VSR placeholder to avoid garbage collection churn
+    private val dummyBitmap: Bitmap by lazy {
+        Bitmap.createBitmap(640, 480, Bitmap.Config.ARGB_8888)
+    }
+
+    // Flag to prevent overlapping inference calls
+    private var isInferencing = false
 
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
@@ -45,7 +73,20 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
 
         cameraManager = CameraManager(this)
         faceLandmarkerHelper = FaceLandmarkerHelper(this, this)
+        vsrInference = VSRInference(this)
+        frameBuffer = FrameBuffer(capacity = 50) // 2 seconds at 25fps
         cameraExecutor = Executors.newSingleThreadExecutor()
+
+        // Initialize TFLite in background
+        lifecycleScope.launch(Dispatchers.Default) {
+            vsrInference.initialize()
+        }
+
+        // Initialize TTS
+        tts = TextToSpeech(this, this)
+
+        // Initialize Gesture Detector
+        initGestures()
 
         if (allPermissionsGranted()) {
             startCamera()
@@ -54,19 +95,54 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
         }
     }
 
+    private fun initGestures() {
+        val listener = GestureListener(
+            onSwipeLeft = {
+                transcriptionManager.cycleCurrentWord(-1)
+                updateTranscriptionUI()
+            },
+            onSwipeRight = {
+                transcriptionManager.cycleCurrentWord(1)
+                updateTranscriptionUI()
+            },
+            onSwipeUp = {
+                speakText()
+            },
+            onDoubleTapAction = {
+                transcriptionManager.clear()
+                updateTranscriptionUI()
+                frameBuffer.clear()
+                Toast.makeText(this, "Transcript Cleared", Toast.LENGTH_SHORT).show()
+            }
+        )
+        gestureDetector = GestureDetector(this, listener)
+    }
+
+    private fun updateTranscriptionUI() {
+        transcriptionText.text = transcriptionManager.getCurrentSentence()
+    }
+
+    private fun speakText() {
+        val text = transcriptionManager.getCurrentSentence()
+        if (text.isNotEmpty()) {
+            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+        }
+    }
+
+    override fun onTouchEvent(event: MotionEvent?): Boolean {
+        return if (event != null) {
+            gestureDetector.onTouchEvent(event) || super.onTouchEvent(event)
+        } else {
+            super.onTouchEvent(event)
+        }
+    }
+
     private fun startCamera() {
         val previewView = findViewById<PreviewView>(R.id.viewFinder)
 
-        // Setup Image Analyzer to pipe frames to MediaPipe
         val analyzer = ImageAnalysis.Analyzer { imageProxy ->
-            // Convert ImageProxy to Bitmap using the optimized CameraX extension (via ImageUtils)
             val bitmap = com.HereLiesAz.Liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy)
-
-            // Note: For actual VSR, we would crop the lip region here and convert to grayscale.
-            // We should reuse a shared Bitmap for grayscale conversion to avoid allocation churn.
-
             faceLandmarkerHelper.detectLiveStream(bitmap)
-
             imageProxy.close()
         }
 
@@ -80,22 +156,89 @@ class MainActivity : AppCompatActivity(), FaceLandmarkerHelper.FaceLandmarkerLis
     override fun onDestroy() {
         super.onDestroy()
         cameraExecutor.shutdown()
-        // Explicitly close FaceLandmarker to release native resources and GPU delegates
         faceLandmarkerHelper.close()
+        vsrInference.close()
+        tts?.stop()
+        tts?.shutdown()
     }
 
     // FaceLandmarkerListener Implementation
     override fun onError(error: String) {
         runOnUiThread {
-            Toast.makeText(this, error, Toast.LENGTH_SHORT).show()
+            // Suppress toast spam in production
+            // Toast.makeText(this, error, Toast.LENGTH_SHORT).show()
+            Log.e("MainActivity", error)
         }
     }
 
     override fun onResults(result: FaceLandmarkerResult) {
         runOnUiThread {
             // Draw bounding boxes for lips/face
-            // This is simplified. Actual mapping from normalized coordinates to View coordinates needed.
-            transcriptionText.text = "Tracking ${result.faceLandmarks().size} faces..."
+            val lipBox = faceLandmarkerHelper.extractLipBoundingBox(result, overlayView.width, overlayView.height)
+
+            if (lipBox != null) {
+                overlayView.setResults(emptyList(), listOf(lipBox))
+
+                // 1. Calculate Rotation
+                val rotation = FaceLandmarkerHelper.calculateLipRotation(result)
+
+                // 2. Crop & Align (Placeholder logic using dummyBitmap as previously requested)
+                val alignedMouth = ImageUtils.alignAndCropMouth(dummyBitmap, lipBox, rotation, 88)
+
+                // 3. Preprocess
+                val processedMouth = ImageUtils.applyHistogramEqualization(alignedMouth)
+
+                // 4. Add to Buffer
+                frameBuffer.addFrame(processedMouth)
+
+                // 5. Run Inference if ready and not currently running
+                if (frameBuffer.isFull() && !isInferencing) {
+                    isInferencing = true
+                    // Clone buffer or pass data safely to background thread
+                    val framesToProcess = frameBuffer.getFrames()
+
+                    lifecycleScope.launch(Dispatchers.Default) {
+                        val vsrResult = vsrInference.runInference(framesToProcess)
+
+                        withContext(Dispatchers.Main) {
+                            // Append new text to manager
+                            // Note: VSRResult currently returns a full string "Pred: ...".
+                            // Real VSR would return words.
+                            // For prototype, we strip the prefix or just append.
+                            // Let's assume it returns a word/sentence.
+                            // The dummy returns "Pred: ...". We'll just clean it for the demo.
+                            val rawText = vsrResult.text.replace("Pred: ", "").replace(Regex("\\(.*\\)"), "")
+                            if (rawText.isNotBlank()) {
+                                transcriptionManager.appendText(rawText)
+                                updateTranscriptionUI()
+                            }
+
+                            isInferencing = false
+                            // In a real sliding window, we might remove N frames.
+                            // For this dummy logic, we clear to prevent spamming "HELLO".
+                            frameBuffer.clear()
+                        }
+                    }
+                } else if (!frameBuffer.isFull()) {
+                    // Update UI status if needed, or just show transcript
+                    // transcriptionText.text = "Buffering... (${frameBuffer.getFrames().size}/50)"
+                    // Don't overwrite transcript with status
+                }
+            } else {
+                overlayView.clear()
+                frameBuffer.clear()
+            }
+        }
+    }
+
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            val result = tts?.setLanguage(Locale.US)
+            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                Log.e("MainActivity", "TTS Language not supported")
+            }
+        } else {
+            Log.e("MainActivity", "TTS Initialization failed")
         }
     }
 }

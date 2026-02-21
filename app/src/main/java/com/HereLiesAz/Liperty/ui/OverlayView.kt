@@ -10,29 +10,45 @@ import android.view.View
 
 class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
 
-    private var results: List<Rect> = emptyList()
-    private val boxPaint = Paint()
+    private var faceResults: List<Rect> = emptyList()
+    private var lipResults: List<Rect> = emptyList()
+    private val facePaint = Paint()
+    private val lipPaint = Paint()
 
     init {
         initPaints()
     }
 
     private fun initPaints() {
-        boxPaint.color = Color.GREEN
-        boxPaint.style = Paint.Style.STROKE
-        boxPaint.strokeWidth = 8f
+        facePaint.color = Color.GREEN
+        facePaint.style = Paint.Style.STROKE
+        facePaint.strokeWidth = 8f
+
+        lipPaint.color = Color.BLUE
+        lipPaint.style = Paint.Style.STROKE
+        lipPaint.strokeWidth = 8f
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        for (rect in results) {
-            canvas.drawRect(rect, boxPaint)
+        for (rect in faceResults) {
+            canvas.drawRect(rect, facePaint)
+        }
+        for (rect in lipResults) {
+            canvas.drawRect(rect, lipPaint)
         }
     }
 
-    fun setResults(detectionResults: List<Rect>) {
-        results = detectionResults
+    fun setResults(faces: List<Rect>, lips: List<Rect>) {
+        faceResults = faces
+        lipResults = lips
+        invalidate()
+    }
+
+    fun clear() {
+        faceResults = emptyList()
+        lipResults = emptyList()
         invalidate()
     }
 }
