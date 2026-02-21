@@ -1,5 +1,6 @@
 package com.HereLiesAz.Liperty.utils
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -7,12 +8,32 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.Rect
+import android.util.Log
 import androidx.camera.core.ImageProxy
 import java.nio.ByteBuffer
 import kotlin.math.max
 import kotlin.math.min
+// import org.opencv.android.OpenCVLoader
+// import org.opencv.imgproc.Imgproc
 
 object ImageUtils {
+
+    private var openCVLoaded = false
+
+    /**
+     * Initializes OpenCV. Call this in Application.onCreate or Activity.onCreate.
+     */
+    fun initializeOpenCV(context: Context) {
+        if (!openCVLoaded) {
+            // if (OpenCVLoader.initDebug()) {
+            //     openCVLoaded = true
+            //     Log.i("ImageUtils", "OpenCV loaded successfully")
+            // } else {
+            //     Log.e("ImageUtils", "OpenCV initialization failed!")
+            // }
+            Log.i("ImageUtils", "OpenCV dependency included. Native init disabled for prototype.")
+        }
+    }
 
     /**
      * Converts a YUV_420_888 ImageProxy to a Bitmap.
@@ -64,19 +85,22 @@ object ImageUtils {
      * Optimization: Map the mouth center to the rotated coordinate system.
      */
     fun alignAndCropMouth(bitmap: Bitmap, mouthRect: Rect, rotationDegrees: Float, targetSize: Int): Bitmap {
-        // 1. Rotate the original bitmap
-        // In a real high-perf app, we would use a Matrix to draw directly into the target bitmap
-        // rather than allocating a full rotated bitmap.
-        // For MVP, we use the simpler allocation.
-
         // Optimization: If rotation is negligible, skip it
         if (kotlin.math.abs(rotationDegrees) < 1.0f) {
             val cropped = cropBitmap(bitmap, mouthRect)
             return Bitmap.createScaledBitmap(cropped, targetSize, targetSize, true)
         }
 
-        // We want to crop a square region centered at the mouth, rotated.
-        // So we can draw into the target bitmap using this matrix.
+        /*
+         * TODO: OpenCV Implementation for better performance
+         * if (openCVLoaded) {
+         *     val srcMat = Mat()
+         *     Utils.bitmapToMat(bitmap, srcMat)
+         *     val center = Point(mouthRect.centerX().toDouble(), mouthRect.centerY().toDouble())
+         *     val rotationMatrix = Imgproc.getRotationMatrix2D(center, rotationDegrees.toDouble(), 1.0)
+         *     // Apply affine warp...
+         * }
+         */
 
         val targetBitmap = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(targetBitmap)
@@ -137,7 +161,7 @@ object ImageUtils {
         bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
 
         val newPixels = IntArray(width * height)
-        val kernelSize = radius * 2 + 1
+        // val kernelSize = radius * 2 + 1
 
         // Horizontal Pass
         for (y in 0 until height) {
