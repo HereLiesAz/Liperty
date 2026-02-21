@@ -3,6 +3,7 @@ package com.HereLiesAz.Liperty.ml
 import android.graphics.Bitmap
 import android.os.SystemClock
 import android.util.Log
+import com.HereLiesAz.Liperty.utils.PerformanceMonitor
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -115,6 +116,7 @@ class VSRInference(private val engine: ModelEngine) {
                 greedyDecoder.decode(probabilities)
             }
             val processingTime = SystemClock.uptimeMillis() - startTime
+            PerformanceMonitor.logInferenceTime(processingTime)
 
             return VSRResult(decodedText, 0.9f, processingTime)
 

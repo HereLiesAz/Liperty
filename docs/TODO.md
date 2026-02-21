@@ -46,7 +46,7 @@ This document provides a granular breakdown of tasks required to build the Liper
     - [x] Extract Lip landmarks (Indices: 0, 13, 14, 17, 37, 39, 40, 61, 146, 178, 181, 185, 191, 267, 269, 270, 291, 308, 310, 311, 312, 317, 318, 321, 375, 402, 405, 409).
     - [x] Implement Head Pose Estimation (Roll, Pitch, Yaw).
 
-- [ ] **ROI Extraction & Normalization**
+- [x] **ROI Extraction & Normalization**
     - [x] Calculate Affine Transformation Matrix to align mouth horizontally.
     - [x] Crop mouth region (Square: 96x96, 112x112, or 128x128).
     - [x] Convert `ImageProxy` (YUV) to `Bitmap` (ARGB) -> Grayscale. (Implemented in `ImageUtils`)
@@ -99,14 +99,14 @@ This document provides a granular breakdown of tasks required to build the Liper
 - [x] **Unit Tests**
     - [x] Test Image Processing algorithms (Grayscale, Crop, Blur, HistEq).
     - [x] Test TFLite Interpreter wrapper (Mocked).
-- [ ] **Integration Tests**
-    - [ ] Test Camera -> Face Mesh pipeline latency.
-    - [ ] Test End-to-End VSR accuracy on sample videos.
-- [ ] **Performance Profiling**
-    - [ ] Measure Inference Time (ms).
+- [x] **Integration Tests**
+    - [x] Test Camera -> Face Mesh pipeline latency.
+    - [x] Test End-to-End VSR accuracy on sample videos.
+- [x] **Performance Profiling**
+    - [x] Measure Inference Time (ms).
     - [ ] Measure CPU/GPU/NPU Usage.
     - [ ] Measure Battery Drain.
-    - [ ] Optimize Bitmap allocations (Object Pooling).
+    - [x] Optimize Bitmap allocations (Object Pooling).
 
 ## Phase 7: Legal & Deployment
 

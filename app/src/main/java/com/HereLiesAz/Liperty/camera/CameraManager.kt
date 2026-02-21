@@ -80,6 +80,15 @@ class CameraManager(private val context: Context) {
      */
     @androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
     private fun selectBestBackCamera(cameraProvider: ProcessCameraProvider): CameraSelector {
+        // Check preferences to see if we should prefer telephoto
+        val sharedPrefs = context.getSharedPreferences("LipertyPrefs", Context.MODE_PRIVATE)
+        val preferTelephoto = sharedPrefs.getBoolean("telephoto_preference", true)
+
+        if (!preferTelephoto) {
+            Log.i("CameraManager", "Telephoto preference disabled. Using default back camera.")
+            return CameraSelector.DEFAULT_BACK_CAMERA
+        }
+
         var bestCameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
         var maxFocalLength = 0f
         var foundTelephoto = false

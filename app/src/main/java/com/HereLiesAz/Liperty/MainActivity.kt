@@ -31,7 +31,9 @@ import com.HereLiesAz.Liperty.ui.GestureListener
 import com.HereLiesAz.Liperty.ui.OverlayView
 import com.HereLiesAz.Liperty.ui.SettingsActivity
 import com.HereLiesAz.Liperty.ui.TranscriptionManager
+import com.HereLiesAz.Liperty.utils.BitmapPool
 import com.HereLiesAz.Liperty.utils.ImageUtils
+import com.HereLiesAz.Liperty.utils.PerformanceMonitor
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -51,6 +53,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var frameBuffer: FrameBuffer
     private lateinit var switchCameraButton: Button
     private lateinit var settingsButton: Button
+    private lateinit var recordingIndicator: TextView
 
     private lateinit var gestureDetector: GestureDetector
     private val transcriptionManager = TranscriptionManager()
@@ -80,6 +83,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         transcriptionText = findViewById(R.id.text_transcription)
         switchCameraButton = findViewById(R.id.btn_switch_camera)
         settingsButton = findViewById(R.id.btn_settings)
+        recordingIndicator = findViewById(R.id.indicator_recording)
 
         cameraManager = CameraManager(this)
         faceLandmarkerHelper = FaceLandmarkerHelper(this)
@@ -226,6 +230,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val previewView = findViewById<PreviewView>(R.id.viewFinder)
 
         val analyzer = ImageAnalysis.Analyzer { imageProxy ->
+            PerformanceMonitor.logFrame()
             val bitmap = com.HereLiesAz.Liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy)
             // Synchronous detection
             val result = faceLandmarkerHelper.detectSynchronously(bitmap)
@@ -250,6 +255,84 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         // But for this step, we just restart.
 
         cameraManager.startCamera(this, previewView, analyzer, currentLensFacing)
+
+        // Show recording indicator when camera starts
+        recordingIndicator.visibility = android.view.View.VISIBLE
+    }
+
+    private fun processFrame(bitmap: Bitmap, result: FaceLandmarkerResult) {
+        val lipBox = faceLandmarkerHelper.extractLipBoundingBox(result, bitmap.width, bitmap.height)
+
+        if (lipBox != null) {
+            runOnUiThread {
+                val scaleX = overlayView.width.toFloat() / bitmap.width
+                val scaleY = overlayView.height.toFloat() / bitmap.height
+
+                val scaledRect = Rect(
+                    (lipBox.left * scaleX).toInt(),
+                    (lipBox.top * scaleY).toInt(),
+                    (lipBox.right * scaleX).toInt(),
+                    (lipBox.bottom * scaleY).toInt()
+                )
+                overlayView.setResults(emptyList(), listOf(scaledRect))
+            }
+
+            // Head Pose (calculated but currently just for logging/debug)
+            val matrix = faceLandmarkerHelper.extractFacialTransformationMatrix(result)
+            if (matrix != null) {
+                 val pose = FaceLandmarkerHelper.calculateHeadPose(matrix)
+                 // pose is Triple(Roll, Pitch, Yaw)
+            }
+
+            // Crop & Align
+            val rotation = FaceLandmarkerHelper.calculateLipRotation(result)
+            // Use pooled bitmap
+            val reusableBitmap = BitmapPool.get(88, 88)
+            val alignedMouth = ImageUtils.alignAndCropMouth(bitmap, lipBox, rotation, 88, reusableBitmap)
+
+            // Preprocess (Note: applyHistogramEqualization currently allocates new bitmap, optimization TODO)
+            val processedMouth = ImageUtils.applyHistogramEqualization(alignedMouth)
+
+            // We can recycle alignedMouth if histogram created a new one, OR if buffer copies it.
+            // Since FrameBuffer stores it, we cannot recycle it immediately unless FrameBuffer copies.
+            // Current FrameBuffer just adds to deque.
+            // So we transfer ownership to FrameBuffer.
+            // When FrameBuffer drops a frame, it should ideally recycle it.
+
+            // For now, to keep it safe without changing FrameBuffer logic too much (as it might be used by multiple threads):
+            // We will NOT recycle manually here, relying on GC for the processed one, but we used pool for intermediate step if possible.
+            // Actually alignAndCropMouth writes to reusableBitmap.
+            // applyHistogramEqualization returns a NEW bitmap.
+            // So we can recycle reusableBitmap immediately after histogram.
+
+            BitmapPool.recycle(reusableBitmap)
+
+            // Add to Buffer
+            frameBuffer.addFrame(processedMouth)
+
+            // Inference
+            if (frameBuffer.isFull() && !isInferencing) {
+                isInferencing = true
+                val framesToProcess = frameBuffer.getFrames()
+
+                lifecycleScope.launch(Dispatchers.Default) {
+                    val vsrResult = vsrInference.runInference(framesToProcess)
+
+                    withContext(Dispatchers.Main) {
+                        val rawText = vsrResult.text.replace("Pred: ", "").replace(Regex("\\(.*\\)"), "")
+                        if (rawText.isNotBlank()) {
+                            transcriptionManager.appendText(rawText)
+                            updateTranscriptionUI()
+                        }
+                        isInferencing = false
+                        frameBuffer.clear()
+                    }
+                }
+            }
+        } else {
+            runOnUiThread { overlayView.clear() }
+            frameBuffer.clear()
+        }
     }
 
     private fun processFrame(bitmap: Bitmap, result: FaceLandmarkerResult) {
