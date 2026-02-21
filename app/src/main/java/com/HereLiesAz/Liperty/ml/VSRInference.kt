@@ -14,7 +14,9 @@ data class VSRResult(
 
 class VSRInference(private val engine: ModelEngine) {
 
-    private val decoder = GreedyDecoder()
+    private val greedyDecoder = GreedyDecoder()
+    private val beamDecoder = BeamSearchDecoder()
+    private var useBeamSearch = true
 
     // Constants (Assuming typical VSR model)
     private val INPUT_WIDTH = 88
@@ -107,7 +109,11 @@ class VSRInference(private val engine: ModelEngine) {
                 probs
             }
 
-            val decodedText = decoder.decode(probabilities)
+            val decodedText = if (useBeamSearch) {
+                beamDecoder.decode(probabilities)
+            } else {
+                greedyDecoder.decode(probabilities)
+            }
             val processingTime = SystemClock.uptimeMillis() - startTime
 
             return VSRResult(decodedText, 0.9f, processingTime)

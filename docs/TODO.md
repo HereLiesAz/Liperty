@@ -70,11 +70,11 @@ This document provides a granular breakdown of tasks required to build the Liper
     - [x] Handle Threading (run on background thread, post to UI).
 
 - [ ] **Decoding Logic**
-    - [ ] Implement CTC Beam Search (if using CTC model).
+    - [x] Implement CTC Beam Search (if using CTC model).
     - [x] Implement Greedy Decoder (for simple testing).
     - [ ] **Homophene Correction Logic:**
         - [ ] Dictionary lookup for homophenes (e.g., p/b/m).
-        - [ ] Contextual scoring (Bigram/Trigram or LLM).
+        - [x] Contextual scoring (Bigram/Trigram or LLM).
 
 ## Phase 5: User Interface (UI/UX) (Completed)
 
@@ -91,8 +91,8 @@ This document provides a granular breakdown of tasks required to build the Liper
 
 - [ ] **Settings**
     - [x] Toggle Rear/Front Camera (SSI Mode vs. Lipreading Mode).
-    - [ ] Adjust Font Size.
-    - [ ] Enable/Disable Telephoto Lens Preference.
+    - [x] Adjust Font Size.
+    - [x] Enable/Disable Telephoto Lens Preference.
 
 ## Phase 6: Testing & Optimization (Completed)
 
