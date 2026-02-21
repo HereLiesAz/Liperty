@@ -46,6 +46,67 @@ object ImageUtils {
     }
 
     /**
+     * Aligns and crops the mouth region from the input bitmap.
+     * 1. Rotates the bitmap by the specified angle (in degrees).
+     * 2. Extracts the mouth region based on the provided bounding box.
+     * 3. Resizes the extracted region to the target size (square).
+     *
+     * Note: The bounding box `mouthRect` is in the coordinate system of the *original* bitmap.
+     * Rotating the bitmap changes coordinates. For simplicity in this VSR pipeline,
+     * we often rotate the crop, or rotate the image then re-detect or project the box.
+     *
+     * A more robust approach for VSR (DeepLip/VALLR) is:
+     * 1. Calculate center of mouth.
+     * 2. Create an affine transform matrix that rotates around the mouth center and scales/crops.
+     *
+     * Here we implement a simplified pipeline:
+     * 1. Rotate entire image (expensive) or ROI (complex).
+     * Optimization: Map the mouth center to the rotated coordinate system.
+     */
+    fun alignAndCropMouth(bitmap: Bitmap, mouthRect: Rect, rotationDegrees: Float, targetSize: Int): Bitmap {
+        // 1. Rotate the original bitmap
+        // In a real high-perf app, we would use a Matrix to draw directly into the target bitmap
+        // rather than allocating a full rotated bitmap.
+        // For MVP, we use the simpler allocation.
+
+        // Optimization: If rotation is negligible, skip it
+        if (kotlin.math.abs(rotationDegrees) < 1.0f) {
+            val cropped = cropBitmap(bitmap, mouthRect)
+            return Bitmap.createScaledBitmap(cropped, targetSize, targetSize, true)
+        }
+
+        // We want to crop a square region centered at the mouth, rotated.
+        // So we can draw into the target bitmap using this matrix.
+
+        val targetBitmap = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(targetBitmap)
+
+        // We want the mouth center to end up at (targetSize/2, targetSize/2)
+        // And we want to rotate by rotationDegrees.
+        // Matrix:
+        // 1. Translate mouth center to (0,0)
+        // 2. Rotate
+        // 3. Scale? (Depending on how large the mouth should be).
+        // For now, let's assume we maintain the scale of the original crop (or scale to fit target).
+        // Let's assume we want the `mouthRect` width to fit `targetSize`.
+
+        val scale = targetSize.toFloat() / max(mouthRect.width(), 1)
+
+        val drawingMatrix = android.graphics.Matrix()
+        drawingMatrix.postTranslate(-mouthRect.centerX().toFloat(), -mouthRect.centerY().toFloat())
+        drawingMatrix.postRotate(rotationDegrees)
+        drawingMatrix.postScale(scale, scale)
+        drawingMatrix.postTranslate(targetSize / 2f, targetSize / 2f)
+
+        val paint = Paint()
+        paint.isFilterBitmap = true
+
+        canvas.drawBitmap(bitmap, drawingMatrix, paint)
+
+        return targetBitmap
+    }
+
+    /**
      * Converts Bitmap to Grayscale (as required by most VSR models).
      * Reuses the destination Bitmap to avoid allocation churn.
      */

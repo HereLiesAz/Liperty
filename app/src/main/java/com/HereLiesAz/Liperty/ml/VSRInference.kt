@@ -16,9 +16,8 @@ class VSRInference(private val context: Context) {
      * Dummy Inference Implementation.
      *
      * TODO: Real Implementation Steps:
-     * 1. Accumulate a buffer of frames (e.g., 50-75 frames for ~2-3 seconds of speech).
-     * 2. Preprocess each frame:
-     *    - Crop to lip region (detected by FaceLandmarker).
+     * 1. Accept a buffer of frames (e.g., 50-75 frames for ~2-3 seconds of speech).
+     * 2. Preprocess each frame (already done before buffering ideally):
      *    - Resize to model input size (e.g., 88x88 or 96x96).
      *    - Convert to Grayscale (1 channel).
      *    - Normalize pixel values (0-1 or -1 to 1).
@@ -26,14 +25,15 @@ class VSRInference(private val context: Context) {
      * 4. Run Interpreter.run(input, output).
      * 5. Decode Output Tensor (CTC Greedy/Beam Search or Transformer Decoder).
      */
-    fun runInference(bitmap: Bitmap): VSRResult {
+    fun runInference(frames: List<Bitmap>): VSRResult {
         val startTime = SystemClock.uptimeMillis()
 
         // Simulate processing delay
         // Thread.sleep(50)
 
         // Placeholder Logic
-        val text = "Listening..."
+        // In real implementation, we would process 'frames' here.
+        val text = "Listening... (${frames.size} frames)"
         val confidence = 0.0f
 
         val processingTime = SystemClock.uptimeMillis() - startTime
