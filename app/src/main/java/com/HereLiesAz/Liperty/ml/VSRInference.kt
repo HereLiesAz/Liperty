@@ -12,6 +12,8 @@ data class VSRResult(
 
 class VSRInference(private val context: Context) {
 
+    private val decoder = GreedyDecoder()
+
     /**
      * Dummy Inference Implementation.
      *
@@ -33,8 +35,25 @@ class VSRInference(private val context: Context) {
 
         // Placeholder Logic
         // In real implementation, we would process 'frames' here.
-        val text = "Listening... (${frames.size} frames)"
-        val confidence = 0.0f
+        // For demonstration, let's create a dummy probability sequence that spells "HELLO"
+        // Vocab: 0=_, 1=A..8=H..5=E..12=L..15=O..27=_
+        // Sequence: H, H, _, E, L, L, _, L, O
+        // Indices: 8, 8, 0, 5, 12, 12, 0, 12, 15
+
+        // Assume vocab size 28
+        val vocabSize = 28
+        val sequence = listOf(8, 8, 0, 5, 12, 12, 0, 12, 15)
+
+        val dummyOutput = Array(sequence.size) { i ->
+            val probArray = FloatArray(vocabSize)
+            // Set target index to high probability
+            probArray[sequence[i]] = 0.9f
+            probArray
+        }
+
+        val decodedText = decoder.decode(dummyOutput)
+        val text = "Pred: $decodedText (${frames.size} f)"
+        val confidence = 0.9f
 
         val processingTime = SystemClock.uptimeMillis() - startTime
 
