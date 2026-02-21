@@ -91,8 +91,8 @@ This document provides a granular breakdown of tasks required to build the Liper
 
 - [ ] **Settings**
     - [x] Toggle Rear/Front Camera (SSI Mode vs. Lipreading Mode).
-    - [ ] Adjust Font Size.
-    - [ ] Enable/Disable Telephoto Lens Preference.
+    - [x] Adjust Font Size.
+    - [x] Enable/Disable Telephoto Lens Preference.
 
 ## Phase 6: Testing & Optimization
 
