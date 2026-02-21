@@ -22,9 +22,9 @@ object ImageUtils {
         return image.toBitmap()
     }
 
-    fun rotateBitmap(bitmap: Bitmap, rotationDegrees: Int): Bitmap {
+    fun rotateBitmap(bitmap: Bitmap, rotationDegrees: Float): Bitmap {
         val matrix = android.graphics.Matrix()
-        matrix.postRotate(rotationDegrees.toFloat())
+        matrix.postRotate(rotationDegrees)
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 
