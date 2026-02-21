@@ -46,13 +46,13 @@ This document provides a granular breakdown of tasks required to build the Liper
     - [x] Extract Lip landmarks (Indices: 0, 13, 14, 17, 37, 39, 40, 61, 146, 178, 181, 185, 191, 267, 269, 270, 291, 308, 310, 311, 312, 317, 318, 321, 375, 402, 405, 409).
     - [x] Implement Head Pose Estimation (Roll, Pitch, Yaw).
 
-- [x] **ROI Extraction & Normalization**
+- [ ] **ROI Extraction & Normalization**
     - [x] Calculate Affine Transformation Matrix to align mouth horizontally.
     - [x] Crop mouth region (Square: 96x96, 112x112, or 128x128).
     - [x] Convert `ImageProxy` (YUV) to `Bitmap` (ARGB) -> Grayscale. (Implemented in `ImageUtils`)
     - [x] Apply Gaussian Blur (Kernel 3x3 or 5x5).
     - [x] Apply Contrast Stretching / Histogram Equalization.
-    - [x] **Optimization:** Use RenderScript or Vulkan for image processing if CPU is too slow.
+    - [ ] **Optimization:** Use RenderScript or Vulkan for image processing if CPU is too slow.
 
 ## Phase 4: Machine Learning (VSR & LLM) (Completed)
 
@@ -69,12 +69,12 @@ This document provides a granular breakdown of tasks required to build the Liper
     - [x] Implement `runInference(inputBuffer: ByteBuffer): OutputBuffer`.
     - [x] Handle Threading (run on background thread, post to UI).
 
-- [x] **Decoding Logic**
-    - [x] Implement CTC Beam Search (if using CTC model).
+- [ ] **Decoding Logic**
+    - [ ] Implement CTC Beam Search (if using CTC model).
     - [x] Implement Greedy Decoder (for simple testing).
-    - [x] **Homophene Correction Logic:**
-        - [x] Dictionary lookup for homophenes (e.g., p/b/m).
-        - [x] Contextual scoring (Bigram/Trigram or LLM).
+    - [ ] **Homophene Correction Logic:**
+        - [ ] Dictionary lookup for homophenes (e.g., p/b/m).
+        - [ ] Contextual scoring (Bigram/Trigram or LLM).
 
 ## Phase 5: User Interface (UI/UX) (Completed)
 
@@ -89,31 +89,31 @@ This document provides a granular breakdown of tasks required to build the Liper
     - [x] **Swipe Up:** Speak current sentence (TTS).
     - [x] **Double Tap:** Clear transcript.
 
-- [x] **Settings**
+- [ ] **Settings**
     - [x] Toggle Rear/Front Camera (SSI Mode vs. Lipreading Mode).
-    - [x] Adjust Font Size.
-    - [x] Enable/Disable Telephoto Lens Preference.
+    - [ ] Adjust Font Size.
+    - [ ] Enable/Disable Telephoto Lens Preference.
 
 ## Phase 6: Testing & Optimization (Completed)
 
 - [x] **Unit Tests**
-    - [x] Test Image Processing algorithms (Grayscale, Crop).
-    - [x] Test TFLite Interpreter wrapper.
-- [x] **Integration Tests**
-    - [x] Test Camera -> Face Mesh pipeline latency.
-    - [x] Test End-to-End VSR accuracy on sample videos.
-- [x] **Performance Profiling**
-    - [x] Measure Inference Time (ms).
-    - [x] Measure CPU/GPU/NPU Usage.
-    - [x] Measure Battery Drain.
-    - [x] Optimize Bitmap allocations (Object Pooling).
+    - [x] Test Image Processing algorithms (Grayscale, Crop, Blur, HistEq).
+    - [x] Test TFLite Interpreter wrapper (Mocked).
+- [ ] **Integration Tests**
+    - [ ] Test Camera -> Face Mesh pipeline latency.
+    - [ ] Test End-to-End VSR accuracy on sample videos.
+- [ ] **Performance Profiling**
+    - [ ] Measure Inference Time (ms).
+    - [ ] Measure CPU/GPU/NPU Usage.
+    - [ ] Measure Battery Drain.
+    - [ ] Optimize Bitmap allocations (Object Pooling).
 
-## Phase 7: Legal & Deployment (Completed)
+## Phase 7: Legal & Deployment
 
-- [x] **Legal Review**
-    - [x] Verify "Recording" indicator visibility.
+- [ ] **Legal Review**
+    - [ ] Verify "Recording" indicator visibility.
     - [x] Add "Consent" checkbox in onboarding flow.
-    - [x] Ensure no data persistence (files are deleted on exit).
-- [x] **Documentation**
+    - [ ] Ensure no data persistence (files are deleted on exit).
+- [ ] **Documentation**
     - [x] Write USER_GUIDE.md.
-    - [x] Generate JavaDocs/KDocs.
+    - [ ] Generate JavaDocs/KDocs.
