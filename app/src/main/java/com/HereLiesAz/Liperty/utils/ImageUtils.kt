@@ -13,8 +13,6 @@ import androidx.camera.core.ImageProxy
 import java.nio.ByteBuffer
 import kotlin.math.max
 import kotlin.math.min
-// import org.opencv.android.OpenCVLoader
-// import org.opencv.imgproc.Imgproc
 
 object ImageUtils {
 
@@ -25,12 +23,6 @@ object ImageUtils {
      */
     fun initializeOpenCV(context: Context) {
         if (!openCVLoaded) {
-            // if (OpenCVLoader.initDebug()) {
-            //     openCVLoaded = true
-            //     Log.i("ImageUtils", "OpenCV loaded successfully")
-            // } else {
-            //     Log.e("ImageUtils", "OpenCV initialization failed!")
-            // }
             Log.i("ImageUtils", "OpenCV dependency included. Native init disabled for prototype.")
         }
     }
@@ -68,52 +60,24 @@ object ImageUtils {
 
     /**
      * Aligns and crops the mouth region from the input bitmap.
-     * 1. Rotates the bitmap by the specified angle (in degrees).
-     * 2. Extracts the mouth region based on the provided bounding box.
-     * 3. Resizes the extracted region to the target size (square).
-     *
-     * Note: The bounding box `mouthRect` is in the coordinate system of the *original* bitmap.
-     * Rotating the bitmap changes coordinates. For simplicity in this VSR pipeline,
-     * we often rotate the crop, or rotate the image then re-detect or project the box.
-     *
-     * A more robust approach for VSR (DeepLip/VALLR) is:
-     * 1. Calculate center of mouth.
-     * 2. Create an affine transform matrix that rotates around the mouth center and scales/crops.
-     *
-     * Here we implement a simplified pipeline:
-     * 1. Rotate entire image (expensive) or ROI (complex).
-     * Optimization: Map the mouth center to the rotated coordinate system.
      */
     fun alignAndCropMouth(bitmap: Bitmap, mouthRect: Rect, rotationDegrees: Float, targetSize: Int): Bitmap {
-        // Optimization: If rotation is negligible, skip it
-        if (kotlin.math.abs(rotationDegrees) < 1.0f) {
-            val cropped = cropBitmap(bitmap, mouthRect)
-            return Bitmap.createScaledBitmap(cropped, targetSize, targetSize, true)
+        val targetBitmap = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
+        return alignAndCropMouth(bitmap, mouthRect, rotationDegrees, targetSize, targetBitmap)
+    }
+
+    /**
+     * Overload that writes to a reused bitmap to reduce allocation.
+     */
+    fun alignAndCropMouth(bitmap: Bitmap, mouthRect: Rect, rotationDegrees: Float, targetSize: Int, destBitmap: Bitmap): Bitmap {
+        // Ensure destBitmap is correct size, if not, recreate (though typically caller ensures this)
+        val targetBitmap = if (destBitmap.width != targetSize || destBitmap.height != targetSize) {
+            Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
+        } else {
+            destBitmap
         }
 
-        /*
-         * TODO: OpenCV Implementation for better performance
-         * if (openCVLoaded) {
-         *     val srcMat = Mat()
-         *     Utils.bitmapToMat(bitmap, srcMat)
-         *     val center = Point(mouthRect.centerX().toDouble(), mouthRect.centerY().toDouble())
-         *     val rotationMatrix = Imgproc.getRotationMatrix2D(center, rotationDegrees.toDouble(), 1.0)
-         *     // Apply affine warp...
-         * }
-         */
-
-        val targetBitmap = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(targetBitmap)
-
-        // We want the mouth center to end up at (targetSize/2, targetSize/2)
-        // And we want to rotate by rotationDegrees.
-        // Matrix:
-        // 1. Translate mouth center to (0,0)
-        // 2. Rotate
-        // 3. Scale? (Depending on how large the mouth should be).
-        // For now, let's assume we maintain the scale of the original crop (or scale to fit target).
-        // Let's assume we want the `mouthRect` width to fit `targetSize`.
-
         val scale = targetSize.toFloat() / max(mouthRect.width(), 1)
 
         val drawingMatrix = android.graphics.Matrix()
@@ -128,81 +92,6 @@ object ImageUtils {
         canvas.drawBitmap(bitmap, drawingMatrix, paint)
 
         return targetBitmap
-    }
-
-    /**
-     * Converts Bitmap to Grayscale (as required by most VSR models).
-     * Reuses the destination Bitmap to avoid allocation churn.
-     */
-    fun toGrayscale(src: Bitmap, dest: Bitmap) {
-        if (src.width != dest.width || src.height != dest.height) {
-             throw IllegalArgumentException("Source and destination bitmaps must have the same dimensions: src=${src.width}x${src.height}, dest=${dest.width}x${dest.height}")
-        }
-        val c = Canvas(dest)
-        val paint = Paint()
-        val cm = ColorMatrix()
-        cm.setSaturation(0f)
-        val f = ColorMatrixColorFilter(cm)
-        paint.colorFilter = f
-        c.drawBitmap(src, 0f, 0f, paint)
-    }
-
-    /**
-     * Applies a simple box blur to the bitmap.
-     * A lightweight alternative to Gaussian Blur for mobile devices without using RenderScript.
-     * Radius must be odd.
-     */
-    fun applyBlur(bitmap: Bitmap, radius: Int): Bitmap {
-        if (radius < 1) return bitmap
-
-        val width = bitmap.width
-        val height = bitmap.height
-        val pixels = IntArray(width * height)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-
-        val newPixels = IntArray(width * height)
-        // val kernelSize = radius * 2 + 1
-
-        // Horizontal Pass
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                var r = 0; var g = 0; var b = 0; var count = 0
-
-                for (i in -radius..radius) {
-                    val nx = x + i
-                    if (nx in 0 until width) {
-                        val pixel = pixels[y * width + nx]
-                        r += Color.red(pixel)
-                        g += Color.green(pixel)
-                        b += Color.blue(pixel)
-                        count++
-                    }
-                }
-                newPixels[y * width + x] = Color.rgb(r / count, g / count, b / count)
-            }
-        }
-
-        // Vertical Pass (using newPixels as source)
-        val finalPixels = IntArray(width * height)
-        for (x in 0 until width) {
-            for (y in 0 until height) {
-                var r = 0; var g = 0; var b = 0; var count = 0
-
-                for (i in -radius..radius) {
-                    val ny = y + i
-                    if (ny in 0 until height) {
-                        val pixel = newPixels[ny * width + x]
-                        r += Color.red(pixel)
-                        g += Color.green(pixel)
-                        b += Color.blue(pixel)
-                        count++
-                    }
-                }
-                finalPixels[y * width + x] = Color.rgb(r / count, g / count, b / count)
-            }
-        }
-
-        return Bitmap.createBitmap(finalPixels, width, height, Bitmap.Config.ARGB_8888)
     }
 
     /**
@@ -253,5 +142,77 @@ object ImageUtils {
         }
 
         return Bitmap.createBitmap(newPixels, width, height, Bitmap.Config.ARGB_8888)
+    }
+
+    /**
+     * Applies a simple box blur to the bitmap.
+     */
+    fun applyBlur(bitmap: Bitmap, radius: Int): Bitmap {
+        if (radius < 1) return bitmap
+
+        val width = bitmap.width
+        val height = bitmap.height
+        val pixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+
+        val newPixels = IntArray(width * height)
+
+        // Horizontal Pass
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                var r = 0; var g = 0; var b = 0; var count = 0
+
+                for (i in -radius..radius) {
+                    val nx = x + i
+                    if (nx in 0 until width) {
+                        val pixel = pixels[y * width + nx]
+                        r += Color.red(pixel)
+                        g += Color.green(pixel)
+                        b += Color.blue(pixel)
+                        count++
+                    }
+                }
+                newPixels[y * width + x] = Color.rgb(r / count, g / count, b / count)
+            }
+        }
+
+        // Vertical Pass (using newPixels as source)
+        val finalPixels = IntArray(width * height)
+        for (x in 0 until width) {
+            for (y in 0 until height) {
+                var r = 0; var g = 0; var b = 0; var count = 0
+
+                for (i in -radius..radius) {
+                    val ny = y + i
+                    if (ny in 0 until height) {
+                        val pixel = newPixels[ny * width + x]
+                        r += Color.red(pixel)
+                        g += Color.green(pixel)
+                        b += Color.blue(pixel)
+                        count++
+                    }
+                }
+                finalPixels[y * width + x] = Color.rgb(r / count, g / count, b / count)
+            }
+        }
+
+        return Bitmap.createBitmap(finalPixels, width, height, Bitmap.Config.ARGB_8888)
+    }
+
+    /**
+     * Converts Bitmap to Grayscale (as required by most VSR models).
+     * Reuses the destination Bitmap to avoid allocation churn.
+     */
+    fun toGrayscale(src: Bitmap, dest: Bitmap) {
+        if (src.width != dest.width || src.height != dest.height) {
+             throw IllegalArgumentException("Source and destination bitmaps must have the same dimensions: src=${src.width}x${src.height}, dest=${dest.width}x${dest.height}")
+        }
+        val c = Canvas(dest)
+        val paint = Paint()
+        val cm = ColorMatrix()
+        cm.setSaturation(0f)
+        val f = ColorMatrixColorFilter(cm)
+        paint.colorFilter = f
+        c.drawBitmap(src, 0f, 0f, paint)
     }
 }

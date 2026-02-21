@@ -1,10 +1,9 @@
 package com.HereLiesAz.Liperty.ml
 
-import android.content.Context
 import android.graphics.Bitmap
 import android.os.SystemClock
-import org.tensorflow.lite.Interpreter
-import org.tensorflow.lite.gpu.GpuDelegate
+import android.util.Log
+import com.HereLiesAz.Liperty.utils.PerformanceMonitor
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -14,90 +13,125 @@ data class VSRResult(
     val processingTimeMs: Long
 )
 
-class VSRInference(private val context: Context) {
+class VSRInference(private val engine: ModelEngine) {
 
-    private val decoder = GreedyDecoder()
+    private val greedyDecoder = GreedyDecoder()
+    private val beamDecoder = BeamSearchDecoder()
+    private var useBeamSearch = true
 
-    // TFLite components
-    private var interpreter: Interpreter? = null
-    private var gpuDelegate: GpuDelegate? = null
+    // Constants (Assuming typical VSR model)
+    private val INPUT_WIDTH = 88
+    private val INPUT_HEIGHT = 88
+    private val NUM_FRAMES = 50
 
     /**
-     * Initializes the TFLite interpreter.
+     * Initializes the inference engine.
      * Call this from a background thread.
      */
     fun initialize() {
-        if (interpreter != null) return
-
-        try {
-            val options = Interpreter.Options()
-            // Initialize GPU Delegate
-            gpuDelegate = GpuDelegate()
-            options.addDelegate(gpuDelegate)
-
-            // Load model from assets (placeholder name)
-            // val modelFile = FileUtil.loadMappedFile(context, "vsr_model.tflite")
-            // interpreter = Interpreter(modelFile, options)
-
-        } catch (e: Exception) {
-            // Fallback to CPU or handle error
-            // Log.e("VSRInference", "Error initializing TFLite", e)
-        }
+        engine.initialize()
     }
 
     /**
-     * Dummy Inference Implementation.
-     *
-     * TODO: Real Implementation Steps:
-     * 1. Accept a buffer of frames (e.g., 50-75 frames for ~2-3 seconds of speech).
-     * 2. Preprocess each frame (already done before buffering ideally):
-     *    - Resize to model input size (e.g., 88x88 or 96x96).
-     *    - Convert to Grayscale (1 channel).
-     *    - Normalize pixel values (0-1 or -1 to 1).
-     * 3. Construct Input Tensor: shape [1, T, H, W, C] (e.g., [1, 50, 88, 88, 1]).
-     *    - Allocate ByteBuffer with size: 1 * 50 * 88 * 88 * 1 * 4 (float32).
-     *    - Use Order.nativeOrder().
-     * 4. Run Interpreter.run(inputBuffer, outputBuffer).
-     * 5. Decode Output Tensor (CTC Greedy/Beam Search or Transformer Decoder).
+     * Runs inference on the provided frames.
      */
     fun runInference(frames: List<Bitmap>): VSRResult {
         val startTime = SystemClock.uptimeMillis()
 
-        // Ensure initialized (lazy init for prototype)
-        // initialize()
+        try {
+            // 1. Prepare Input Buffer
+            // Shape: [1, T, H, W, C] -> [1, 50, 88, 88, 1]
+            // Float32 (4 bytes)
+            val inputBuffer = ByteBuffer.allocateDirect(1 * NUM_FRAMES * INPUT_HEIGHT * INPUT_WIDTH * 1 * 4)
+            inputBuffer.order(ByteOrder.nativeOrder())
 
-        // Simulate processing delay
-        // Thread.sleep(50)
+            // Take last N frames if we have more, or all if fewer
+            val framesToProcess = if (frames.size > NUM_FRAMES) {
+                frames.takeLast(NUM_FRAMES)
+            } else {
+                frames
+            }
 
-        // Placeholder Logic
-        // In real implementation, we would process 'frames' here.
-        // For demonstration, let's create a dummy probability sequence that spells "HELLO"
-        // Vocab: 0=_, 1=A..8=H..5=E..12=L..15=O..27=_
-        // Sequence: H, H, _, E, L, L, _, L, O
-        // Indices: 8, 8, 0, 5, 12, 12, 0, 12, 15
+            for (bitmap in framesToProcess) {
+                // Resize if needed
+                val scaledBitmap = if (bitmap.width != INPUT_WIDTH || bitmap.height != INPUT_HEIGHT) {
+                    Bitmap.createScaledBitmap(bitmap, INPUT_WIDTH, INPUT_HEIGHT, true)
+                } else {
+                    bitmap
+                }
 
-        // Assume vocab size 28
-        val vocabSize = 28
-        val sequence = listOf(8, 8, 0, 5, 12, 12, 0, 12, 15)
+                // Extract Grayscale values
+                val pixels = IntArray(INPUT_WIDTH * INPUT_HEIGHT)
+                scaledBitmap.getPixels(pixels, 0, INPUT_WIDTH, 0, 0, INPUT_WIDTH, INPUT_HEIGHT)
 
-        val dummyOutput = Array(sequence.size) { i ->
-            val probArray = FloatArray(vocabSize)
-            // Set target index to high probability
-            probArray[sequence[i]] = 0.9f
-            probArray
+                for (pixel in pixels) {
+                    // Extract Red channel (since grayscale)
+                    val r = (pixel shr 16) and 0xFF
+                    // Normalize to 0-1
+                    val normalized = r / 255.0f
+                    inputBuffer.putFloat(normalized)
+                }
+            }
+
+            // Pad with zeros if fewer frames
+            val paddingFrames = NUM_FRAMES - framesToProcess.size
+            for (i in 0 until paddingFrames * INPUT_HEIGHT * INPUT_WIDTH) {
+                inputBuffer.putFloat(0f)
+            }
+
+            inputBuffer.rewind()
+
+            // 2. Prepare Output Buffer
+            val outputShape = engine.getOutputShape(0)
+
+            if (outputShape.size < 3) {
+                 Log.e("VSRInference", "Unexpected output shape: ${outputShape.contentToString()}")
+                 return getDummyResult(frames.size, startTime)
+            }
+
+            val batchSize = outputShape[0]
+            val timeSteps = outputShape[1]
+            val vocabSize = outputShape[2]
+
+            val outputBuffer = ByteBuffer.allocateDirect(batchSize * timeSteps * vocabSize * 4)
+            outputBuffer.order(ByteOrder.nativeOrder())
+
+            // 3. Run Inference
+            engine.run(inputBuffer, outputBuffer)
+
+            outputBuffer.rewind()
+
+            // 4. Decode
+            val probabilities = Array(timeSteps) {
+                val probs = FloatArray(vocabSize)
+                for (v in 0 until vocabSize) {
+                    probs[v] = outputBuffer.float
+                }
+                probs
+            }
+
+            val decodedText = if (useBeamSearch) {
+                beamDecoder.decode(probabilities)
+            } else {
+                greedyDecoder.decode(probabilities)
+            }
+            val processingTime = SystemClock.uptimeMillis() - startTime
+            PerformanceMonitor.logInferenceTime(processingTime)
+
+            return VSRResult(decodedText, 0.9f, processingTime)
+
+        } catch (e: Exception) {
+            Log.e("VSRInference", "Inference Failed", e)
+            return getDummyResult(frames.size, startTime)
         }
+    }
 
-        val decodedText = decoder.decode(dummyOutput)
-        val text = "Pred: $decodedText (${frames.size} f)"
-        val confidence = 0.9f
-
+    private fun getDummyResult(frameCount: Int, startTime: Long): VSRResult {
         val processingTime = SystemClock.uptimeMillis() - startTime
-
-        return VSRResult(text, confidence, processingTime)
+        return VSRResult("Model Missing", 0.0f, processingTime)
     }
 
     fun close() {
-        interpreter?.close()
-        gpuDelegate?.close()
+        engine.close()
     }
 }
