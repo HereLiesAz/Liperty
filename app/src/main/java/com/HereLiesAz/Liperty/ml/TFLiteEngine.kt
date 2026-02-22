@@ -25,7 +25,6 @@ class TFLiteEngine(private val context: Context) : ModelEngine {
                 // Try to initialize GPU delegate. This might fail if native libs are missing.
                 gpuDelegate = GpuDelegate()
                 options.addDelegate(gpuDelegate)
-                options.addDelegate(delegate)
             } catch (e: NoClassDefFoundError) {
                 Log.e("TFLiteEngine", "GPU Delegate class not found, falling back to CPU", e)
             } catch (e: UnsatisfiedLinkError) {
