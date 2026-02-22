@@ -53,6 +53,12 @@ unzip -q "${TARGET_BASE}/${OPENCV_ZIP}" -d "$TARGET_BASE"
 if [ -d "${TARGET_BASE}/OpenCV-android-sdk" ]; then
     echo "[+] Configuring path..."
     mv "${TARGET_BASE}/OpenCV-android-sdk" "$TARGET_OPENCV"
+
+    # Remove samples to avoid gradle wrapper validation issues
+    if [ -d "${TARGET_OPENCV}/samples" ]; then
+        echo "[+] Removing OpenCV samples..."
+        rm -rf "${TARGET_OPENCV}/samples"
+    fi
 else
     echo "[!] Error: Extraction failed or folder structure unexpected."
     exit 1
