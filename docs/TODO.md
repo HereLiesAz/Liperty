@@ -1,119 +1,110 @@
-# Comprehensive Todo List
+# Comprehensive Todo List & Implementation Roadmap
 
-This document provides a granular breakdown of tasks required to build the Liperty application, from initial research to deployment.
+This document serves as the master source of truth for the Liperty project. It maps research findings to engineering tasks to ensure a production-ready Visual Speech Recognition (VSR) and Silent Speech Interface (SSI) application.
 
-## Phase 1: Research & Prerequisites (Completed)
+---
 
-- [x] Read Research Document (docs/RESEARCH.md)
-- [x] Define System Architecture (docs/ARCHITECTURE.md)
-- [x] Establish Legal Guidelines (docs/LEGAL.md)
-- [x] Create Repository Skeleton
+## 🔍 Phase 1-2: Core Infrastructure (Completed/Verified)
 
-## Phase 2: Core Infrastructure (Completed)
+- [x] **Project Skeleton:** Kotlin 2.3.10, AGP 9.0.1, Version Catalog (`libs.versions.toml`).
+- [x] **Permission Management:** Runtime CAMERA permission with ActivityResultContracts.
+- [x] **Basic CameraX:** Implementation of Preview and ImageAnalysis with `STRATEGY_KEEP_ONLY_LATEST`.
+- [x] **Legal Foundation:** Consent dialog and "Recording" indicator logic.
 
-- [x] **Project Setup**
-    - [x] Create `settings.gradle.kts`
-    - [x] Create root `build.gradle.kts`
-    - [x] Create `app/` module
-    - [x] Add dependencies:
-        - [x] `androidx.camera:camera-core` (1.3.0+)
-        - [x] `androidx.camera:camera-camera2`
-        - [x] `androidx.camera:camera-lifecycle`
-        - [x] `androidx.camera:camera-view`
-        - [x] `com.google.mlkit:face-detection` (or MediaPipe Face Mesh)
-        - [x] `org.tensorflow:tensorflow-lite` (2.14.0+)
-        - [x] `org.tensorflow:tensorflow-lite-gpu`
-        - [x] `org.tensorflow:tensorflow-lite-support`
-        - [x] `org.jetbrains.kotlinx:kotlinx-coroutines-android`
+---
 
-- [x] **Android Manifest & Permissions**
-    - [x] `android.permission.CAMERA`
-    - [x] `android.hardware.camera.autofocus`
-    - [x] `android.hardware.camera.flash` (optional)
-    - [x] Handle runtime permission requests (ActivityResultContracts).
+## 🛠️ Phase 3: Computer Vision Pipeline (The "Stabilization & Normalization" Engine)
 
-- [x] **CameraX Implementation**
-    - [x] Initialize `ProcessCameraProvider`
-    - [x] Implement `Preview` use case
-    - [x] Implement `ImageAnalysis` use case (Backpressure strategy: STRATEGY_KEEP_ONLY_LATEST)
-    - [x] **Critical:** Implement `CameraSelector` logic to prefer **Telephoto** lens for rear camera (research requirement).
-    - [x] Handle Lifecycle (bind/unbind).
+*Ref: RESEARCH.md Section "The Real-Time Computer Vision and Preprocessing Pipeline"*
 
-## Phase 3: Computer Vision Pipeline (MediaPipe & OpenCV) (Completed)
+- [x] **Dense Facial Landmark Tracking:** Integrate MediaPipe Face Mesh (468 landmarks).
+- [x] **Lip ROI Isolation:** Map specific indices (0, 13, 14, 17, 37, 39, 40, 61, 146, 178, 181, 185, 191, 267, 269, 270, 291, 308, 310, 311, 312, 317, 318, 321, 375, 402, 405, 409).
+- [ ] **Software Video Stabilization:**
+    - [ ] Implement Kalman Filter for bounding box smoothing to counter hand jitter.
+    - [ ] Calculate inter-frame optical flow to maintain mouth centering.
+- [ ] **Advanced Spatial Normalization:**
+    - [x] Calculate Affine Transformation Matrix for roll/pitch/yaw neutralization.
+    - [x] Perform 96x96 to 128x128 square cropping.
+    - [ ] **Zero-Allocation Pipeline:** Refine `BitmapPool` to ensure `ImageProxy` -> `ROI` conversion involves no GC churn.
+- [ ] **Photometric Normalization:**
+    - [x] Grayscale conversion.
+    - [x] Gaussian Blur (Kernel 3x3/5x5) for sensor noise reduction.
+    - [x] Contrast Stretching / Histogram Equalization.
+    - [ ] **Hardware Acceleration:** Migrate manual Kotlin loops in `ImageUtils` to OpenCV NDK or Vulkan Shaders.
 
-- [x] **Face Landmark Detection**
-    - [x] Integrate MediaPipe Face Mesh (468 landmarks).
-    - [x] Extract Lip landmarks (Indices: 0, 13, 14, 17, 37, 39, 40, 61, 146, 178, 181, 185, 191, 267, 269, 270, 291, 308, 310, 311, 312, 317, 318, 321, 375, 402, 405, 409).
-    - [x] Implement Head Pose Estimation (Roll, Pitch, Yaw).
+---
 
-- [x] **ROI Extraction & Normalization**
-    - [x] Calculate Affine Transformation Matrix to align mouth horizontally.
-    - [x] Crop mouth region (Square: 96x96, 112x112, or 128x128).
-    - [x] Convert `ImageProxy` (YUV) to `Bitmap` (ARGB) -> Grayscale. (Implemented in `ImageUtils`)
-    - [x] Apply Gaussian Blur (Kernel 3x3 or 5x5).
-    - [x] Apply Contrast Stretching / Histogram Equalization.
-    - [ ] **Optimization:** Use RenderScript or Vulkan for image processing if CPU is too slow.
+## 🧠 Phase 4: Machine Learning (The "Inference & Reasoning" Engine)
 
-## Phase 4: Machine Learning (VSR & LLM) (Completed)
+*Ref: RESEARCH.md Section "State-of-the-Art Neural Architectures for Mobile VSR"*
 
-- [x] **Model Selection & Conversion**
-    - [x] **Option A (DeepLip):** Train/Fine-tune CNN-LSTM on LRW/LRS3 dataset.
-        - [x] Convert to TFLite (fp16 quantization).
-    - [x] **Option B (VALLR):** Train Transformer-based Phoneme predictor.
-        - [x] Convert Encoder to TFLite.
-        - [x] Convert Decoder (LLM) to TFLite (int8 quantization).
-    - [x] Place `.tflite` models in `app/src/main/assets/`.
+- [ ] **Model Selection & Deployment:**
+    - [ ] **VALLR Architecture (Preferred):**
+        - [ ] **Stage 1 (Video Transformer):** Predict 38 phonetic classes from lip ROIs.
+        - [ ] **Stage 2 (LLM Decoder):** Reconstruct text from phoneme stream using contextual linguistic reasoning.
+    - [ ] **Asset Management:** Deploy `vsr_model.tflite` (Encoder) and `decoder_model.tflite` (LLM) to assets.
+- [ ] **Multi-View Robustness:**
+    - [ ] Train/Integrate pose-invariant feature extractors (using MV-LRS dataset) for off-axis (30°-60°) lipreading.
+- [ ] **Advanced Decoding:**
+    - [x] CTC Beam Search implementation.
+    - [ ] **Dynamic Language Model:** Replace placeholder `HomopheneCorrector` with a probabilistic dictionary and Bigram/Trigram scoring.
+- [ ] **On-Device Personalization:**
+    - [ ] Implement **Calibration Phase** (User mouths "The quick brown fox...").
+    - [ ] Integrate **Low-Rank Adaptation (LoRA)** via LiteRT training signatures for speaker-adaptive fine-tuning.
 
-- [x] **Inference Engine (LiteRT)**
-    - [x] Initialize `Interpreter` with `GpuDelegate` (for Vision/Encoder) and `NnApiDelegate` (for Decoder). (Placeholder `VSRInference` created)
-    - [x] Implement `runInference(inputBuffer: ByteBuffer): OutputBuffer`.
-    - [x] Handle Threading (run on background thread, post to UI).
+---
 
-- [ ] **Decoding Logic**
-    - [x] Implement CTC Beam Search (if using CTC model).
-    - [x] Implement Greedy Decoder (for simple testing).
-    - [x] **Homophene Correction Logic:**
-        - [x] Dictionary lookup for homophenes (e.g., p/b/m).
-        - [x] Contextual scoring (Bigram/Trigram or LLM).
+## 📷 Phase 5: Hardware & Optical Optimization
 
-## Phase 5: User Interface (UI/UX) (Completed)
+*Ref: RESEARCH.md Section "Optical Physics, Perspective Distortion, and Camera Hardware Constraints"*
 
-- [x] **Main Screen**
-    - [x] Camera Preview Surface.
-    - [x] **OverlayView:** Draw bounding box (Green = Face Detected, Blue = Lips Tracked).
-    - [x] **Transcription Text:** Real-time scrolling text view.
-    - [x] **Status Indicator:** "Listening...", "Processing...", "Error".
+- [x] **Lens Selection Logic:** Programmatically prioritize Telephoto lens (2x/3x) over Wide-angle to minimize "moustache distortion."
+- [ ] **Optical Pacing & Locking:**
+    - [ ] Enforce deterministic 25 FPS stream for temporal consistency.
+    - [ ] Implement Manual Exposure/Focus lock during active "Listening" state to prevent photometric shifting.
 
-- [x] **Gesture Controls**
-    - [x] **Swipe Left/Right:** On a word to cycle alternative homophenes.
-    - [x] **Swipe Up:** Speak current sentence (TTS).
-    - [x] **Double Tap:** Clear transcript.
+---
 
-- [ ] **Settings**
-    - [x] Toggle Rear/Front Camera (SSI Mode vs. Lipreading Mode).
-    - [x] Adjust Font Size.
-    - [x] Enable/Disable Telephoto Lens Preference.
+## 🖐️ Phase 6: Accessibility-Driven UI/UX
 
-## Phase 6: Testing & Optimization (Completed)
+*Ref: RESEARCH.md Section "Gesture-Driven Homophene Correction Interface"*
 
-- [x] **Unit Tests**
-    - [x] Test Image Processing algorithms (Grayscale, Crop, Blur, HistEq).
-    - [x] Test TFLite Interpreter wrapper (Mocked).
-- [x] **Integration Tests**
-    - [x] Test Camera -> Face Mesh pipeline latency.
-    - [x] Test End-to-End VSR accuracy on sample videos.
-- [x] **Performance Profiling**
-    - [x] Measure Inference Time (ms).
-    - [ ] Measure CPU/GPU/NPU Usage.
-    - [ ] Measure Battery Drain.
-    - [x] Optimize Bitmap allocations (Object Pooling).
+- [x] **Gesture-Driven Correction:**
+    - [x] **Horizontal Swipe:** Cycle through top-N homophene candidates for the selected word.
+    - [x] **Vertical Swipe Up:** Trigger Text-to-Speech (TTS).
+    - [x] **Multi-Finger Swipe Down:** Clear buffer/transcript.
+- [ ] **Visual Hand Gestures (Waving):**
+    - [ ] **Wave-to-Pause:** Implement hand wave detection in `FaceLandmarkerHelper` to act as a pause button for TTS and inference.
+    - [ ] **Air-Swipe:** Map horizontal hand movement directions to homophene cycling (simulating touch swipes).
+- [ ] **Visual Feedback:**
+    - [x] Draw bounding boxes (Green=Face, Blue=Lips).
+    - [ ] **Confidence Heatmap:** Color-code transcribed words based on model confidence (e.g., Red for high ambiguity).
 
-## Phase 7: Legal & Deployment
+---
 
-- [x] **Legal Review**
-    - [x] Verify "Recording" indicator visibility.
-    - [x] Add "Consent" checkbox in onboarding flow.
-    - [x] Ensure no data persistence (files are deleted on exit).
-- [ ] **Documentation**
-    - [x] Write USER_GUIDE.md.
-    - [ ] Generate JavaDocs/KDocs.
+## 🎙️ Phase 7: Experimental Modality (Silent Speech Interface)
+
+*Ref: RESEARCH.md Section "Alternative Modalities: Hardware-Native Laryngeal Sensing"*
+
+- [ ] **VibraPhone Implementation (Prototype):**
+    - [ ] Capture Back-EMF from Linear Resonant Actuators (LRA) via NDK.
+    - [ ] **DSP Pipeline:** Spectral Subtraction, Frequency Equalization, and Formant Extrapolation.
+    - [ ] **Multi-Modal Fusion:** Combine Accelerometer data (0-400Hz) with Camera data for ultra-robust SSI.
+
+---
+
+## ⚖️ Phase 8: Privacy & Legal Governance
+
+*Ref: RESEARCH.md Section "Legal, Ethical, and Privacy Governance"*
+
+- [x] **Ephemeral Processing:** Ensure zero-persistence of biometric data (RAM-only processing).
+- [x] **Visual Notice:** "Live Transcription Active" banner on interlocutor-facing screen.
+- [ ] **KDoc/Security Audit:** Fully document biometric handling for compliance with BIPA/GDPR.
+
+---
+
+## 🎯 Immediate Next Steps for AI Agent
+
+1. **PRODUCE MODEL:** You cannot proceed without `vsr_model.tflite`. Either locate the model or provide a script to generate a dummy TFLite with the correct I/O shapes [1, 50, 88, 88, 1] -> [1, 50, 40] to allow pipeline testing.
+2. **NDK INTEGRATION:** Create a JNI layer for OpenCV to handle the high-frequency image normalization in C++.
+3. **EXPAND HOMOPHENES:** Transform `HomopheneCorrector` into a JSON-backed dictionary covering the top 5,000 English words.
