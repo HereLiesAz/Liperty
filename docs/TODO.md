@@ -72,8 +72,8 @@ This document provides a granular breakdown of tasks required to build the Liper
 - [ ] **Decoding Logic**
     - [x] Implement CTC Beam Search (if using CTC model).
     - [x] Implement Greedy Decoder (for simple testing).
-    - [ ] **Homophene Correction Logic:**
-        - [ ] Dictionary lookup for homophenes (e.g., p/b/m).
+    - [x] **Homophene Correction Logic:**
+        - [x] Dictionary lookup for homophenes (e.g., p/b/m).
         - [x] Contextual scoring (Bigram/Trigram or LLM).
 
 ## Phase 5: User Interface (UI/UX) (Completed)
@@ -110,10 +110,10 @@ This document provides a granular breakdown of tasks required to build the Liper
 
 ## Phase 7: Legal & Deployment
 
-- [ ] **Legal Review**
-    - [ ] Verify "Recording" indicator visibility.
+- [x] **Legal Review**
+    - [x] Verify "Recording" indicator visibility.
     - [x] Add "Consent" checkbox in onboarding flow.
-    - [ ] Ensure no data persistence (files are deleted on exit).
+    - [x] Ensure no data persistence (files are deleted on exit).
 - [ ] **Documentation**
     - [x] Write USER_GUIDE.md.
     - [ ] Generate JavaDocs/KDocs.

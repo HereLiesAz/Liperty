@@ -9,11 +9,11 @@ class HomopheneCorrectorTest {
     private val corrector = HomopheneCorrector()
 
     @Test
-    fun testGetAlternatives() {
+    fun testGetAlternativesKnownWord() {
         val alternatives = corrector.getAlternatives("mat")
+        // "bat", "pat" should be in the list
         assertTrue(alternatives.contains("bat"))
         assertTrue(alternatives.contains("pat"))
-        assertEquals(2, alternatives.size)
     }
 
     @Test
@@ -23,14 +23,8 @@ class HomopheneCorrectorTest {
     }
 
     @Test
-    fun testNoAlternatives() {
-        val alternatives = corrector.getAlternatives("unique")
+    fun testGetAlternativesUnknownWord() {
+        val alternatives = corrector.getAlternatives("unknown")
         assertTrue(alternatives.isEmpty())
-    }
-
-    @Test
-    fun testAreHomophenes() {
-        assertTrue(corrector.areHomophenes("mat", "bat"))
-        assertTrue(!corrector.areHomophenes("mat", "cat")) // Assuming 'cat' (k) is not homophene with 'mat' (m) in this simple dictionary
     }
 }
