@@ -73,6 +73,7 @@ dependencies {
     implementation(libs.tensorflow.lite.support)
     testImplementation(libs.tensorflow.lite)
     testImplementation(libs.tensorflow.lite.gpu)
+    testImplementation(libs.tensorflow.lite.support)
 
     // OpenCV
     implementation(libs.opencv)
