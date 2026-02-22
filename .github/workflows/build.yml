@@ -49,7 +49,7 @@ jobs:
 
       - name: Generate Keystore from Secrets
         id: generate-keystore
-        if: ${{ secrets.KEYSTORE_PRIVATE }}
+        if: secrets.KEYSTORE_PRIVATE != ''
         env:
           KEYSTORE_PRIVATE: ${{ secrets.KEYSTORE_PRIVATE }}
           KEYSTORE_CHAIN: ${{ secrets.KEYSTORE_CHAIN }}
