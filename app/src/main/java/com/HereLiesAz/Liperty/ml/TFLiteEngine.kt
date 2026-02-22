@@ -2,6 +2,7 @@ package com.HereLiesAz.Liperty.ml
 
 import android.content.Context
 import android.util.Log
+import org.tensorflow.lite.Delegate
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.GpuDelegate
 import org.tensorflow.lite.support.common.FileUtil
@@ -10,7 +11,9 @@ import java.nio.ByteBuffer
 class TFLiteEngine(private val context: Context) : ModelEngine {
 
     private var interpreter: Interpreter? = null
-    private var gpuDelegate: GpuDelegate? = null
+    // Changed from GpuDelegate? to Delegate? to prevent class loading issues in Robolectric
+    // where native libs for GPU delegate might be missing.
+    private var gpuDelegate: Delegate? = null
     private val MODEL_NAME = "vsr_model.tflite"
 
     override fun initialize() {
@@ -19,10 +22,16 @@ class TFLiteEngine(private val context: Context) : ModelEngine {
         try {
             val options = Interpreter.Options()
             try {
-                gpuDelegate = GpuDelegate()
-                options.addDelegate(gpuDelegate)
+                // Try to initialize GPU delegate. This might fail if native libs are missing.
+                val delegate = GpuDelegate()
+                gpuDelegate = delegate
+                options.addDelegate(delegate)
             } catch (e: Exception) {
                 Log.e("TFLiteEngine", "GPU Delegate not supported, falling back to CPU", e)
+            } catch (e: NoClassDefFoundError) {
+                Log.e("TFLiteEngine", "GPU Delegate class not found, falling back to CPU", e)
+            } catch (e: UnsatisfiedLinkError) {
+                Log.e("TFLiteEngine", "GPU Delegate native lib not found, falling back to CPU", e)
             }
 
             val modelFile = FileUtil.loadMappedFile(context, MODEL_NAME)
