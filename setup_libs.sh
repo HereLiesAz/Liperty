@@ -57,7 +57,7 @@ if [ -d "${TARGET_BASE}/OpenCV-android-sdk" ]; then
     # Remove samples to avoid gradle wrapper validation issues
     if [ -d "${TARGET_OPENCV}/samples" ]; then
         echo "[+] Removing OpenCV samples..."
-        rm -rf "${TARGET_OPENCV}/samples"
+        rm -rf "${TARGET_OPENCV}/samples" || { echo "[!] Error: Failed to remove OpenCV samples." >&2; exit 1; }
     fi
 else
     echo "[!] Error: Extraction failed or folder structure unexpected."
