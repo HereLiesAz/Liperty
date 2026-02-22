@@ -26,12 +26,12 @@ class TFLiteEngine(private val context: Context) : ModelEngine {
                 gpuDelegate = GpuDelegate()
                 options.addDelegate(gpuDelegate)
                 options.addDelegate(delegate)
-            } catch (e: Exception) {
-                Log.e("TFLiteEngine", "GPU Delegate not supported, falling back to CPU", e)
             } catch (e: NoClassDefFoundError) {
                 Log.e("TFLiteEngine", "GPU Delegate class not found, falling back to CPU", e)
             } catch (e: UnsatisfiedLinkError) {
                 Log.e("TFLiteEngine", "GPU Delegate native lib not found, falling back to CPU", e)
+            } catch (e: Exception) {
+                Log.e("TFLiteEngine", "GPU Delegate not supported, falling back to CPU", e)
             }
 
             val modelFile = FileUtil.loadMappedFile(context, MODEL_NAME)
