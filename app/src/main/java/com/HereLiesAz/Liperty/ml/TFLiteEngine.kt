@@ -23,8 +23,8 @@ class TFLiteEngine(private val context: Context) : ModelEngine {
             val options = Interpreter.Options()
             try {
                 // Try to initialize GPU delegate. This might fail if native libs are missing.
-                val delegate = GpuDelegate()
-                gpuDelegate = delegate
+                gpuDelegate = GpuDelegate()
+                options.addDelegate(gpuDelegate)
                 options.addDelegate(delegate)
             } catch (e: Exception) {
                 Log.e("TFLiteEngine", "GPU Delegate not supported, falling back to CPU", e)
