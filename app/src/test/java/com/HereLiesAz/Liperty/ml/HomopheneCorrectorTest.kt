@@ -1,12 +1,25 @@
 package com.HereLiesAz.Liperty.ml
 
-import org.junit.Assert.assertEquals
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class HomopheneCorrectorTest {
 
-    private val corrector = HomopheneCorrector()
+    private lateinit var corrector: HomopheneCorrector
+    private lateinit var context: Context
+
+    @Before
+    fun setUp() {
+        context = ApplicationProvider.getApplicationContext()
+        corrector = HomopheneCorrector(context)
+    }
 
     @Test
     fun testGetAlternativesKnownWord() {
@@ -24,7 +37,7 @@ class HomopheneCorrectorTest {
 
     @Test
     fun testGetAlternativesUnknownWord() {
-        val alternatives = corrector.getAlternatives("unknown")
+        val alternatives = corrector.getAlternatives("unknownwordXYZ")
         assertTrue(alternatives.isEmpty())
     }
 }

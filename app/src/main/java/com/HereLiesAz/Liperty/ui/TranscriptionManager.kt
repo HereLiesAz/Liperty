@@ -1,10 +1,11 @@
 package com.HereLiesAz.Liperty.ui
 
+import android.content.Context
 import com.HereLiesAz.Liperty.ml.HomopheneCorrector
 
-class TranscriptionManager {
+class TranscriptionManager(private val context: Context) {
 
-    private val homopheneCorrector = HomopheneCorrector()
+    private val homopheneCorrector = HomopheneCorrector(context)
 
     // List of words in the current sentence
     private val words = mutableListOf<String>()

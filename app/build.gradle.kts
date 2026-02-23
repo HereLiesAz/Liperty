@@ -50,6 +50,11 @@ android {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
         }
     }
+    sourceSets {
+        getByName("test") {
+            assets.srcDirs("src/main/assets")
+        }
+    }
     buildFeatures {
         viewBinding = false
     }
@@ -113,4 +118,11 @@ dependencies {
     testImplementation(libs.robolectric)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+}
+
+tasks.withType<Test> {
+    testLogging {
+        events("passed", "skipped", "failed")
+        showStandardStreams = true
+    }
 }
