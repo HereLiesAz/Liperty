@@ -1,30 +1,47 @@
 package com.HereLiesAz.Liperty.ml
 
-class HomopheneCorrector {
+import android.content.Context
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
 
-    // Simplified Homophene Groups (Visually indistinguishable)
-    // Based on research: p/b/m, f/v, t/d/n, etc.
-    private val homopheneGroups = listOf(
-        setOf("p", "b", "m"),
-        setOf("f", "v"),
-        setOf("t", "d", "n", "l"), // simplified
-        setOf("k", "g", "ng"),
-        setOf("s", "z"),
-        setOf("sh", "ch", "j", "zh")
-    )
+class HomopheneCorrector(private val context: Context) {
 
-    // Dictionary of words to their homophene alternatives
-    // Key: Word, Value: List of words that look the same
-    private val homopheneMap = mapOf(
-        "mat" to listOf("bat", "pat"),
-        "bat" to listOf("mat", "pat"),
-        "pat" to listOf("mat", "bat"),
-        "meet" to listOf("beat", "peat"),
-        "beat" to listOf("meet", "peat"),
-        "peat" to listOf("meet", "beat"),
-        "time" to listOf("dime"),
-        "dime" to listOf("time")
-    )
+    private val homopheneMap: Map<String, List<String>> by lazy {
+        loadHomopheneMap()
+    }
+
+    private fun loadHomopheneMap(): Map<String, List<String>> {
+        val map = mutableMapOf<String, List<String>>()
+        try {
+            val inputStream = try {
+                context.assets.open("homophones.json")
+            } catch (e: Exception) {
+                // Fallback for tests: Load from classpath
+                javaClass.classLoader?.getResourceAsStream("homophones.json")
+                    ?: throw Exception("homophones.json not found in assets or resources")
+            }
+
+            val reader = BufferedReader(InputStreamReader(inputStream))
+            val jsonString = reader.use { it.readText() }
+            val jsonObject = JSONObject(jsonString)
+
+            val iterator = jsonObject.keys()
+            while (iterator.hasNext()) {
+                val key = iterator.next()
+                val jsonArray = jsonObject.getJSONArray(key)
+                val alternatives = mutableListOf<String>()
+                for (i in 0 until jsonArray.length()) {
+                    alternatives.add(jsonArray.getString(i))
+                }
+                map[key] = alternatives
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            // Fallback or empty map if loading fails
+        }
+        return map
+    }
 
     /**
      * Returns a list of alternative words that are homophenes of the input word.
@@ -36,10 +53,8 @@ class HomopheneCorrector {
 
     /**
      * More advanced: Check if two words are homophenes based on phoneme mapping.
-     * (Placeholder for future implementation)
      */
     fun areHomophenes(word1: String, word2: String): Boolean {
-        // Todo: Map words to visemes and compare
         val alts = getAlternatives(word1)
         return alts.contains(word2.lowercase())
     }

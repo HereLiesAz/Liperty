@@ -56,7 +56,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var recordingIndicator: TextView
 
     private lateinit var gestureDetector: GestureDetector
-    private val transcriptionManager = TranscriptionManager()
+    private val transcriptionManager by lazy { TranscriptionManager(this) }
     private var tts: TextToSpeech? = null
 
     // Camera State
