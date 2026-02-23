@@ -16,20 +16,37 @@ class FaceLandmarkerHelper(
 ) {
     private var faceLandmarker: FaceLandmarker? = null
 
+    private var minFaceDetectionConfidence = 0.5f
+    private var minFaceTrackingConfidence = 0.5f
+
     init {
         setupFaceLandmarker()
+    }
+
+    /**
+     * Re-initializes the FaceLandmarker with new confidence thresholds.
+     * Higher confidence = fewer false positives but might miss faces in bad lighting.
+     * BlazeFace (the underlying model) works best with defaults, but adjustment helps in VSR.
+     */
+    fun updateConfidence(detectionConfidence: Float, trackingConfidence: Float) {
+        if (detectionConfidence != minFaceDetectionConfidence || trackingConfidence != minFaceTrackingConfidence) {
+            minFaceDetectionConfidence = detectionConfidence
+            minFaceTrackingConfidence = trackingConfidence
+            close()
+            setupFaceLandmarker()
+        }
     }
 
     private fun setupFaceLandmarker() {
         try {
             val baseOptions = BaseOptions.builder()
-                .setModelAssetPath("face_landmarker.task") // This file must be in assets/
+                .setModelAssetPath("face_landmarker.task") // Uses BlazeFace (Short/Full Range)
                 .build()
 
             val options = FaceLandmarker.FaceLandmarkerOptions.builder()
                 .setBaseOptions(baseOptions)
-                .setMinFaceDetectionConfidence(0.5f)
-                .setMinTrackingConfidence(0.5f)
+                .setMinFaceDetectionConfidence(minFaceDetectionConfidence)
+                .setMinTrackingConfidence(minFaceTrackingConfidence)
                 .setRunningMode(RunningMode.IMAGE)
                 .setOutputFacialTransformationMatrixes(true)
                 .build()
