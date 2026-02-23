@@ -51,12 +51,24 @@ else
             echo "[+] Removing OpenCV samples..."
             rm -rf "${TARGET_OPENCV}/samples"
         fi
+
+        # 5. Patch OpenCV build.gradle for AGP 9.0 Compatibility
+        OPENCV_BUILD_GRADLE="${TARGET_OPENCV}/sdk/build.gradle"
+        if [ -f "$OPENCV_BUILD_GRADLE" ]; then
+            echo "[+] Patching OpenCV build.gradle for AGP 9.0 compatibility..."
+            # Replace deprecated 'proguard-android.txt' with 'proguard-android-optimize.txt'
+            # Use a temporary file for sed compatibility across systems
+            sed 's/proguard-android.txt/proguard-android-optimize.txt/g' "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
+        else
+            echo "[!] Warning: OpenCV build.gradle not found at $OPENCV_BUILD_GRADLE"
+        fi
+
     else
         echo "[!] Error: Extraction failed or folder structure unexpected."
         exit 1
     fi
 
-    # 5. Cleanup
+    # 6. Cleanup
     rm "${TARGET_LIBS}/${OPENCV_ZIP}"
     echo "[+] OpenCV installed."
 fi
