@@ -87,7 +87,11 @@ echo "[+] Setting up Models..."
 # VSR Model (Dummy Generation if missing)
 if [ ! -f "${TARGET_ASSETS}/vsr_model.tflite" ]; then
     echo "[+] Generating dummy VSR model (vsr_model.tflite)..."
-    python3 tools/create_dummy_model.py
+    if command -v python3 &> /dev/null; then
+        python3 tools/create_dummy_model.py
+    else
+        echo "[!] Warning: python3 not found. Skipping dummy model generation."
+    fi
 else
     echo "[*] VSR model already exists."
 fi
