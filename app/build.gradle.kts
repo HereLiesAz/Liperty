@@ -18,6 +18,18 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        externalNativeBuild {
+            cmake {
+                cppFlags += "-std=c++17"
+                arguments += "-DANDROID_STL=c++_shared"
+            }
+        }
+
+        ndk {
+            // Filter relevant ABIs
+            abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64"))
+        }
     }
 
     buildTypes {
@@ -44,6 +56,13 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
         }
     }
 }
@@ -75,8 +94,15 @@ dependencies {
     testImplementation(libs.tensorflow.lite.gpu)
     testImplementation(libs.tensorflow.lite.support)
 
-    // OpenCV
-    implementation(libs.opencv)
+    // OpenCV - Only include if the project is available (handled in settings.gradle.kts)
+    if (findProject(":opencv") != null) {
+        implementation(project(":opencv"))
+    } else {
+        // Fallback: This allows the project to sync even if setup_libs.sh hasn't run yet,
+        // though runtime functionality relying on OpenCV Java classes will obviously fail.
+        // NDK linking happens via CMakeLists.txt separately.
+        println("WARNING: OpenCV module not found. Skipping dependency.")
+    }
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)

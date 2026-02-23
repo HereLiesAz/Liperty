@@ -18,3 +18,12 @@ dependencyResolutionManagement {
 
 rootProject.name = "Liperty"
 include(":app")
+
+// Safely include OpenCV module if the SDK has been downloaded
+val opencvSdkPath = file("app/src/main/cpp/libs/opencv/sdk")
+if (opencvSdkPath.exists()) {
+    include(":opencv")
+    project(":opencv").projectDir = opencvSdkPath
+} else {
+    println("WARNING: OpenCV SDK not found at ${opencvSdkPath}. Run setup_libs.sh to install.")
+}
