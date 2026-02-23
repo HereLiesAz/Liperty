@@ -52,13 +52,20 @@ else
             rm -rf "${TARGET_OPENCV}/samples"
         fi
 
-        # 5. Patch OpenCV build.gradle for AGP 9.0 Compatibility
         OPENCV_BUILD_GRADLE="${TARGET_OPENCV}/sdk/build.gradle"
         if [ -f "$OPENCV_BUILD_GRADLE" ]; then
-            echo "[+] Patching OpenCV build.gradle for AGP 9.0 compatibility..."
+            echo "[+] Patching OpenCV build.gradle..."
+
+            # 5. Patch for AGP 9.0 Compatibility (ProGuard)
             # Replace deprecated 'proguard-android.txt' with 'proguard-android-optimize.txt'
-            # Use a temporary file for sed compatibility across systems
             sed 's/proguard-android.txt/proguard-android-optimize.txt/g' "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
+
+            # 6. Patch for JVM Target Compatibility (Java 17)
+            # Replace 'JavaVersion.VERSION_1_8' with 'JavaVersion.VERSION_17'
+            # Note: Using sed with -i is safer with a backup extension, but since we are handling temp files manually above, we continue that pattern.
+            echo "[+] Upgrading OpenCV source compatibility to Java 17..."
+            sed 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
+
         else
             echo "[!] Warning: OpenCV build.gradle not found at $OPENCV_BUILD_GRADLE"
         fi
@@ -68,7 +75,7 @@ else
         exit 1
     fi
 
-    # 6. Cleanup
+    # 7. Cleanup
     rm "${TARGET_LIBS}/${OPENCV_ZIP}"
     echo "[+] OpenCV installed."
 fi
