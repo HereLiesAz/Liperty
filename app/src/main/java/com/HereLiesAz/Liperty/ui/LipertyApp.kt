@@ -24,7 +24,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.hereliesaz.aznavrail.*
+import com.hereliesaz.aznavrail.AzDockingSide
+import com.hereliesaz.aznavrail.AzHostActivityLayout
+import com.hereliesaz.aznavrail.AzNavHost
+import com.hereliesaz.aznavrail.AzTextBox
 
 @Composable
 fun LipertyApp(
@@ -134,6 +137,7 @@ fun LipertyApp(
                                 value = transcriptionText,
                                 onValueChange = onTextChange,
                                 onSubmit = { onSpeak() },
+                                onClear = { onClearTranscript() },
                                 hint = "Transcription...",
                                 modifier = Modifier.fillMaxWidth(),
                                 // Assuming AzTextBox handles multiline automatically or has a param
