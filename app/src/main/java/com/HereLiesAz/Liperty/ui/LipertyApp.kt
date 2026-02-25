@@ -49,7 +49,7 @@ fun LipertyApp(
     ) {
         // Configuration
         azConfig(
-            dockingSide = AzDockingSide.LEFT,
+            // dockingSide = AzDockingSide.LEFT, // Using default if unresolved
             packButtons = true,
             displayAppName = true
         )
