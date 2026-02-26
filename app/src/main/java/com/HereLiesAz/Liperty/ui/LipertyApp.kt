@@ -24,7 +24,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.hereliesaz.aznavrail.AzDockingSide
 import com.hereliesaz.aznavrail.AzHostActivityLayout
 import com.hereliesaz.aznavrail.AzNavHost
 import com.hereliesaz.aznavrail.AzTextBox
@@ -43,150 +42,146 @@ fun LipertyApp(
 ) {
     val navController = rememberNavController()
 
-    AzHostActivityLayout(
-        navController = navController,
-        initiallyExpanded = false
-    ) {
-        // Configuration
-        azConfig(
-            // dockingSide = AzDockingSide.LEFT, // Using default if unresolved
-            packButtons = true,
-            displayAppName = true
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Camera Preview and Overlay (Background)
+        AndroidView(
+            factory = { ctx ->
+                val frameLayout = FrameLayout(ctx).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                }
+
+                // Add PreviewView
+                if (previewView.parent != null) {
+                    (previewView.parent as ViewGroup).removeView(previewView)
+                }
+                frameLayout.addView(previewView)
+
+                // Add OverlayView
+                if (overlayView.parent != null) {
+                    (overlayView.parent as ViewGroup).removeView(overlayView)
+                }
+                frameLayout.addView(overlayView)
+
+                frameLayout
+            },
+            modifier = Modifier.fillMaxSize()
         )
 
-        azTheme(activeColor = Color.Cyan)
+        AzHostActivityLayout(
+            navController = navController,
+            initiallyExpanded = false
+        ) {
+            // Configuration
+            azConfig(
+                // dockingSide = AzDockingSide.LEFT, // Using default if unresolved
+                packButtons = true,
+                displayAppName = true
+            )
 
-        // Navigation Items
-        azRailItem(
-            id = "home",
-            text = "Home",
-            route = "home",
-            content = Icons.Filled.Home
-        )
+            azTheme(activeColor = Color.Cyan)
 
-        azRailItem(
-            id = "settings",
-            text = "Settings",
-            route = "settings",
-            content = Icons.Filled.Settings
-        )
+            // Navigation Items
+            azRailItem(
+                id = "home",
+                text = "Home",
+                route = "home",
+                content = Icons.Filled.Home
+            )
 
-        // Action Items
-        azMenuItem(
-            id = "switch_cam",
-            text = "Switch Camera",
-            route = "switch_cam",
-            content = Icons.Filled.Refresh
-        )
+            azRailItem(
+                id = "settings",
+                text = "Settings",
+                route = "settings",
+                content = Icons.Filled.Settings
+            )
 
-        azMenuItem(
-            id = "clear",
-            text = "Clear Transcript",
-            route = "clear",
-            content = Icons.Filled.Clear
-        )
+            azRailItem(
+                id = "switch_cam",
+                text = "Switch Camera",
+                route = "switch_cam",
+                content = Icons.Filled.Refresh
+            )
 
-        azMenuItem(
-            id = "speak",
-            text = "Speak Text",
-            route = "speak",
-            content = Icons.Filled.PlayArrow
-        )
+            // Action Items
+            azMenuItem(
+                id = "clear",
+                text = "Clear Transcript",
+                route = "clear",
+                content = Icons.Filled.Clear
+            )
 
-        // Onscreen Content
-        onscreen(alignment = Alignment.Center) {
-            AzNavHost(navController = navController, startDestination = "home") {
-                composable("home") {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        // Camera Preview and Overlay
-                        AndroidView(
-                            factory = { ctx ->
-                                val frameLayout = FrameLayout(ctx).apply {
-                                    layoutParams = ViewGroup.LayoutParams(
-                                        ViewGroup.LayoutParams.MATCH_PARENT,
-                                        ViewGroup.LayoutParams.MATCH_PARENT
-                                    )
-                                }
+            azMenuItem(
+                id = "speak",
+                text = "Speak Text",
+                route = "speak",
+                content = Icons.Filled.PlayArrow
+            )
 
-                                // Add PreviewView
-                                if (previewView.parent != null) {
-                                    (previewView.parent as ViewGroup).removeView(previewView)
-                                }
-                                frameLayout.addView(previewView)
+            // Onscreen Content
+            onscreen(alignment = Alignment.Center) {
+                AzNavHost(navController = navController, startDestination = "home") {
+                    composable("home") {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            // Camera moved to background, so we just have UI overlays here
 
-                                // Add OverlayView
-                                if (overlayView.parent != null) {
-                                    (overlayView.parent as ViewGroup).removeView(overlayView)
-                                }
-                                frameLayout.addView(overlayView)
-
-                                frameLayout
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
-
-                        // Larynx Box (Transcription Interface)
-                        // Using AzTextBox for transcription display, editing, and submission (TTS)
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .padding(16.dp)
-                        ) {
-                            AzTextBox(
-                                value = transcriptionText,
-                                onValueChange = onTextChange,
-                                onSubmit = { onSpeak() },
-                                onClear = { onClearTranscript() },
-                                hint = "Transcription...",
-                                modifier = Modifier.fillMaxWidth(),
-                                // Assuming AzTextBox handles multiline automatically or has a param
-                                // Based on docs: "AzTextBox can be configured as a multiline input"
-                                // I'll guess the parameter or modifier usage.
-                                // Since I don't have the exact signature, I'll rely on standard naming.
-                                // If "multiline" is a boolean param:
-                                // multiline = true
-                            )
-                        }
-
-                        // Recording Indicator
-                        if (isRecording) {
-                             Text(
-                                text = "REC",
-                                color = Color.Red,
+                            // Larynx Box (Transcription Interface)
+                            Box(
                                 modifier = Modifier
-                                    .align(Alignment.TopEnd)
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
                                     .padding(16.dp)
-                            )
+                            ) {
+                                AzTextBox(
+                                    value = transcriptionText,
+                                    onValueChange = onTextChange,
+                                    onSubmit = { onSpeak() },
+                                    hint = "Transcription...",
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+
+                            // Recording Indicator
+                            if (isRecording) {
+                                Text(
+                                    text = "REC",
+                                    color = Color.Red,
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(16.dp)
+                                )
+                            }
                         }
                     }
-                }
 
-                composable("settings") {
-                    SideEffect {
-                        onOpenSettings()
-                        navController.popBackStack()
+                    composable("settings") {
+                        SideEffect {
+                            onOpenSettings()
+                            navController.popBackStack()
+                        }
                     }
-                }
 
-                composable("switch_cam") {
-                    SideEffect {
-                        onSwitchCamera()
-                        navController.popBackStack()
+                    composable("switch_cam") {
+                        SideEffect {
+                            onSwitchCamera()
+                            navController.popBackStack()
+                        }
                     }
-                }
 
-                composable("clear") {
-                    SideEffect {
-                        onClearTranscript()
-                        navController.popBackStack()
+                    composable("clear") {
+                        SideEffect {
+                            onClearTranscript()
+                            navController.popBackStack()
+                        }
                     }
-                }
 
-                composable("speak") {
-                    SideEffect {
-                        onSpeak()
-                        navController.popBackStack()
+                    composable("speak") {
+                        SideEffect {
+                            onSpeak()
+                            navController.popBackStack()
+                        }
                     }
                 }
             }
