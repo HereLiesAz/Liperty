@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Text
@@ -141,6 +142,13 @@ fun LipertyApp(
                 toggleOnText  = "Back",
                 toggleOffText = "Front",
                 onClick       = { onSwitchCamera() }
+            )
+
+            azRailItem(
+                id      = "voice_mgmt",
+                text    = "Voice",
+                route   = "voice_mgmt",
+                content = Icons.Filled.RecordVoiceOver
             )
 
             azRailItem(
