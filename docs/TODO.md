@@ -76,9 +76,10 @@ This document serves as the master source of truth for the Liperty project. It m
 - [x] **Visual Hand Gestures (Waving):**
     - [x] **Wave-to-Pause:** Implement hand wave detection in `FaceLandmarkerHelper` to act as a pause button for TTS and inference (Integrated in `MainActivity.kt`).
     - [x] **Air-Swipe:** Map horizontal hand movement directions to homophene cycling (simulating touch swipes).
-- [ ] **Visual Feedback:**
+- [x] **Visual Feedback:**
     - [x] Draw bounding boxes (Green=Face, Blue=Lips).
-    - [x] **Dynamic Overlay:** Generate transcription text directly over camera view with pinch-to-zoom font scaling.
+    - [x] **Dynamic Overlay:** Generate transcription text directly over camera view with pinch-to-zoom font scaling (Implemented in `LipertyApp.kt`).
+    - [x] **Word Selection:** Tappable word blocks for manual correction and homophene cycling.
     - [ ] **Confidence Heatmap:** Color-code transcribed words based on model confidence (e.g., Red for high ambiguity).
 
 ---
@@ -108,6 +109,6 @@ This document serves as the master source of truth for the Liperty project. It m
 
 ## 🎯 Immediate Next Steps for AI Agent
 
-1. **PRODUCE MODEL:** You cannot proceed without `vsr_model.tflite`. Either locate the model or provide a script to generate a dummy TFLite with the correct I/O shapes [1, 50, 88, 88, 1] -> [1, 50, 40] to allow pipeline testing.
-2. **NDK INTEGRATION:** Create a JNI layer for OpenCV to handle the high-frequency image normalization in C++.
-3. **EXPAND HOMOPHENES:** Transform `HomopheneCorrector` into a JSON-backed dictionary covering the top 5,000 English words.
+1. **VALLR INTEGRATION:** Replace dummy character indexing with the actual 38-phoneme map from the VALLR research paper.
+2. **ZERO-ALLOCATION:** Refactor the `FrameBuffer` to use a circular buffer of `ByteBuffer` instead of `Bitmap` to eliminate GC pauses.
+3. **CONFIDENCE HEATMAP:** Implement word-level confidence shading in the Compose overlay.

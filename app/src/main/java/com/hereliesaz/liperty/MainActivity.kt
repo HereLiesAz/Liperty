@@ -71,8 +71,13 @@ class MainActivity : ComponentActivity() {
     private val isSSIModeState = mutableStateOf(false)
 
     // Camera State
-    private var currentLensFacing = CameraSelector.LENS_FACING_BACK
+    private var currentLensFacing = CameraSelector.LENS_FACING_FRONT
     private var telephotoPreference = true
+
+    // Sensitivity State
+    private val vsrSensitivity = mutableStateOf(0.5f)
+    private val larynxSensitivity = mutableStateOf(0.5f)
+    private val isDarkTheme = mutableStateOf(true)
 
     // Flag to prevent overlapping inference calls
     private var isInferencing = false

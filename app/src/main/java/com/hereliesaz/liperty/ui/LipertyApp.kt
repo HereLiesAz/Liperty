@@ -27,7 +27,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,8 +64,16 @@ fun LipertyApp(
     onClearTranscript: () -> Unit,
     onSpeak: () -> Unit,
     onToggleSSI: () -> Unit = {},
+    onToggleLipRead: () -> Unit = {},
     isPaused: Boolean = false,
     isSSIActive: Boolean = false,
+    isLipReadActive: Boolean = false,
+    currentLensFacing: Int = 0, // 0 for Front, 1 for Back
+    vsrSensitivity: Float = 0.5f,
+    onVsrSensitivityChange: (Float) -> Unit = {},
+    larynxSensitivity: Float = 0.5f,
+    onLarynxSensitivityChange: (Float) -> Unit = {},
+    isDarkTheme: Boolean = true,
     onRegisterCalibrationCallback: (((Bitmap) -> Unit)?) -> Unit = {}
 ) {
     val navController = rememberNavController()
@@ -98,7 +109,7 @@ fun LipertyApp(
                 displayAppName = true
             )
 
-            azTheme(activeColor = Color.Cyan)
+            azTheme(activeColor = Color.White)
 
             // ── Navigation rail items ─────────────────────────────────────
             azRailItem(
@@ -109,6 +120,14 @@ fun LipertyApp(
             )
 
             azRailToggle(
+                id            = "lipread",
+                isChecked     = isLipReadActive,
+                toggleOnText  = "Lip-Read ON",
+                toggleOffText = "Lip-Read OFF",
+                onClick       = { onToggleLipRead() }
+            )
+
+            azRailToggle(
                 id            = "voicebox",
                 isChecked     = isSSIActive,
                 toggleOnText  = "Larynx ON",
@@ -116,25 +135,26 @@ fun LipertyApp(
                 onClick       = { onToggleSSI() }
             )
 
-            azRailItem(
-                id      = "settings",
-                text    = "Settings",
-                route   = "settings",
-                content = Icons.Filled.Settings
+            azRailToggle(
+                id            = "switch_cam",
+                isChecked     = currentLensFacing == 1, // 1 for Back
+                toggleOnText  = "Back",
+                toggleOffText = "Front",
+                onClick       = { onSwitchCamera() }
             )
 
             azRailItem(
                 id      = "calibrate",
                 text    = "Personalize",
                 route   = "calibrate",
-                content = Icons.Filled.Refresh // Use appropriate icon if available
+                content = Icons.Filled.Refresh
             )
 
             azRailItem(
-                id      = "switch_cam",
-                text    = "Switch Camera",
-                route   = "switch_cam",
-                content = Icons.Filled.Refresh
+                id      = "settings",
+                text    = "Settings",
+                route   = "settings",
+                content = Icons.Filled.Settings
             )
 
             // ── Action menu items ─────────────────────────────────────────
