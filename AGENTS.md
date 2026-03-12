@@ -25,6 +25,7 @@ You must run the setup script before building:
 This script:
 - Downloads and configures the OpenCV Android SDK (v4.10.0+).
 - Patches OpenCV's `build.gradle` for compatibility with AGP 9.0 and Java 17.
+- Downloads the **Project Bundle** (VALLR, tools/external, and data) from Google Drive.
 - Downloads the MediaPipe Face Landmarker task.
 - Generates a dummy VSR TFLite model if a real one is not present.
 

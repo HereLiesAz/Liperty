@@ -27,7 +27,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Dependencies
+      - name: Cache Project Bundle
+        id: cache-bundle
+        uses: actions/cache@v4
+        with:
+          path: |
+            VALLR/
+            data/
+            tools/external/
+          key: ${{ runner.os }}-bundle-${{ hashFiles('setup_libs.sh') }}
+
+      - name: Setup Dependencies (OpenCV & Project Bundle)
         run: chmod +x setup_libs.sh && ./setup_libs.sh
 
       - name: Inject Google Services

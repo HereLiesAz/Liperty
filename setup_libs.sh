@@ -82,7 +82,32 @@ fi
 
 # --- Model Setup ---
 
-echo "[+] Setting up Models..."
+echo "[+] Setting up Models & Data..."
+
+# VALLR & Tools Zip (from Google Drive)
+GD_FILE_ID="1VBSOMX-SCgbFmMP3NhbwwY_FrNTPj_RN"
+DATA_ZIP="avsr_vallr_others.zip"
+
+if [ ! -f "VALLR/VALLR.path" ]; then
+    echo "[+] Downloading project bundle (VALLR, tools, data)..."
+    # Using curl/wget to fetch from Google Drive (handles virus scan warning for large files)
+    if command -v curl &> /dev/null; then
+        CONFIRM=$(curl -sc /tmp/gdrive_cookie.txt "https://drive.google.com/uc?export=download&id=${GD_FILE_ID}" | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/\1/p')
+        curl -Lb /tmp/gdrive_cookie.txt "https://drive.google.com/uc?export=download&confirm=${CONFIRM}&id=${GD_FILE_ID}" -o "$DATA_ZIP"
+    elif command -v wget &> /dev/null; then
+        wget --load-cookies /tmp/gdrive_cookie.txt "https://docs.google.com/uc?export=download&confirm=$(wget --quiet --save-cookies /tmp/gdrive_cookie.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id='${GD_FILE_ID} -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/\1/p')" -O "$DATA_ZIP" && rm -rf /tmp/gdrive_cookie.txt
+    fi
+
+    if [ -f "$DATA_ZIP" ]; then
+        echo "[+] Extracting ${DATA_ZIP}..."
+        unzip -o "$DATA_ZIP"
+        rm "$DATA_ZIP"
+    else
+        echo "[!] Warning: Could not download project bundle."
+    fi
+else
+    echo "[*] Project bundle already installed."
+fi
 
 # VSR Model (Dummy Generation if missing)
 if [ ! -f "${TARGET_ASSETS}/vsr_model.tflite" ]; then

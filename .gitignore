@@ -32,3 +32,10 @@ google-services.json
 
 # Android Profiling
 *.hprof
+/.kotlin/sessions/kotlin-compiler-14111411014190535501.salive
+
+# External Data & Model Bundles (provisioned via setup_libs.sh)
+VALLR/
+data/
+tools/external/
+avsr_vallr_others.zip
