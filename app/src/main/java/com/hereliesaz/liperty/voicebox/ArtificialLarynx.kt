@@ -33,20 +33,18 @@ class ArtificialLarynx(context: Context) {
     fun start() {
         if (isActive.getAndSet(true)) return
 
-        val effect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // Create a repeating waveform. 
-            // 255 intensity for maximum laryngeal projection.
-            VibrationEffect.createWaveform(longArrayOf(0, 1000), intArrayOf(0, 255), 0)
-        } else {
-            null
-        }
+        // Create a repeating waveform for continuous carrier signal.
+        // timings: [off_duration, on_duration]
+        // amplitudes: [off_intensity, on_intensity]
+        // repeat: 0 (index to start repeating from)
+        // Using a single long 'on' period for a steady buzz.
+        val effect = VibrationEffect.createWaveform(
+            longArrayOf(0, 5000), 
+            intArrayOf(0, 255), 
+            0
+        )
 
-        if (effect != null) {
-            vibrator.vibrate(effect)
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator.vibrate(longArrayOf(0, 1000), 0)
-        }
+        vibrator.vibrate(effect)
     }
 
     fun stop() {

@@ -58,12 +58,14 @@ class VibraPhoneDSP {
     }
 
     /**
-     * Applies Frequency Domain Equalization to correct formant shifting caused by the motor's mass.
+     * Applies Frequency Domain Equalization to correct formant shifting caused by the sensor's mass.
      * The physical mass of the sensor (LRA or phone chassis) acts as a low-pass filter and shifts resonances.
      */
     fun frequencyDomainEqualization(inputSignal: FloatArray): FloatArray {
-        // Apply an inverse filter approximating the motor's transfer function.
-        // Research (VibraPhone 2016) suggests a boosting of high frequencies and shifting formants down.
+        // Apply an inverse filter approximating the sensor's transfer function.
+        // In SSI mode with Artificial Larynx, the carrier buzz is the sound source.
+        // We boost speech-frequency bands (300Hz - 3kHz) where the user's vocal tract
+        // modulation is concentrated.
         
         val complexSpectrum = fft(inputSignal)
         val n = complexSpectrum.size / 2
@@ -71,20 +73,12 @@ class VibraPhoneDSP {
         for (i in 0 until n) {
             val freq = i * SAMPLE_RATE.toFloat() / FRAME_SIZE
             
-            // 1. High-frequency boost (compensate for ~20dB/decade drop above 1kHz)
-            val boost = if (freq > 1000f) {
-                1.0f + (freq - 1000f) / 500f // Linear approximation of inverse slope
-            } else {
-                1.0f
-            }
+            // Boost speech modulation band (approx 300Hz to 3.5kHz)
+            // This emphasizes the modulation created by mouth movements over the raw carrier.
+            val gain = if (freq in 300f..3500f) 2.5f else 1.0f
             
-            // 2. Formant shifting (simplified shift)
-            // Laryngeal sensors often shift formants UP due to mass loading.
-            // We want to shift them back DOWN or compensate.
-            // This is complex in a simple loop, usually involves interpolating the spectrum.
-            
-            complexSpectrum[2 * i] *= boost
-            complexSpectrum[2 * i + 1] *= boost
+            complexSpectrum[2 * i] *= gain
+            complexSpectrum[2 * i + 1] *= gain
         }
         
         return ifft(complexSpectrum)

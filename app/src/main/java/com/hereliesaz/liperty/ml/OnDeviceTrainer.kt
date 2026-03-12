@@ -3,7 +3,7 @@ package com.hereliesaz.liperty.ml
 import android.content.Context
 import android.util.Log
 import org.tensorflow.lite.Interpreter
-import org.tensorflow.lite.support.common.FileUtil
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -15,17 +15,25 @@ class OnDeviceTrainer(private val context: Context) {
 
     private var interpreter: Interpreter? = null
     private val MODEL_NAME = "vsr_lora_model.tflite"
+    private val modelFileInFilesDir: File by lazy { File(context.filesDir, MODEL_NAME) }
 
     fun initialize() {
         try {
+            // Copy model from assets to filesDir if not present, so we can update it
+            if (!modelFileInFilesDir.exists()) {
+                context.assets.open(MODEL_NAME).use { input ->
+                    modelFileInFilesDir.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                Log.i("OnDeviceTrainer", "Copied base model to internal storage for personalization.")
+            }
+
             val options = Interpreter.Options()
-            // Training usually requires CPU as GPU delegates rarely support training ops (Select TF ops)
-            options.setUseNNAPI(false)
+            // Training usually requires CPU as GPU delegates rarely support training ops
             
-            // Load the model
-            val modelFile = FileUtil.loadMappedFile(context, MODEL_NAME)
-            interpreter = Interpreter(modelFile, options)
-            Log.i("OnDeviceTrainer", "Trainable LoRA Model loaded successfully")
+            interpreter = Interpreter(modelFileInFilesDir, options)
+            Log.i("OnDeviceTrainer", "Trainable LoRA Model loaded from ${modelFileInFilesDir.absolutePath}")
         } catch (e: Exception) {
             Log.e("OnDeviceTrainer", "Failed to load trainable model", e)
         }

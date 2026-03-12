@@ -23,6 +23,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
 import com.hereliesaz.liperty.camera.CameraManager
+import com.hereliesaz.liperty.ml.CalibrationViewModel
 import com.hereliesaz.liperty.ml.FaceLandmarkerHelper
 import com.hereliesaz.liperty.ml.HandGestureHelper
 import com.hereliesaz.liperty.ml.FrameBuffer
@@ -72,6 +73,7 @@ class MainActivity : ComponentActivity() {
     private var isInferencing = false
     private val isPausedState = mutableStateOf(false)
     private var frameCount = 0
+    private var calibrationCallback: ((Bitmap) -> Unit)? = null
 
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
@@ -238,18 +240,10 @@ class MainActivity : ComponentActivity() {
             PerformanceMonitor.logFrame()
             frameCount++
             
-            val rotationDegrees = imageProxy.imageInfo.rotationDegrees
-            val rawBitmap = com.hereliesaz.liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy)
+            // Note: CameraX 1.3.0+ toBitmap() ALREADY applies rotationDegrees.
+            // Manual rotation here causes double-rotation (e.g. 270+270 = 180/upside down).
+            val bitmap = com.hereliesaz.liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy)
             
-            // Rotate bitmap to upright orientation
-            val bitmap = if (rotationDegrees != 0) {
-                val rotated = com.hereliesaz.liperty.utils.ImageUtils.rotateBitmap(rawBitmap, rotationDegrees.toFloat())
-                rawBitmap.recycle()
-                rotated
-            } else {
-                rawBitmap
-            }
-
             // Wave-to-Pause hand gesture check
             if (frameCount % 5 == 0) {
                 val gesture = handGestureHelper.detectSynchronously(bitmap)

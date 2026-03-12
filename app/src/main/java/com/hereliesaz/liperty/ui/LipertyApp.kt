@@ -1,5 +1,6 @@
 package com.hereliesaz.liperty.ui
 
+import android.graphics.Bitmap
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.camera.view.PreviewView
@@ -25,6 +26,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.hereliesaz.liperty.voicebox.spike.SpikeScreen
+import com.hereliesaz.liperty.ui.CalibrationScreen
 import com.hereliesaz.aznavrail.AzHostActivityLayout
 import com.hereliesaz.aznavrail.AzNavHost
 import com.hereliesaz.aznavrail.AzTextBox
@@ -40,7 +42,8 @@ fun LipertyApp(
     onOpenSettings: () -> Unit,
     onClearTranscript: () -> Unit,
     onSpeak: () -> Unit,
-    isPaused: Boolean = false
+    isPaused: Boolean = false,
+    onCalibrationFrame: (Bitmap) -> Unit = {}
 ) {
     val navController = rememberNavController()
 
@@ -100,6 +103,13 @@ fun LipertyApp(
             )
 
             azRailItem(
+                id      = "calibrate",
+                text    = "Personalize",
+                route   = "calibrate",
+                content = Icons.Filled.Refresh // Use appropriate icon if available
+            )
+
+            azRailItem(
                 id      = "switch_cam",
                 text    = "Switch Camera",
                 route   = "switch_cam",
@@ -156,6 +166,12 @@ fun LipertyApp(
                     // Voice Box spike screen — full Compose, no Activity needed
                     composable("voicebox") {
                         SpikeScreen()
+                    }
+
+                    composable("calibrate") {
+                        CalibrationScreen(
+                            onDone = { navController.popBackStack() }
+                        )
                     }
 
                     composable("settings") {
