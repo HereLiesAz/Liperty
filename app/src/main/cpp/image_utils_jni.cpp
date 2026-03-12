@@ -8,7 +8,7 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_HereLiesAz_Liperty_utils_ImageUtils_applyHistogramEqualization(
+Java_com_hereliesaz_liperty_utils_ImageUtils_applyHistogramEqualization(
         JNIEnv* env,
         jobject /* this */,
         jlong matAddr) {

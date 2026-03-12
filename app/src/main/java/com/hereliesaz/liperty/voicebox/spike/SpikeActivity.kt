@@ -1,4 +1,4 @@
-package com.HereLiesAz.liperty.voicebox.spike
+package com.hereliesaz.liperty.voicebox.spike
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -38,7 +38,7 @@ import kotlin.math.sqrt
  * Throwaway diagnostic UI — NOT part of the final Liperty nav graph.
  * To launch during development, start this Activity directly:
  *
- *   adb shell am start -n com.HereLiesAz.Liperty/.voicebox.spike.SpikeActivity
+ *   adb shell am start -n com.hereliesaz.liperty/.voicebox.spike.SpikeActivity
  *
  * Or add a temporary debug menu entry in MainActivity and remove before release.
  *
@@ -245,7 +245,7 @@ class SpikeActivity : ComponentActivity() {
                                                 appendLine()
                                                 appendLine("Pull with:")
                                                 appendLine("adb pull /sdcard/Android/data/")
-                                                appendLine("com.HereLiesAz.Liperty/files/")
+                                                appendLine("com.hereliesaz.liperty/files/")
                                             }
                                         },
                                         onError = { msg ->

@@ -1,4 +1,4 @@
-package com.HereLiesAz.liperty
+package com.hereliesaz.liperty
 
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4

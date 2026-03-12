@@ -1,4 +1,4 @@
-package com.HereLiesAz.liperty.camera
+package com.hereliesaz.liperty.camera
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider

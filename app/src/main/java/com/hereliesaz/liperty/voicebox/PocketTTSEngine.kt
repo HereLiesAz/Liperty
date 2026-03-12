@@ -6,6 +6,7 @@ import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.util.Log
 import java.io.File
+import java.io.Serializable
 import java.nio.FloatBuffer
 
 /**
@@ -78,8 +79,6 @@ class PocketTTSEngine(private val context: Context) {
         ortEnv.close()
     }
 }
-
-import java.io.Serializable
 
 /**
  * Represents the identity of a cloned voice.

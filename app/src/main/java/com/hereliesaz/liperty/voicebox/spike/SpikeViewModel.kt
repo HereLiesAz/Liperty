@@ -86,7 +86,7 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
                         "",
                         "Pull with:",
                         "adb pull /sdcard/Android/data/",
-                        "com.HereLiesAz.Liperty/files/"
+                        "com.hereliesaz.liperty/files/"
                     )
                 )
             },

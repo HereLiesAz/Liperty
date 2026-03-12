@@ -1,4 +1,4 @@
-package com.HereLiesAz.liperty.ml
+package com.hereliesaz.liperty.ml
 
 import android.graphics.Bitmap
 import androidx.test.ext.junit.runners.AndroidJUnit4

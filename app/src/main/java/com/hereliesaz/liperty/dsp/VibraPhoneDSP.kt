@@ -1,4 +1,4 @@
-package com.HereLiesAz.liperty.dsp
+package com.hereliesaz.liperty.dsp
 
 import kotlin.math.atan2
 import kotlin.math.cos
