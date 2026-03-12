@@ -228,7 +228,19 @@ class MainActivity : ComponentActivity() {
         // We reuse the programmatically created previewView
         val analyzer = ImageAnalysis.Analyzer { imageProxy ->
             PerformanceMonitor.logFrame()
-            val bitmap = com.hereliesaz.liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy)
+            
+            val rotationDegrees = imageProxy.imageInfo.rotationDegrees
+            val rawBitmap = com.hereliesaz.liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy)
+            
+            // Rotate bitmap to upright (display) orientation before processing
+            val bitmap = if (rotationDegrees != 0) {
+                val rotated = com.hereliesaz.liperty.utils.ImageUtils.rotateBitmap(rawBitmap, rotationDegrees.toFloat())
+                rawBitmap.recycle()
+                rotated
+            } else {
+                rawBitmap
+            }
+
             // Synchronous detection
             val result = faceLandmarkerHelper.detectSynchronously(bitmap)
 
