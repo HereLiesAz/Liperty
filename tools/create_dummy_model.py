@@ -21,9 +21,26 @@ def create_dummy_model():
     x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(64, return_sequences=True))(x)
 
     # Output layer: Project to 40 character classes (including CTC blank)
-    output_layer = tf.keras.layers.Dense(40, activation='softmax', name="ctc_output")(x)
+    # Using a kernel initializer that favors index 0 (blank) to avoid "VG" bias
+    output_layer = tf.keras.layers.Dense(
+        40,
+        activation='softmax',
+        name="ctc_output",
+        kernel_initializer=tf.keras.initializers.RandomNormal(mean=0.0, stddev=0.01),
+        bias_initializer=tf.keras.initializers.Constant(value=-10.0) # Low bias for tokens
+    )(x)
+
+    # Set bias for index 0 (blank) to be high
+    # (Note: This is hard to do in a simple Keras functional API setup without a custom layer,
+    # but we can try to adjust the bias of the dense layer after creation)
 
     model = tf.keras.Model(inputs=input_layer, outputs=output_layer)
+
+    # Manually adjust bias to favor blank (index 0) to prevent constant "VG" output
+    weights = model.get_layer("ctc_output").get_weights()
+    biases = weights[1]
+    biases[0] = 10.0 # High bias for blank
+    model.get_layer("ctc_output").set_weights([weights[0], biases])
 
     # Convert to TFLite with flex ops if needed, or standard
     converter = tf.lite.TFLiteConverter.from_keras_model(model)

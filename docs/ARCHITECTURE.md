@@ -2,72 +2,48 @@
 
 ## Overview
 
-The Liperty application architecture is designed for real-time, on-device execution of Visual Speech Recognition (VSR) models. It prioritizes low latency (sub-100ms) and privacy (zero-cloud dependencies).
+The Liperty application architecture is designed for real-time, on-device execution of Visual Speech Recognition (VSR) and Silent Speech Interface (SSI) models. It prioritizes low latency (sub-100ms) and absolute privacy (RAM-only ephemeral processing).
 
-## High-Level Pipeline
+## Core Pipelines
 
-1.  **Camera Input (CameraX):**
-    *   **Goal:** Capture high-quality video frames.
-    *   **Configuration:**
-        *   **Resolution:** 1080p (downscaled for ROI).
-        *   **FPS:** 25-30 FPS fixed.
-        *   **Lens Selection:** Prefer **Telephoto** (2x/3x) for rear camera to minimize "moustache distortion" (geometric warping of facial features). Prefer Front-facing for SSI.
-    *   **Stabilization:** Hardware OIS + Software smoothing (Kalman Filter) on bounding box coordinates.
+### 1. Vision & VSR Pipeline
+*   **Input (CameraX):** Captures high-quality frames, defaulting to the Front camera. Rear camera utilizes Telephoto lenses where available to minimize perspective distortion.
+*   **Preprocessing (JNI/OpenCV):**
+    *   **Stabilization:** `RectKalmanFilter` smooths bounding box coordinates to counter hand jitter.
+    *   **Normalization:** Gaussian Blur and Histogram Equalization implemented in C++ via pixel locking for high-frequency efficiency.
+*   **Inference (LiteRT):** Executes `.tflite` models (VALLR/DeepLip) with GPU acceleration.
+*   **Decoding:** Custom CTC Beam Search with prefix merging for accurate linguistic reconstruction.
 
-2.  **Frame Preprocessing (MediaPipe + OpenCV/Bitmap):**
-    *   **Face Detection:** MediaPipe Face Mesh (BlazeFace).
-    *   **Landmark Extraction:** 468 3D landmarks.
-    *   **Lip ROI Extraction:**
-        *   Identify upper/lower lip vermilion borders.
-        *   Apply affine transformation to neutralize head roll/pitch/yaw.
-        *   Crop to consistent size (e.g., 96x96, 112x112, 128x128).
-    *   **Normalization:** Convert to Grayscale -> Gaussian Blur -> Contrast Stretching (Histogram Equalization).
+### 2. Laryngeal Sensing (SSI) Pipeline
+*   **Carrier (Artificial Larynx):** High-intensity multi-motor vibration via `VibratorManager` acts as a carrier sound source.
+*   **Sensing (Multimodal):**
+    *   **Contact-mic:** Captures throat-conducted audio via the `VOICE_RECOGNITION` source.
+    *   **Accelerometer:** Tracks 0-400Hz laryngeal vibrations for high-precision VAD gating.
+*   **DSP Stage:**
+    *   **Spectral Subtraction:** Removes haptic noise using a calibrated noise profile.
+    *   **Equalization:** Emphasizes speech-modulation bands (300Hz–3.5kHz).
+    *   **Expansion:** Extrapolates harmonics beyond the 2kHz laryngeal "deaf zone."
 
-3.  **Visual Speech Recognition (VSR) Model (LiteRT / TensorFlow Lite):**
-    *   **Input:** Sequence of grayscale lip ROIs (Tensor: `[Batch, Time, Height, Width, Channel]`).
-    *   **Model Options:**
-        *   **DeepLip (CNN-LSTM-CTC):** Lightweight, suitable for older devices.
-        *   **VALLR (Transformer + LLM):** State-of-the-art. Encoder predicts phonemes; Decoder reconstructs words.
-    *   **Execution:** GPU Delegate for CNN/Transformer layers.
-
-4.  **Language Model Decoding (On-Device LLM):**
-    *   **Input:** Raw phoneme/viseme sequence or CTC probabilities.
-    *   **Processing:**
-        *   **Beam Search:** Find most likely word sequences.
-        *   **Homophene Correction:** Use language context to disambiguate (e.g., "pat" vs "bat" vs "mat").
-    *   **Execution:** NPU Delegate (if available) for transformer operations.
-
-5.  **User Interface (Jetpack Compose / View System):**
-    *   **OverlayView:** Draws bounding box around mouth to confirm tracking.
-    *   **TranscriptionView:** Displays real-time text.
-    *   **Gesture Correction:**
-        *   Swipe Left/Right on a word to cycle through homophene candidates.
-        *   Swipe Up to Speak (TTS).
-
-## Data Flow
-
-```mermaid
-graph TD
-    A[CameraX Stream] -->|ImageProxy| B[FrameAnalyzer]
-    B -->|Bitmap| C[FaceMesh Detector]
-    C -->|Landmarks| D[ROI Extractor]
-    D -->|Cropped Lip Frames| E[Input Buffer]
-    E -->|Tensor Batch| F[TFLite Interpreter (VSR)]
-    F -->|Phonemes/Visemes| G[Language Decoder (LLM)]
-    G -->|Text| H[UI State]
-    H -->|Render| I[Screen]
-```
+### 3. Voice Management
+*   **PocketTTS Engine:** Executes ONNX-based voice cloning models locally.
+*   **VoiceStore:** Securely persists voice embeddings and identities.
 
 ## Hardware Acceleration Strategy
 
-*   **Vision Pipeline (MediaPipe):** GPU.
-*   **VSR Encoder (CNN/Transformer):** GPU or DSP.
-*   **LLM Decoder:** NPU (Neural Processing Unit) via NNAPI or TFLite Delegates.
+*   **Vision Pipeline:** GPU via MediaPipe and OpenCV NDK.
+*   **ML Inference:** GPU/NPU delegates for TFLite.
+*   **DSP Pipeline:** SIMD-optimized FFT operations where applicable.
 
-## Key Technologies
+## UI/UX Framework
 
-*   **Language:** Kotlin
-*   **Camera:** CameraX
-*   **ML:** TensorFlow Lite (LiteRT), MediaPipe
-*   **Concurrency:** Kotlin Coroutines, Flow
-*   **UI:** Jetpack Compose (or XML Layouts for overlay performance)
+*   **Jetpack Compose:** Powers the main interactive overlay and navigation.
+*   **AzNavRail:** A specialized navigation system for assistive accessibility.
+*   **Multi-touch Gestures:** Transformable modifiers for pinch-to-zoom text scaling.
+*   **MediaPipe Hand Landmarker:** Enables hands-free "Air Gesture" controls.
+
+## Technical Stack
+
+*   **Language:** Kotlin (Native) / C++ (NDK).
+*   **ML:** LiteRT (TensorFlow Lite), MediaPipe, ONNX Runtime.
+*   **Sensors:** Camera2/CameraX, Android Sensor Framework, Vibrator API.
+*   **Concurrency:** Kotlin Coroutines & StateFlow.

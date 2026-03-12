@@ -6,6 +6,11 @@ import android.widget.FrameLayout
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
@@ -78,8 +83,10 @@ fun LipertyApp(
     onRegisterCalibrationCallback: (((Bitmap) -> Unit)?) -> Unit = {}
 ) {
     val navController = rememberNavController()
+    val backgroundColor = if (isDarkTheme) Color(0xFF0A0A0F) else Color(0xFFF5F5F7)
+    val textColor = if (isDarkTheme) Color.White else Color.Black
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().background(backgroundColor)) {
 
         // Camera preview + overlay in the background
         AndroidView(
@@ -201,6 +208,38 @@ fun LipertyApp(
                             .fillMaxSize()
                             .transformable(state = transformState)
                         ) {
+                            // Sensitivity Sliders
+                            Column(
+                                modifier = Modifier
+                                    .align(Alignment.CenterStart)
+                                    .padding(16.dp)
+                                    .width(48.dp)
+                                    .fillMaxHeight(),
+                                verticalArrangement = Arrangement.Center,
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                if (isLipReadActive) {
+                                    Text("VSR", color = textColor, fontSize = 10.sp)
+                                    Slider(
+                                        value = vsrSensitivity,
+                                        onValueChange = onVsrSensitivityChange,
+                                        modifier = Modifier.weight(1f).height(200.dp),
+                                        colors = SliderDefaults.colors(thumbColor = textColor, activeTrackColor = textColor)
+                                    )
+                                }
+                                
+                                if (isSSIActive) {
+                                    Spacer(Modifier.height(16.dp))
+                                    Text("LRA", color = Color.Cyan, fontSize = 10.sp)
+                                    Slider(
+                                        value = larynxSensitivity,
+                                        onValueChange = onLarynxSensitivityChange,
+                                        modifier = Modifier.weight(1f).height(200.dp),
+                                        colors = SliderDefaults.colors(thumbColor = Color.Cyan, activeTrackColor = Color.Cyan)
+                                    )
+                                }
+                            }
+
                             if (transcriptionWords.isNotEmpty()) {
                                 FlowRow(
                                     modifier = Modifier
