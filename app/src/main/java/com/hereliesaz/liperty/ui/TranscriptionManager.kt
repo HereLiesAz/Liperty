@@ -73,4 +73,8 @@ class TranscriptionManager(private val context: Context) {
     fun getSelectedWordIndex(): Int {
         return selectedWordIndex
     }
+
+    fun getWords(): List<String> {
+        return words.toList()
+    }
 }

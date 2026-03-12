@@ -5,12 +5,16 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.GraphicEq
@@ -28,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -47,7 +52,9 @@ import com.hereliesaz.aznavrail.AzNavHost
 fun LipertyApp(
     previewView: PreviewView,
     overlayView: OverlayView,
-    transcriptionText: String,
+    transcriptionWords: List<String>,
+    selectedWordIndex: Int,
+    onWordClick: (Int) -> Unit,
     isRecording: Boolean,
     onSwitchCamera: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -101,12 +108,12 @@ fun LipertyApp(
                 content = Icons.Filled.Home
             )
 
-            azRailItem(
-                id      = "voicebox",
-                text    = "Voice Box",
-                route   = "voicebox",
-                content = Icons.Filled.GraphicEq,
-                active  = isSSIActive
+            azRailToggle(
+                id            = "voicebox",
+                isChecked     = isSSIActive,
+                toggleOnText  = "Larynx ON",
+                toggleOffText = "Larynx OFF",
+                onClick       = { onToggleSSI() }
             )
 
             azRailItem(
@@ -159,19 +166,32 @@ fun LipertyApp(
                             .fillMaxSize()
                             .transformable(state = transformState)
                         ) {
-                            if (transcriptionText.isNotEmpty()) {
-                                Text(
-                                    text = transcriptionText,
-                                    color = Color.White,
-                                    fontSize = fontSize.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    textAlign = TextAlign.Center,
+                            if (transcriptionWords.isNotEmpty()) {
+                                FlowRow(
                                     modifier = Modifier
                                         .align(Alignment.Center)
                                         .padding(32.dp)
-                                        .background(Color.Black.copy(alpha = 0.4f))
-                                        .padding(8.dp)
-                                )
+                                        .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    transcriptionWords.forEachIndexed { index, word ->
+                                        val isSelected = index == selectedWordIndex
+                                        Text(
+                                            text = word,
+                                            color = if (isSelected) Color.Cyan else Color.White,
+                                            fontSize = fontSize.sp,
+                                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Normal,
+                                            modifier = Modifier
+                                                .padding(4.dp)
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(if (isSelected) Color.Cyan.copy(alpha = 0.2f) else Color.Transparent)
+                                                .clickable { onWordClick(index) }
+                                                .padding(horizontal = 4.dp)
+                                        )
+                                    }
+                                }
                             }
 
                             if (isRecording) {
@@ -183,14 +203,6 @@ fun LipertyApp(
                                         .padding(16.dp)
                                 )
                             }
-                        }
-                    }
-
-                    // Voice Box toggle — starts artificial larynx carrier
-                    composable("voicebox") {
-                        SideEffect {
-                            onToggleSSI()
-                            navController.popBackStack()
                         }
                     }
 

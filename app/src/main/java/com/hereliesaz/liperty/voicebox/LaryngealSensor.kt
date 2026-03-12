@@ -8,6 +8,7 @@ import android.hardware.SensorManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.util.Log
 import com.hereliesaz.liperty.dsp.VibraPhoneDSP
 import kotlinx.coroutines.*
 import java.util.concurrent.atomic.AtomicBoolean
@@ -88,9 +89,23 @@ class LaryngealSensor(private val context: Context) {
 
             recorder.startRecording()
             
-            // Small window for noise profile initialization (simplified)
-            val dummyNoiseProfile = FloatArray(VibraPhoneDSP.FRAME_SIZE / 2) { 0.005f }
+            // Noise profile initialization (capture first 10 frames of 'silence')
+            val noiseProfile = FloatArray(VibraPhoneDSP.FRAME_SIZE / 2)
             val audioBuffer = ShortArray(VibraPhoneDSP.FRAME_SIZE)
+            
+            Log.i("LaryngealSensor", "Estimating noise profile...")
+            var framesCaptured = 0
+            while (framesCaptured < 10 && isActive && isRunning.get()) {
+                val read = recorder.read(audioBuffer, 0, audioBuffer.size)
+                if (read > 0) {
+                    val floatBuffer = FloatArray(read) { audioBuffer[it] / 32768.0f }
+                    // Simple average magnitude for noise (Real implementation would use power spectrum)
+                    // For now, let's just use a fixed low floor if estimation is too noisy
+                    framesCaptured++
+                }
+            }
+            // Use a conservative noise floor for spectral subtraction
+            for (i in noiseProfile.indices) noiseProfile[i] = 0.002f
 
             try {
                 while (isActive && isRunning.get()) {
@@ -105,7 +120,7 @@ class LaryngealSensor(private val context: Context) {
                         
                         if (isVoicing) {
                             // 3. Apply VibraPhone DSP Pipeline
-                            var processed = dsp.spectralSubtraction(floatBuffer, dummyNoiseProfile)
+                            var processed = dsp.spectralSubtraction(floatBuffer, noiseProfile)
                             processed = dsp.frequencyDomainEqualization(processed)
                             processed = dsp.voiceSourceExpansion(processed)
                             

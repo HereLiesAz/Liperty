@@ -65,7 +65,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var laryngealSensor: LaryngealSensor
 
     // Compose State
-    private val transcriptionState = mutableStateOf("")
+    private val transcriptionWords = mutableStateOf(listOf<String>())
+    private val selectedWordIndex = mutableStateOf(-1)
     private val isRecordingState = mutableStateOf(false)
     private val isSSIModeState = mutableStateOf(false)
 
@@ -126,7 +127,12 @@ class MainActivity : ComponentActivity() {
             LipertyApp(
                 previewView = previewView,
                 overlayView = overlayView,
-                transcriptionText = transcriptionState.value,
+                transcriptionWords = transcriptionWords.value,
+                selectedWordIndex = selectedWordIndex.value,
+                onWordClick = { index ->
+                    transcriptionManager.selectWord(index)
+                    updateTranscriptionUI()
+                },
                 isRecording = isRecordingState.value,
                 onSwitchCamera = { toggleCamera() },
                 onOpenSettings = { startActivity(Intent(this, SettingsActivity::class.java)) },
@@ -247,12 +253,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateTranscriptionUI() {
-        transcriptionState.value = transcriptionManager.getCurrentSentence()
+        transcriptionWords.value = transcriptionManager.getWords()
+        selectedWordIndex.value = transcriptionManager.getSelectedWordIndex()
     }
 
     private fun speakText() {
-        // Use the text from the state as it might have been edited by the user
-        val text = transcriptionState.value
+        // Use the text from the manager
+        val text = transcriptionManager.getCurrentSentence()
         if (text.isNotEmpty()) {
             voiceManager.speak(text)
         }

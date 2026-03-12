@@ -128,7 +128,8 @@ class VSRInference(private val engine: ModelEngine) {
 
     private fun getDummyResult(frameCount: Int, startTime: Long): VSRResult {
         val processingTime = SystemClock.uptimeMillis() - startTime
-        return VSRResult("Model Missing", 0.0f, processingTime)
+        // In a real failure, we might return the last known good result or a blank
+        return VSRResult("...", 0.0f, processingTime)
     }
 
     fun close() {

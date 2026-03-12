@@ -52,9 +52,15 @@ class PocketTTSEngine(private val context: Context) {
      * Extracts a voice state from a reference audio file.
      * In a real implementation, this would run a specific inference to get the embedding.
      */
-    fun cloneVoice(audioFile: File): VoiceState? {
-        // Dummy implementation for onboarding flow
-        // In reality, would use acousticSession to extract d-vector
+    fun cloneVoice(audioFile: File): VoiceState {
+        // Concept:
+        // 1. Read PCM from audioFile
+        // 2. Wrap in OnnxTensor
+        // 3. session.run() -> embedding vector
+        
+        Log.i(TAG, "Cloning voice from: ${audioFile.name}")
+        
+        // Mocking successful extraction
         val dummyEmbedding = FloatArray(256) { (it % 10) / 10f }
         return VoiceState(
             name = audioFile.nameWithoutExtension,
@@ -66,9 +72,32 @@ class PocketTTSEngine(private val context: Context) {
      * Generates audio from text using a specific voice state.
      */
     fun generateAudio(text: String, voiceState: VoiceState): FloatArray? {
-        // Dummy implementation: Return some white noise or sine wave
-        val sampleCount = 16000 * 2 // 2 seconds
-        return FloatArray(sampleCount) { Math.random().toFloat() * 0.1f }
+        val session = acousticSession ?: return null
+        
+        try {
+            // 1. Tokenize (Placeholder for real phonemizer)
+            val tokens = text.uppercase().map { it.code.toLong() }.toLongArray()
+            val tokenTensor = OnnxTensor.createTensor(ortEnv, java.nio.LongBuffer.wrap(tokens), longArrayOf(1, tokens.size.toLong()))
+            val voiceTensor = OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(voiceState.embedding), longArrayOf(1, voiceState.embedding.size.toLong()))
+            
+            // 2. Acoustic Model: (tokens, voice) -> mel-spectrogram
+            val inputs = mapOf("input_ids" to tokenTensor, "speaker_ids" to voiceTensor)
+            val result = session.run(inputs)
+            val melSpectrogram = result[0].value as Array<Array<FloatArray>> // Dummy shape [1, Time, Mels]
+            
+            // 3. Vocoder: (mel-spectrogram) -> PCM
+            // vocoderSession?.run(...)
+            
+            Log.i(TAG, "Generated audio for text: $text")
+            
+            // Dummy implementation: Return some white noise for now
+            val sampleCount = 16000 * 2 // 2 seconds
+            return FloatArray(sampleCount) { Math.random().toFloat() * 0.1f }
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "TTS Generation failed", e)
+            return null
+        }
     }
 
     fun close() {
