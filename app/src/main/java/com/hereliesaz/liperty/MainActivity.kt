@@ -34,15 +34,10 @@ import com.hereliesaz.liperty.ui.TranscriptionManager
 import com.hereliesaz.liperty.utils.BitmapPool
 import com.hereliesaz.liperty.utils.ImageUtils
 import com.hereliesaz.liperty.utils.PerformanceMonitor
-import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.util.Locale
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+import com.hereliesaz.liperty.voicebox.VoiceManager
+import com.hereliesaz.liperty.voicebox.recording.VoiceRecorder
 
-class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
+class MainActivity : ComponentActivity() {
 
     private lateinit var cameraManager: CameraManager
     private lateinit var faceLandmarkerHelper: FaceLandmarkerHelper
@@ -53,7 +48,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var frameBuffer: FrameBuffer
 
     private val transcriptionManager by lazy { TranscriptionManager(this) }
-    private var tts: TextToSpeech? = null
+    private lateinit var voiceManager: VoiceManager
 
     // Compose State
     private val transcriptionState = mutableStateOf("")
@@ -98,8 +93,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             vsrInference.initialize()
         }
 
-        // Initialize TTS
-        tts = TextToSpeech(this, this)
+        // Initialize VoiceManager
+        voiceManager = VoiceManager(this) { ready ->
+            if (ready) {
+                Log.i("MainActivity", "VoiceManager initialized.")
+            } else {
+                Log.e("MainActivity", "VoiceManager initialization failed.")
+            }
+        }
 
         setContent {
             LipertyApp(
@@ -213,7 +214,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         // Use the text from the state as it might have been edited by the user
         val text = transcriptionState.value
         if (text.isNotEmpty()) {
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            voiceManager.speak(text)
         }
     }
 
@@ -308,18 +309,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         cameraManager.shutdown()
         faceLandmarkerHelper.close()
         vsrInference.close()
-        tts?.stop()
-        tts?.shutdown()
+        voiceManager.stop()
+        voiceManager.shutdown()
     }
 
-    override fun onInit(status: Int) {
-        if (status == TextToSpeech.SUCCESS) {
-            val result = tts?.setLanguage(Locale.US)
-            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                Log.e("MainActivity", "TTS Language not supported")
-            }
-        } else {
-            Log.e("MainActivity", "TTS Initialization failed")
-        }
-    }
+    // Removed: onInit(status: Int) is now handled by VoiceManager
 }

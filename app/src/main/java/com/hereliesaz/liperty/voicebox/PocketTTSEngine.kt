@@ -79,10 +79,12 @@ class PocketTTSEngine(private val context: Context) {
     }
 }
 
+import java.io.Serializable
+
 /**
  * Represents the identity of a cloned voice.
  */
 data class VoiceState(
     val name: String,
     val embedding: FloatArray // The latent vector representing the voice
-)
+) : Serializable
