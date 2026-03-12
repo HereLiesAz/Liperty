@@ -1,53 +1,322 @@
 {
-  "p": ["b", "m"],
-  "b": ["p", "m"],
-  "m": ["p", "b"],
-  "f": ["v"],
-  "v": ["f"],
-  "t": ["d", "n", "l"],
-  "d": ["t", "n", "l"],
-  "n": ["t", "d", "l"],
-  "l": ["t", "d", "n"],
-  "k": ["g", "ng"],
-  "g": ["k", "ng"],
-  "ng": ["k", "g"],
-  "s": ["z"],
-  "z": ["s"],
-  "sh": ["ch", "j", "zh"],
-  "ch": ["sh", "j", "zh"],
-  "j": ["sh", "ch", "zh"],
-  "zh": ["sh", "ch", "j"],
-  "mat": ["bat", "pat"],
-  "bat": ["mat", "pat"],
-  "pat": ["mat", "bat"],
-  "meet": ["beat", "peat"],
-  "beat": ["meet", "peat"],
-  "peat": ["meet", "beat"],
-  "time": ["dime"],
-  "dime": ["time"],
-  "pack": ["back", "mack"],
-  "back": ["pack", "mack"],
-  "mack": ["pack", "back"],
-  "fan": ["van"],
-  "van": ["fan"],
-  "tie": ["die", "lie", "nigh"],
-  "die": ["tie", "lie", "nigh"],
-  "lie": ["tie", "die", "nigh"],
-  "nigh": ["tie", "die", "lie"],
-  "cot": ["got", "knot"],
-  "got": ["cot", "knot"],
-  "knot": ["cot", "got"],
-  "sip": ["zip"],
-  "zip": ["sip"],
-  "ship": ["chip", "jip"],
-  "chip": ["ship", "jip"],
-  "jip": ["ship", "chip"],
-  "class": ["glass"],
-  "glass": ["class"],
-  "fry": ["vry"],
-  "vry": ["fry"],
-  "few": ["view"],
-  "view": ["few"],
-  "safe": ["save"],
-  "save": ["safe"]
+  "be": [
+    "by",
+    "my",
+    "me"
+  ],
+  "by": [
+    "be",
+    "my",
+    "me"
+  ],
+  "my": [
+    "be",
+    "by",
+    "me"
+  ],
+  "me": [
+    "be",
+    "by",
+    "my"
+  ],
+  "to": [
+    "do",
+    "so",
+    "no"
+  ],
+  "do": [
+    "to",
+    "so",
+    "no"
+  ],
+  "so": [
+    "to",
+    "do",
+    "no"
+  ],
+  "no": [
+    "to",
+    "do",
+    "so"
+  ],
+  "of": [
+    "if"
+  ],
+  "if": [
+    "of"
+  ],
+  "and": [
+    "all",
+    "its"
+  ],
+  "all": [
+    "and",
+    "its"
+  ],
+  "its": [
+    "and",
+    "all"
+  ],
+  "a": [
+    "i",
+    "he"
+  ],
+  "i": [
+    "a",
+    "he"
+  ],
+  "he": [
+    "a",
+    "i"
+  ],
+  "in": [
+    "it",
+    "on",
+    "as",
+    "at",
+    "his",
+    "an",
+    "can",
+    "us"
+  ],
+  "it": [
+    "in",
+    "on",
+    "as",
+    "at",
+    "his",
+    "an",
+    "can",
+    "us"
+  ],
+  "on": [
+    "in",
+    "it",
+    "as",
+    "at",
+    "his",
+    "an",
+    "can",
+    "us"
+  ],
+  "as": [
+    "in",
+    "it",
+    "on",
+    "at",
+    "his",
+    "an",
+    "can",
+    "us"
+  ],
+  "at": [
+    "in",
+    "it",
+    "on",
+    "as",
+    "his",
+    "an",
+    "can",
+    "us"
+  ],
+  "his": [
+    "in",
+    "it",
+    "on",
+    "as",
+    "at",
+    "an",
+    "can",
+    "us"
+  ],
+  "an": [
+    "in",
+    "it",
+    "on",
+    "as",
+    "at",
+    "his",
+    "can",
+    "us"
+  ],
+  "can": [
+    "in",
+    "it",
+    "on",
+    "as",
+    "at",
+    "his",
+    "an",
+    "us"
+  ],
+  "us": [
+    "in",
+    "it",
+    "on",
+    "as",
+    "at",
+    "his",
+    "an",
+    "can"
+  ],
+  "that": [
+    "this",
+    "than",
+    "then"
+  ],
+  "this": [
+    "that",
+    "than",
+    "then"
+  ],
+  "than": [
+    "that",
+    "this",
+    "then"
+  ],
+  "then": [
+    "that",
+    "this",
+    "than"
+  ],
+  "but": [
+    "mat",
+    "bat",
+    "pat"
+  ],
+  "mat": [
+    "but",
+    "bat",
+    "pat"
+  ],
+  "bat": [
+    "but",
+    "mat",
+    "pat"
+  ],
+  "pat": [
+    "but",
+    "mat",
+    "bat"
+  ],
+  "we": [
+    "who"
+  ],
+  "who": [
+    "we"
+  ],
+  "say": [
+    "see",
+    "day"
+  ],
+  "see": [
+    "say",
+    "day"
+  ],
+  "day": [
+    "say",
+    "see"
+  ],
+  "her": [
+    "or"
+  ],
+  "or": [
+    "her"
+  ],
+  "will": [
+    "well",
+    "want"
+  ],
+  "well": [
+    "will",
+    "want"
+  ],
+  "want": [
+    "will",
+    "well"
+  ],
+  "one": [
+    "use",
+    "any"
+  ],
+  "use": [
+    "one",
+    "any"
+  ],
+  "any": [
+    "one",
+    "use"
+  ],
+  "what": [
+    "when"
+  ],
+  "when": [
+    "what"
+  ],
+  "up": [
+    "him"
+  ],
+  "him": [
+    "up"
+  ],
+  "like": [
+    "take"
+  ],
+  "take": [
+    "like"
+  ],
+  "time": [
+    "some"
+  ],
+  "some": [
+    "time"
+  ],
+  "into": [
+    "only",
+    "also"
+  ],
+  "only": [
+    "into",
+    "also"
+  ],
+  "also": [
+    "into",
+    "only"
+  ],
+  "year": [
+    "your"
+  ],
+  "your": [
+    "year"
+  ],
+  "now": [
+    "new"
+  ],
+  "new": [
+    "now"
+  ],
+  "meet": [
+    "beat",
+    "peat"
+  ],
+  "beat": [
+    "meet",
+    "peat"
+  ],
+  "peat": [
+    "meet",
+    "beat"
+  ],
+  "fan": [
+    "van"
+  ],
+  "van": [
+    "fan"
+  ],
+  "safe": [
+    "save"
+  ],
+  "save": [
+    "safe"
+  ]
 }

@@ -101,29 +101,20 @@ object ImageUtils {
     /**
      * Applies Histogram Equalization to a Grayscale bitmap.
      * Improves contrast by stretching the intensity range.
-     * Delegates to Native OpenCV implementation if available, otherwise falls back to pure Kotlin.
+     * Uses Native OpenCV implementation for hardware acceleration.
      */
     fun applyHistogramEqualization(bitmap: Bitmap): Bitmap {
-        // Fallback or Native
         if (openCVLoaded) {
-            // Native implementation requires passing the bitmap data address
-            // Note: Since we are in JVM, passing a Bitmap directly to JNI is complex (locking pixels).
-            // For this simplified example, we are sticking to the Kotlin implementation
-            // unless we fully implement the JNI Bitmap locking mechanism.
-            // However, to satisfy the requirement of "Integrate JNI", let's assume
-            // the Mat address is passed. In a real Android app, we'd use AndroidBitmap_lockPixels.
-
-            // For safety in this prototype, we stick to the robust Kotlin implementation
-            // because the JNI wrapper implemented earlier takes a 'long matAddr' which implies
-            // conversion from Bitmap to Mat on the Java side using OpenCV Java wrapper (org.opencv.android.Utils).
-            // But since we don't have the full OpenCV Java SDK loaded in the classpath (only the NDK link),
-            // we cannot easily create a 'Mat' object here.
-
-            // Therefore, we will keep the Kotlin implementation for now as the "safe" path,
-            // but log that we *could* use native if the Mat object was available.
-             Log.d("ImageUtils", "Native library loaded, but Bitmap->Mat conversion requires OpenCV Java SDK.")
+            // Native modifies in-place, but the contract returns a bitmap.
+            // To be safe and consistent with previous behavior, we clone if we don't want to mutate.
+            // However, for performance in the VSR pipeline, we often want in-place.
+            // Let's create a copy to maintain compatibility with existing callers.
+            val result = bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, true)
+            applyHistogramEqualizationNative(result)
+            return result
         }
 
+        // Fallback Kotlin implementation
         val width = bitmap.width
         val height = bitmap.height
         if (width == 0 || height == 0) return bitmap
@@ -170,12 +161,26 @@ object ImageUtils {
     }
 
     /**
-     * Native method declaration.
-     * Note: This requires the caller to provide a pointer to a cv::Mat.
-     * Since we aren't using the OpenCV Java wrapper (Mat class) in this file,
-     * this remains a low-level hook for future use.
+     * Native method declarations.
+     * These methods modify the bitmap in-place using Android's Bitmap locking.
      */
-    external fun applyHistogramEqualization(matAddr: Long)
+    private external fun applyHistogramEqualizationNative(bitmap: Bitmap)
+    private external fun applyNormalizationNative(bitmap: Bitmap)
+
+    /**
+     * Applies full normalization (Blur + Equalization) in a single JNI pass.
+     */
+    fun normalizeForInference(bitmap: Bitmap): Bitmap {
+        if (openCVLoaded) {
+            val result = bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, true)
+            applyNormalizationNative(result)
+            return result
+        }
+        // Fallback to sequential Kotlin steps
+        var processed = applyBlur(bitmap, 1)
+        processed = applyHistogramEqualization(processed)
+        return processed
+    }
 
     /**
      * Applies a simple box blur to the bitmap.

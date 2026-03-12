@@ -7,6 +7,7 @@
 
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.INTERNET" /> <!-- For TTS or Model download if needed -->
     <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" tools:targetApi="31" />
 

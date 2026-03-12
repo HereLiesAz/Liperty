@@ -85,12 +85,37 @@ fun SpikeScreen(
             fontWeight = FontWeight.Bold
         )
         Text(
-            text     = "Phase 0 — Feasibility Recording",
-            color    = Color(0xFF666680),
+            text     = if (state.isLiveListening) "Phase 1 — Artificial Larynx SSI" else "Phase 0 — Signal Feasibility",
+            color    = if (state.isLiveListening) Color.Cyan else Color(0xFF666680),
             fontSize = 13.sp
         )
 
         HorizontalDivider(color = Color(0xFF1E1E2E))
+
+        // Live Mode Toggle
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Larynx Vibration", color = Color.White, fontSize = 14.sp)
+            Switch(
+                checked = state.isLiveListening,
+                onCheckedChange = { 
+                    if (hasAudioPermission) vm.toggleLiveListen() 
+                    else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                },
+                colors = SwitchDefaults.colors(checkedThumbColor = Color.Cyan)
+            )
+        }
+
+        if (state.isLiveListening) {
+            // Real-time meters
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                MeterBar(label = "CONTACT PRESSURE / COARTICULATION", value = state.accelMagnitude * 20f, color = if (state.isVoicing) Color(0xFF00E676) else Color(0xFF37474F))
+                MeterBar(label = "RECONSTRUCTED SSI SIGNAL", value = state.audioLevel, color = Color.Cyan)
+            }
+        }
 
         // Placement guide card
         Card(
@@ -98,12 +123,13 @@ fun SpikeScreen(
             colors = CardDefaults.cardColors(containerColor = Color(0xFF12122A))
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("📱  Placement", color = Color(0xFF7EB6FF), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text("📱  SSI Placement", color = Color(0xFF7EB6FF), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 Text(
-                    text = "Hold the phone vertically, screen facing OUT.\n" +
-                            "Press the back of the device firmly against your\n" +
-                            "throat just below the Adam's apple.\n\n" +
-                            "Speak or hum. The bar below should react to your voice.",
+                    text = "Press the back of the device firmly against your\n" +
+                            "throat below the Adam's apple. The phone will\n" +
+                            "vibrate to provide a sound source.\n\n" +
+                            "Mouth words silently. Your articulators will\n" +
+                            "modulate the vibration into speech signals.",
                     color      = Color(0xFFB0B0CC),
                     fontSize   = 13.sp,
                     lineHeight = 20.sp
@@ -222,5 +248,31 @@ fun SpikeScreen(
         }
 
         Spacer(Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun MeterBar(label: String, value: Float, color: Color) {
+    val animatedValue by animateFloatAsState(
+        targetValue = value.coerceIn(0f, 1f),
+        animationSpec = tween(durationMillis = 80),
+        label = "meter_anim"
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(text = label, color = Color(0xFF555570), fontSize = 10.sp, letterSpacing = 1.sp)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(12.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color(0xFF1A1A2E))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(animatedValue)
+                    .fillMaxHeight()
+                    .background(color)
+            )
+        }
     }
 }

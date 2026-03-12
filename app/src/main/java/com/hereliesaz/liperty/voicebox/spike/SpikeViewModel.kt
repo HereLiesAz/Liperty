@@ -15,10 +15,15 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.sqrt
 
+import com.hereliesaz.liperty.voicebox.LaryngealSensor
+
 data class SpikeUiState(
     val isRecording: Boolean = false,
+    val isLiveListening: Boolean = false,
     val statusText: String = "Press Record to begin",
     val accelMagnitude: Float = 0f,
+    val audioLevel: Float = 0f, // 0..1 for VU meter
+    val isVoicing: Boolean = false,
     val resultLines: List<String> = emptyList(),
     val errorText: String = ""
 )
@@ -29,12 +34,15 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
     val uiState: StateFlow<SpikeUiState> = _uiState.asStateFlow()
 
     private val recorder = SignalRecorder(app)
+    private val sensor   = LaryngealSensor(app)
 
     private val sensorManager = app.getSystemService(SensorManager::class.java)
     private val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
 
-    // Raw magnitude written by sensor thread, polled by UI
+    // Raw values written by background threads, polled by UI
     @Volatile private var rawMagnitude = 0f
+    @Volatile private var rawAudioLevel = 0f
+    @Volatile private var rawVoicing = false
 
     private val accelListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
@@ -45,17 +53,44 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     init {
-        // Register sensor immediately so the placement indicator is live as soon
-        // as the screen opens — not just during recording.
         sensorManager.registerListener(
             accelListener, accelerometer, SensorManager.SENSOR_DELAY_FASTEST
         )
         // Poll loop: update UI state at 20 Hz
         viewModelScope.launch {
             while (true) {
-                _uiState.value = _uiState.value.copy(accelMagnitude = rawMagnitude)
+                _uiState.value = _uiState.value.copy(
+                    accelMagnitude = rawMagnitude,
+                    audioLevel     = rawAudioLevel,
+                    isVoicing      = rawVoicing
+                )
                 delay(50L)
             }
+        }
+    }
+
+    fun toggleLiveListen() {
+        val currentlyListening = _uiState.value.isLiveListening
+        if (currentlyListening) {
+            sensor.stop()
+            _uiState.value = _uiState.value.copy(isLiveListening = false, statusText = "Live Listen Stopped")
+            rawAudioLevel = 0f
+            rawVoicing = false
+        } else {
+            _uiState.value = _uiState.value.copy(isLiveListening = true, statusText = "Listening real-time...")
+            sensor.start(
+                onProcessedAudio = { samples ->
+                    // Calculate RMS for VU meter
+                    var sum = 0f
+                    for (s in samples) sum += s * s
+                    val rms = sqrt(sum / samples.size)
+                    // Scale for UI (0.0 to 1.0)
+                    rawAudioLevel = (rms * 10f).coerceIn(0f, 1f)
+                },
+                onVoicingState = { voicing ->
+                    rawVoicing = voicing
+                }
+            )
         }
     }
 

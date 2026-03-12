@@ -39,7 +39,8 @@ fun LipertyApp(
     onSwitchCamera: () -> Unit,
     onOpenSettings: () -> Unit,
     onClearTranscript: () -> Unit,
-    onSpeak: () -> Unit
+    onSpeak: () -> Unit,
+    isPaused: Boolean = false
 ) {
     val navController = rememberNavController()
 
@@ -142,8 +143,8 @@ fun LipertyApp(
                             }
                             if (isRecording) {
                                 Text(
-                                    text     = "REC",
-                                    color    = Color.Red,
+                                    text     = if (isPaused) "PAUSED" else "REC",
+                                    color    = if (isPaused) Color.Yellow else Color.Red,
                                     modifier = Modifier
                                         .align(Alignment.TopEnd)
                                         .padding(16.dp)

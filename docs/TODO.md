@@ -19,18 +19,18 @@ This document serves as the master source of truth for the Liperty project. It m
 
 - [x] **Dense Facial Landmark Tracking:** Integrate MediaPipe Face Mesh (468 landmarks).
 - [x] **Lip ROI Isolation:** Map specific indices (0, 13, 14, 17, 37, 39, 40, 61, 146, 178, 181, 185, 191, 267, 269, 270, 291, 308, 310, 311, 312, 317, 318, 321, 375, 402, 405, 409).
-- [ ] **Software Video Stabilization:**
-    - [ ] Implement Kalman Filter for bounding box smoothing to counter hand jitter.
+- [x] **Software Video Stabilization:**
+    - [x] Implement Kalman Filter for bounding box smoothing to counter hand jitter (Implemented in `KalmanFilter.kt`).
     - [ ] Calculate inter-frame optical flow to maintain mouth centering.
 - [ ] **Advanced Spatial Normalization:**
     - [x] Calculate Affine Transformation Matrix for roll/pitch/yaw neutralization.
     - [x] Perform 96x96 to 128x128 square cropping.
     - [ ] **Zero-Allocation Pipeline:** Refine `BitmapPool` to ensure `ImageProxy` -> `ROI` conversion involves no GC churn.
-- [ ] **Photometric Normalization:**
+- [x] **Photometric Normalization:**
     - [x] Grayscale conversion.
-    - [x] Gaussian Blur (Kernel 3x3/5x5) for sensor noise reduction.
-    - [x] Contrast Stretching / Histogram Equalization.
-    - [ ] **Hardware Acceleration:** Migrate manual Kotlin loops in `ImageUtils` to OpenCV NDK or Vulkan Shaders.
+    - [x] Gaussian Blur (Kernel 3x3/5x5) for sensor noise reduction (Native).
+    - [x] Contrast Stretching / Histogram Equalization (Native).
+    - [x] **Hardware Acceleration:** Migrate manual Kotlin loops in `ImageUtils` to OpenCV NDK (Implemented in `image_utils_jni.cpp`).
 
 ---
 
@@ -73,8 +73,8 @@ This document serves as the master source of truth for the Liperty project. It m
     - [x] **Horizontal Swipe:** Cycle through top-N homophene candidates for the selected word.
     - [x] **Vertical Swipe Up:** Trigger Text-to-Speech (TTS).
     - [x] **Multi-Finger Swipe Down:** Clear buffer/transcript.
-- [ ] **Visual Hand Gestures (Waving):**
-    - [ ] **Wave-to-Pause:** Implement hand wave detection in `FaceLandmarkerHelper` to act as a pause button for TTS and inference.
+- [x] **Visual Hand Gestures (Waving):**
+    - [x] **Wave-to-Pause:** Implement hand wave detection in `FaceLandmarkerHelper` to act as a pause button for TTS and inference (Integrated in `MainActivity.kt`).
     - [ ] **Air-Swipe:** Map horizontal hand movement directions to homophene cycling (simulating touch swipes).
 - [ ] **Visual Feedback:**
     - [x] Draw bounding boxes (Green=Face, Blue=Lips).
@@ -88,8 +88,10 @@ This document serves as the master source of truth for the Liperty project. It m
 
 - [ ] **VibraPhone Implementation (Prototype):**
     - [ ] Capture Back-EMF from Linear Resonant Actuators (LRA) via NDK.
-    - [ ] **DSP Pipeline:** Spectral Subtraction, Frequency Equalization, and Formant Extrapolation.
-    - [ ] **Multi-Modal Fusion:** Combine Accelerometer data (0-400Hz) with Camera data for ultra-robust SSI.
+    - [x] **Artificial Larynx:** Continuous vibration mode to provide a sound source for mute users (Implemented in `ArtificialLarynx.kt`).
+    - [x] **DSP Pipeline:** Spectral Subtraction, Frequency Equalization, and Formant Extrapolation (Implemented in `VibraPhoneDSP.kt`).
+    - [x] **Real-time Laryngeal Sensing:** Dual-stream capture of contact-mic and accelerometer (Implemented in `LaryngealSensor.kt`).
+    - [x] **Multi-Modal Fusion:** Use Accelerometer (0-400Hz) for high-precision VAD to gate the contact-mic stream.
 
 ---
 

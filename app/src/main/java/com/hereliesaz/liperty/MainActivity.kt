@@ -24,6 +24,7 @@ import androidx.lifecycle.lifecycleScope
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
 import com.hereliesaz.liperty.camera.CameraManager
 import com.hereliesaz.liperty.ml.FaceLandmarkerHelper
+import com.hereliesaz.liperty.ml.HandGestureHelper
 import com.hereliesaz.liperty.ml.FrameBuffer
 import com.hereliesaz.liperty.ml.TFLiteEngine
 import com.hereliesaz.liperty.ml.VSRInference
@@ -34,6 +35,7 @@ import com.hereliesaz.liperty.ui.TranscriptionManager
 import com.hereliesaz.liperty.utils.BitmapPool
 import com.hereliesaz.liperty.utils.ImageUtils
 import com.hereliesaz.liperty.utils.PerformanceMonitor
+import com.hereliesaz.liperty.utils.RectKalmanFilter
 import com.hereliesaz.liperty.voicebox.VoiceManager
 import com.hereliesaz.liperty.voicebox.recording.VoiceRecorder
 import kotlinx.coroutines.Dispatchers
@@ -47,11 +49,13 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var cameraManager: CameraManager
     private lateinit var faceLandmarkerHelper: FaceLandmarkerHelper
+    private lateinit var handGestureHelper: HandGestureHelper
     private lateinit var overlayView: OverlayView
     private lateinit var previewView: PreviewView
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var vsrInference: VSRInference
     private lateinit var frameBuffer: FrameBuffer
+    private val lipBoxFilter = RectKalmanFilter()
 
     private val transcriptionManager by lazy { TranscriptionManager(this) }
     private lateinit var voiceManager: VoiceManager
@@ -66,6 +70,8 @@ class MainActivity : ComponentActivity() {
 
     // Flag to prevent overlapping inference calls
     private var isInferencing = false
+    private val isPausedState = mutableStateOf(false)
+    private var frameCount = 0
 
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
@@ -90,6 +96,7 @@ class MainActivity : ComponentActivity() {
 
         cameraManager = CameraManager(this)
         faceLandmarkerHelper = FaceLandmarkerHelper(this)
+        handGestureHelper = HandGestureHelper(this)
         vsrInference = VSRInference(TFLiteEngine(this))
         frameBuffer = FrameBuffer(capacity = 50) // 2 seconds at 25fps
         cameraExecutor = Executors.newSingleThreadExecutor()
@@ -133,7 +140,8 @@ class MainActivity : ComponentActivity() {
                     frameBuffer.clear()
                     Toast.makeText(this, "Transcript Cleared", Toast.LENGTH_SHORT).show()
                 },
-                onSpeak = { speakText() }
+                onSpeak = { speakText() },
+                isPaused = isPausedState.value
             )
         }
 
@@ -228,17 +236,36 @@ class MainActivity : ComponentActivity() {
         // We reuse the programmatically created previewView
         val analyzer = ImageAnalysis.Analyzer { imageProxy ->
             PerformanceMonitor.logFrame()
+            frameCount++
             
             val rotationDegrees = imageProxy.imageInfo.rotationDegrees
             val rawBitmap = com.hereliesaz.liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy)
             
-            // Rotate bitmap to upright (display) orientation before processing
+            // Rotate bitmap to upright orientation
             val bitmap = if (rotationDegrees != 0) {
                 val rotated = com.hereliesaz.liperty.utils.ImageUtils.rotateBitmap(rawBitmap, rotationDegrees.toFloat())
                 rawBitmap.recycle()
                 rotated
             } else {
                 rawBitmap
+            }
+
+            // Wave-to-Pause hand gesture check
+            if (frameCount % 5 == 0) {
+                val gesture = handGestureHelper.detectSynchronously(bitmap)
+                if (gesture == HandGestureHelper.HandGesture.WAVE_PAUSE) {
+                    isPausedState.value = !isPausedState.value
+                    runOnUiThread {
+                        val msg = if (isPausedState.value) "Paused" else "Resumed"
+                        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+
+            if (isPausedState.value) {
+                imageProxy.close()
+                bitmap.recycle()
+                return@Analyzer
             }
 
             // Synchronous detection
@@ -251,6 +278,7 @@ class MainActivity : ComponentActivity() {
             } else {
                 runOnUiThread { overlayView.clear() }
                 frameBuffer.clear()
+                lipBoxFilter.reset()
             }
         }
 
@@ -259,9 +287,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun processFrame(bitmap: Bitmap, result: FaceLandmarkerResult) {
-        val lipBox = faceLandmarkerHelper.extractLipBoundingBox(result, bitmap.width, bitmap.height)
+        val rawLipBox = faceLandmarkerHelper.extractLipBoundingBox(result, bitmap.width, bitmap.height)
 
-        if (lipBox != null) {
+        if (rawLipBox != null) {
+            val lipBox = lipBoxFilter.update(rawLipBox)
+
             runOnUiThread {
                 val scaleX = overlayView.width.toFloat() / bitmap.width
                 val scaleY = overlayView.height.toFloat() / bitmap.height
@@ -285,7 +315,9 @@ class MainActivity : ComponentActivity() {
             val rotation = FaceLandmarkerHelper.calculateLipRotation(result)
             val reusableBitmap = BitmapPool.get(88, 88)
             val alignedMouth = ImageUtils.alignAndCropMouth(bitmap, lipBox, rotation, 88, reusableBitmap)
-            val processedMouth = ImageUtils.applyHistogramEqualization(alignedMouth)
+            
+            // Optimized JNI Normalization (Blur + Histogram Equalization)
+            val processedMouth = ImageUtils.normalizeForInference(alignedMouth)
 
             BitmapPool.recycle(reusableBitmap)
 
