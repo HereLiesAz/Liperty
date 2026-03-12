@@ -250,6 +250,10 @@ fun LipertyApp(
                         )
                     }
 
+                    composable("voice_mgmt") {
+                        VoiceManagementScreen()
+                    }
+
                     composable("settings") {
                         SideEffect {
                             onOpenSettings()
