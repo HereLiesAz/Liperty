@@ -32,12 +32,14 @@ class VoiceManager(private val context: Context, private val onInit: (Boolean) -
         loadActiveVoice()
     }
 
-    private fun loadActiveVoice() {
+    fun loadActiveVoice() {
         val sharedPrefs = context.getSharedPreferences("LipertyPrefs", Context.MODE_PRIVATE)
         val voiceName = sharedPrefs.getString("active_voice", null)
         if (voiceName != null) {
             val allVoices = voiceStore.loadAllVoices()
             activeVoice = allVoices.find { it.name == voiceName }
+        } else {
+            activeVoice = null
         }
     }
 
