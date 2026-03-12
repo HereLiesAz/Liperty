@@ -74,15 +74,20 @@ class CalibrationManager(private val context: Context) {
         inputBuffer.rewind()
 
         // 2. Prepare Label Buffer [1, 50, 40]
-        // (Simplified: In a real app, use CTC alignment or fixed length target)
+        // Mapping label characters to indices
         val labelBuffer = ByteBuffer.allocateDirect(1 * NUM_FRAMES * VOCAB_SIZE * 4)
         labelBuffer.order(ByteOrder.nativeOrder())
         
-        // Mocking one-hot labels for the phrase
+        val vocab = " ABCDEFGHIJKLMNOPQRSTUVWXYZ" // Simplified vocab for dummy training
+        val targetIndices = label.uppercase().map { char ->
+            val idx = vocab.indexOf(char)
+            if (idx != -1) idx else 0 // Use blank/0 for unknown
+        }
+
         for (t in 0 until NUM_FRAMES) {
+            val charIdx = if (t < targetIndices.size) targetIndices[t] else 0 // Pad with blank
             for (c in 0 until VOCAB_SIZE) {
-                // Just a dummy one-hot at index 0 for demonstration
-                labelBuffer.putFloat(if (c == 0) 1.0f else 0.0f)
+                labelBuffer.putFloat(if (c == charIdx) 1.0f else 0.0f)
             }
         }
         labelBuffer.rewind()

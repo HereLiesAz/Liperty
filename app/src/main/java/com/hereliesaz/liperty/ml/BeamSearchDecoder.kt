@@ -22,62 +22,69 @@ class BeamSearchDecoder(
 
     data class BeamState(
         val text: String,
-        val score: Double, // Log probability
-        val lastIndex: Int
-    )
+        val probBlank: Double = 0.0,    // Probability path ends in blank
+        val probNonBlank: Double = 0.0  // Probability path ends in non-blank
+    ) {
+        val totalProb: Double get() = probBlank + probNonBlank
+        val score: Double get() = if (totalProb > 0) Math.log(totalProb) else -Double.MAX_VALUE
+    }
 
     /**
-     * Decodes a sequence of probabilities (T x V) into a string using Beam Search.
+     * Decodes a sequence of probabilities (T x V) into a string using Beam Search with CTC prefix merging.
      * T = time steps, V = vocabulary size.
      */
     fun decode(probabilities: Array<FloatArray>): String {
         if (probabilities.isEmpty()) return ""
 
-        var beams = listOf(BeamState("", 0.0, -1))
+        // Initialize with empty prefix
+        var beams = listOf(BeamState(text = "", probBlank = 1.0, probNonBlank = 0.0))
 
         for (timeStep in probabilities) {
-            val nextBeams = mutableListOf<BeamState>()
+            val nextBeams = mutableMapOf<String, BeamState>()
 
             for (beam in beams) {
-                // For each token in vocabulary
-                for (v in probabilities[0].indices) {
-                    val prob = timeStep[v]
-                    if (prob <= 0) continue // Skip zero probability to avoid log(0)
+                // 1. Path ends in blank
+                val pBlank = timeStep[blankIndex].toDouble()
+                val currentBlank = nextBeams.getOrDefault(beam.text, BeamState(beam.text))
+                nextBeams[beam.text] = currentBlank.copy(
+                    probBlank = currentBlank.probBlank + beam.totalProb * pBlank
+                )
 
-                    val logProb = log(prob.toDouble(), Math.E)
-                    val newScore = beam.score + logProb
-
-                    // CTC Logic
-                    var newText = beam.text
-                    if (v != blankIndex) {
-                        if (v != beam.lastIndex || beam.lastIndex == blankIndex) {
-                            // Append if different from last non-blank, or if separated by blank
-                            // Note: This logic is slightly simplified. Standard CTC tracks two scores (blank ending vs non-blank ending).
-                            // For a simple beam search prototype without merging identical paths perfectly:
-                            if (v < vocabulary.size) {
-                                newText += vocabulary[v]
-                            }
-                        }
+                // 2. Path ends in non-blank
+                for (v in timeStep.indices) {
+                    if (v == blankIndex) continue
+                    
+                    val pToken = timeStep[v].toDouble()
+                    val char = if (v < vocabulary.size) vocabulary[v] else ""
+                    val newText = beam.text + char
+                    
+                    if (char.isNotEmpty() && beam.text.endsWith(char)) {
+                        // Repeat character: blank required between them to not collapse
+                        // Current prefix (ending in non-blank) + repeat -> new prefix
+                        val repeatEntry = nextBeams.getOrDefault(newText, BeamState(newText))
+                        nextBeams[newText] = repeatEntry.copy(
+                            probNonBlank = repeatEntry.probNonBlank + beam.probBlank * pToken
+                        )
+                        
+                        // Current prefix (ending in non-blank) + same char -> stays current prefix (collapsed)
+                        val stayEntry = nextBeams.getOrDefault(beam.text, BeamState(beam.text))
+                        nextBeams[beam.text] = stayEntry.copy(
+                            probNonBlank = stayEntry.probNonBlank + beam.probNonBlank * pToken
+                        )
+                    } else {
+                        // Different character or doesn't end in same: can merge
+                        val newEntry = nextBeams.getOrDefault(newText, BeamState(newText))
+                        nextBeams[newText] = newEntry.copy(
+                            probNonBlank = newEntry.probNonBlank + beam.totalProb * pToken
+                        )
                     }
-
-                    nextBeams.add(BeamState(newText, newScore, v))
                 }
             }
 
-            // Pruning: Merge identical texts and keep top K
-            // Ideally, we sum probabilities of identical texts, but here we take max for simplicity (Viterbi-like)
-            val mergedBeams = nextBeams
-                .groupBy { it.text }
-                .map { (text, states) ->
-                    // Standard CTC sums probabilities here (log-sum-exp).
-                    // We will take the max score for this simplified version.
-                    val bestState = states.maxByOrNull { it.score }!!
-                    BeamState(text, bestState.score, bestState.lastIndex)
-                }
+            // Pruning: Keep top K beams
+            beams = nextBeams.values
                 .sortedByDescending { it.score }
                 .take(beamWidth)
-
-            beams = mergedBeams
         }
 
         return beams.firstOrNull()?.text ?: ""

@@ -46,6 +46,15 @@ object ImageUtils {
     }
 
     /**
+     * Mirrors the bitmap horizontally.
+     */
+    fun mirrorBitmap(bitmap: Bitmap): Bitmap {
+        val matrix = android.graphics.Matrix()
+        matrix.postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
+        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+    }
+
+    /**
      * Crops the bitmap to the specified rectangle.
      */
     fun cropBitmap(bitmap: Bitmap, rect: Rect): Bitmap {

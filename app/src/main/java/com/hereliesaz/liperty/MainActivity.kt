@@ -26,6 +26,8 @@ import com.hereliesaz.liperty.camera.CameraManager
 import com.hereliesaz.liperty.ml.CalibrationViewModel
 import com.hereliesaz.liperty.ml.FaceLandmarkerHelper
 import com.hereliesaz.liperty.ml.HandGestureHelper
+import com.hereliesaz.liperty.voicebox.LaryngealSensor
+import com.hereliesaz.liperty.voicebox.ArtificialLarynx
 import com.hereliesaz.liperty.ml.FrameBuffer
 import com.hereliesaz.liperty.ml.TFLiteEngine
 import com.hereliesaz.liperty.ml.VSRInference
@@ -60,10 +62,12 @@ class MainActivity : ComponentActivity() {
 
     private val transcriptionManager by lazy { TranscriptionManager(this) }
     private lateinit var voiceManager: VoiceManager
+    private lateinit var laryngealSensor: LaryngealSensor
 
     // Compose State
     private val transcriptionState = mutableStateOf("")
     private val isRecordingState = mutableStateOf(false)
+    private val isSSIModeState = mutableStateOf(false)
 
     // Camera State
     private var currentLensFacing = CameraSelector.LENS_FACING_BACK
@@ -99,6 +103,7 @@ class MainActivity : ComponentActivity() {
         cameraManager = CameraManager(this)
         faceLandmarkerHelper = FaceLandmarkerHelper(this)
         handGestureHelper = HandGestureHelper(this)
+        laryngealSensor = LaryngealSensor(this)
         vsrInference = VSRInference(TFLiteEngine(this))
         frameBuffer = FrameBuffer(capacity = 50) // 2 seconds at 25fps
         cameraExecutor = Executors.newSingleThreadExecutor()
@@ -122,17 +127,6 @@ class MainActivity : ComponentActivity() {
                 previewView = previewView,
                 overlayView = overlayView,
                 transcriptionText = transcriptionState.value,
-                onTextChange = { newText ->
-                    // Update manager but maybe don't overwrite if it's correction?
-                    // For now, let's assume direct edit replaces current sentence or word.
-                    // But TranscriptionManager logic is complex.
-                    // We'll update state directly for UI feedback, and maybe sync with manager.
-                    // Ideally, TranscriptionManager should be the source of truth.
-                    // For now, update state.
-                    transcriptionState.value = newText
-                    // If we want to support full editing, we might need to update the manager's buffer.
-                    // Let's assume for now simple text update.
-                },
                 isRecording = isRecordingState.value,
                 onSwitchCamera = { toggleCamera() },
                 onOpenSettings = { startActivity(Intent(this, SettingsActivity::class.java)) },
@@ -143,7 +137,12 @@ class MainActivity : ComponentActivity() {
                     Toast.makeText(this, "Transcript Cleared", Toast.LENGTH_SHORT).show()
                 },
                 onSpeak = { speakText() },
-                isPaused = isPausedState.value
+                onToggleSSI = { toggleSSIMode() },
+                isPaused = isPausedState.value,
+                isSSIActive = isSSIModeState.value,
+                onRegisterCalibrationCallback = { cb ->
+                    calibrationCallback = cb
+                }
             )
         }
 
@@ -182,9 +181,15 @@ class MainActivity : ComponentActivity() {
     private fun checkConsentAndStart() {
         val sharedPrefs = getSharedPreferences("LipertyPrefs", Context.MODE_PRIVATE)
         val consentGranted = sharedPrefs.getBoolean("consent_granted", false)
+        val calibrationDone = sharedPrefs.getBoolean("calibration_complete", false)
 
         if (consentGranted) {
             startCamera()
+            if (!calibrationDone) {
+                // Ideally we should navigate to calibration route here.
+                // For now, let the user trigger it from the rail or add logic to auto-open.
+                Toast.makeText(this, "Please personalize the model for better accuracy.", Toast.LENGTH_LONG).show()
+            }
         } else {
             showConsentDialog()
         }
@@ -222,6 +227,25 @@ class MainActivity : ComponentActivity() {
         startCamera()
     }
 
+    private fun toggleSSIMode() {
+        val newMode = !isSSIModeState.value
+        isSSIModeState.value = newMode
+        
+        if (newMode) {
+            // SSI Mode: Phone vibrates, acts as sound source
+            laryngealSensor.start(
+                onProcessedAudio = { /* Real-time audio stream could be played or sent to ML */ },
+                onVoicingState = { isVoicing ->
+                    // Optionally show visual feedback for contact detection
+                }
+            )
+            Toast.makeText(this, "Voice Box Mode Active: Press against throat.", Toast.LENGTH_LONG).show()
+        } else {
+            laryngealSensor.stop()
+            Toast.makeText(this, "Voice Box Mode Inactive", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun updateTranscriptionUI() {
         transcriptionState.value = transcriptionManager.getCurrentSentence()
     }
@@ -240,10 +264,25 @@ class MainActivity : ComponentActivity() {
             PerformanceMonitor.logFrame()
             frameCount++
             
-            // Note: CameraX 1.3.0+ toBitmap() ALREADY applies rotationDegrees.
-            // Manual rotation here causes double-rotation (e.g. 270+270 = 180/upside down).
-            val bitmap = com.hereliesaz.liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy)
+            val rotationDegrees = imageProxy.imageInfo.rotationDegrees
+            val rawBitmap = com.hereliesaz.liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy)
             
+            // Rotate bitmap to upright orientation
+            var bitmap = if (rotationDegrees != 0) {
+                val rotated = com.hereliesaz.liperty.utils.ImageUtils.rotateBitmap(rawBitmap, rotationDegrees.toFloat())
+                rawBitmap.recycle()
+                rotated
+            } else {
+                rawBitmap
+            }
+
+            // If front camera, mirror to match mirrored preview perception
+            if (currentLensFacing == CameraSelector.LENS_FACING_FRONT) {
+                val mirrored = com.hereliesaz.liperty.utils.ImageUtils.mirrorBitmap(bitmap)
+                bitmap.recycle()
+                bitmap = mirrored
+            }
+
             // Wave-to-Pause hand gesture check
             if (frameCount % 5 == 0) {
                 val gesture = handGestureHelper.detectSynchronously(bitmap)
@@ -252,6 +291,16 @@ class MainActivity : ComponentActivity() {
                     runOnUiThread {
                         val msg = if (isPausedState.value) "Paused" else "Resumed"
                         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+                    }
+                } else if (gesture == HandGestureHelper.HandGesture.AIR_SWIPE_LEFT) {
+                    runOnUiThread {
+                        transcriptionManager.cycleCurrentWord(-1)
+                        updateTranscriptionUI()
+                    }
+                } else if (gesture == HandGestureHelper.HandGesture.AIR_SWIPE_RIGHT) {
+                    runOnUiThread {
+                        transcriptionManager.cycleCurrentWord(1)
+                        updateTranscriptionUI()
                     }
                 }
             }
@@ -312,6 +361,9 @@ class MainActivity : ComponentActivity() {
             
             // Optimized JNI Normalization (Blur + Histogram Equalization)
             val processedMouth = ImageUtils.normalizeForInference(alignedMouth)
+
+            // Pass to calibration if active
+            calibrationCallback?.invoke(processedMouth)
 
             BitmapPool.recycle(reusableBitmap)
 

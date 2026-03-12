@@ -4,6 +4,9 @@ import android.graphics.Bitmap
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,33 +20,43 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.hereliesaz.liperty.ml.CalibrationViewModel
 import com.hereliesaz.liperty.voicebox.spike.SpikeScreen
 import com.hereliesaz.liperty.ui.CalibrationScreen
 import com.hereliesaz.aznavrail.AzHostActivityLayout
 import com.hereliesaz.aznavrail.AzNavHost
-import com.hereliesaz.aznavrail.AzTextBox
 
 @Composable
 fun LipertyApp(
     previewView: PreviewView,
     overlayView: OverlayView,
     transcriptionText: String,
-    onTextChange: (String) -> Unit,
     isRecording: Boolean,
     onSwitchCamera: () -> Unit,
     onOpenSettings: () -> Unit,
     onClearTranscript: () -> Unit,
     onSpeak: () -> Unit,
+    onToggleSSI: () -> Unit = {},
     isPaused: Boolean = false,
-    onCalibrationFrame: (Bitmap) -> Unit = {}
+    isSSIActive: Boolean = false,
+    onRegisterCalibrationCallback: (((Bitmap) -> Unit)?) -> Unit = {}
 ) {
     val navController = rememberNavController()
 
@@ -92,7 +105,8 @@ fun LipertyApp(
                 id      = "voicebox",
                 text    = "Voice Box",
                 route   = "voicebox",
-                content = Icons.Filled.GraphicEq
+                content = Icons.Filled.GraphicEq,
+                active  = isSSIActive
             )
 
             azRailItem(
@@ -133,28 +147,37 @@ fun LipertyApp(
 
             // ── Screen content ────────────────────────────────────────────
             onscreen(alignment = Alignment.Center) {
+                var fontSize by remember { mutableFloatStateOf(24f) }
+                val transformState = rememberTransformableState { zoomChange, _, _ ->
+                    fontSize = (fontSize * zoomChange).coerceIn(12f, 120f)
+                }
+
                 AzNavHost(navController = navController, startDestination = "home") {
 
                     composable("home") {
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .fillMaxWidth()
-                                    .padding(16.dp)
-                            ) {
-                                AzTextBox(
-                                    value         = transcriptionText,
-                                    onValueChange = onTextChange,
-                                    onSubmit      = { onSpeak() },
-                                    hint          = "Transcription...",
-                                    modifier      = Modifier.fillMaxWidth()
+                        Box(modifier = Modifier
+                            .fillMaxSize()
+                            .transformable(state = transformState)
+                        ) {
+                            if (transcriptionText.isNotEmpty()) {
+                                Text(
+                                    text = transcriptionText,
+                                    color = Color.White,
+                                    fontSize = fontSize.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .padding(32.dp)
+                                        .background(Color.Black.copy(alpha = 0.4f))
+                                        .padding(8.dp)
                                 )
                             }
+
                             if (isRecording) {
                                 Text(
-                                    text     = if (isPaused) "PAUSED" else "REC",
-                                    color    = if (isPaused) Color.Yellow else Color.Red,
+                                    text     = if (isPaused) "PAUSED" else if (isSSIActive) "SSI ACTIVE" else "REC",
+                                    color    = if (isPaused) Color.Yellow else if (isSSIActive) Color.Cyan else Color.Red,
                                     modifier = Modifier
                                         .align(Alignment.TopEnd)
                                         .padding(16.dp)
@@ -163,14 +186,27 @@ fun LipertyApp(
                         }
                     }
 
-                    // Voice Box spike screen — full Compose, no Activity needed
+                    // Voice Box toggle — starts artificial larynx carrier
                     composable("voicebox") {
-                        SpikeScreen()
+                        SideEffect {
+                            onToggleSSI()
+                            navController.popBackStack()
+                        }
                     }
 
                     composable("calibrate") {
+                        val calibrationVm: CalibrationViewModel = viewModel()
+                        DisposableEffect(Unit) {
+                            onRegisterCalibrationCallback { frame ->
+                                calibrationVm.onFrameCaptured(frame)
+                            }
+                            onDispose {
+                                onRegisterCalibrationCallback(null)
+                            }
+                        }
                         CalibrationScreen(
-                            onDone = { navController.popBackStack() }
+                            onDone = { navController.popBackStack() },
+                            vm = calibrationVm
                         )
                     }
 

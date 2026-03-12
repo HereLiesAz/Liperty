@@ -1,6 +1,7 @@
 package com.hereliesaz.liperty.ml
 
 import android.app.Application
+import android.content.Context
 import android.graphics.Bitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -8,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import androidx.core.content.edit
 
 data class CalibrationUiState(
     val currentPhrase: String = "",
@@ -18,7 +20,9 @@ data class CalibrationUiState(
     val statusMessage: String = "Align your lips and press start"
 )
 
-class CalibrationViewModel(app: Application) : AndroidViewModel(app) {
+
+
+class CalibrationViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private val manager = CalibrationManager(app)
     
@@ -47,9 +51,14 @@ class CalibrationViewModel(app: Application) : AndroidViewModel(app) {
         _uiState.value = _uiState.value.copy(isRecording = false, isTraining = true, statusMessage = "Updating model...")
         
         viewModelScope.launch {
-            val loss = manager.processCurrentPhrase(_uiState.value.currentPhrase)
+            manager.processCurrentPhrase(_uiState.value.currentPhrase)
             
             val isDone = manager.isCalibrationComplete()
+            if (isDone) {
+                val sharedPrefs = app.getSharedPreferences("LipertyPrefs", Context.MODE_PRIVATE)
+                sharedPrefs.edit { putBoolean("calibration_complete", true) }
+            }
+
             _uiState.value = _uiState.value.copy(
                 isTraining = false,
                 currentPhrase = manager.getCurrentPhrase(),

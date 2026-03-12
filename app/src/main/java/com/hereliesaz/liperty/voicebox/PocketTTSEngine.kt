@@ -53,24 +53,22 @@ class PocketTTSEngine(private val context: Context) {
      * In a real implementation, this would run a specific inference to get the embedding.
      */
     fun cloneVoice(audioFile: File): VoiceState? {
-        // Concept:
-        // 1. Read wav/PCM data from audioFile
-        // 2. Preprocess (resample, normalize)
-        // 3. Run inference on acoustic model to get the voice state tensor
-        // 4. Return encapsulated VoiceState
-        return null
+        // Dummy implementation for onboarding flow
+        // In reality, would use acousticSession to extract d-vector
+        val dummyEmbedding = FloatArray(256) { (it % 10) / 10f }
+        return VoiceState(
+            name = audioFile.nameWithoutExtension,
+            embedding = dummyEmbedding
+        )
     }
 
     /**
      * Generates audio from text using a specific voice state.
      */
     fun generateAudio(text: String, voiceState: VoiceState): FloatArray? {
-        // Concept:
-        // 1. Tokenize text
-        // 2. Run acoustic model with (tokens, voice_state) -> spectrogram
-        // 3. Run vocoder with (spectrogram) -> PCM audio
-        // 4. Return FloatArray of PCM samples
-        return null
+        // Dummy implementation: Return some white noise or sine wave
+        val sampleCount = 16000 * 2 // 2 seconds
+        return FloatArray(sampleCount) { Math.random().toFloat() * 0.1f }
     }
 
     fun close() {
