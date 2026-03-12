@@ -27,7 +27,7 @@ Liperty/
 │       │   ├── assets/                # .tflite models, .task files (not in git)
 │       │   ├── cpp/
 │       │   │   └── CMakeLists.txt     # OpenCV NDK integration (C++17)
-│       │   ├── java/com/HereLiesAz/Liperty/
+│       │   ├── java/com/hereliesaz/liperty/
 │       │   │   ├── LipertyApplication.kt
 │       │   │   ├── MainActivity.kt    # App entry point
 │       │   │   ├── camera/
