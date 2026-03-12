@@ -64,7 +64,7 @@ The application follows a modular architecture separating UI, Camera logic, and 
 6.  **Post-Processing**: `HomopheneCorrector` applies language modeling or user corrections.
 
 ### Key Directories
-- **`app/src/main/java/com/HereLiesAz/Liperty/`**:
+- **`app/src/main/java/com/hereliesaz/liperty/`**:
     - **`camera/`**: `CameraManager.kt` (CameraX setup, lens selection logic).
     - **`ml/`**: Core Machine Learning logic.
         - `ModelEngine.kt`: Interface for inference engines.

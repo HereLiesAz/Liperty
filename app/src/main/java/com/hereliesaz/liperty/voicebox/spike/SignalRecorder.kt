@@ -44,7 +44,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   spike_accel_<timestamp>.csv   — columns: timestamp_ns, x, y, z
  *
  * Pull from device:
- *   adb pull /sdcard/Android/data/com.HereLiesAz.Liperty/files/ ./spike_data/
+ *   adb pull /sdcard/Android/data/com.hereliesaz.liperty/files/ ./spike_data/
  *
  * Then run: python3 tools/spike_analysis/analyze.py ./spike_data/
  */
