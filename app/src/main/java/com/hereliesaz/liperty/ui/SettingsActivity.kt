@@ -2,7 +2,6 @@ package com.hereliesaz.liperty.ui
 
 import android.content.Context
 import android.os.Bundle
-import android.widget.SeekBar
 import android.widget.Switch
 import androidx.appcompat.app.AppCompatActivity
 import com.hereliesaz.liperty.R

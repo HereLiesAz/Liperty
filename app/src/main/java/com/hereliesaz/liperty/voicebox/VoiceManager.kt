@@ -1,6 +1,9 @@
 package com.hereliesaz.liperty.voicebox
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
 import android.speech.tts.TextToSpeech
 import android.util.Log
 import com.hereliesaz.liperty.voicebox.cloning.VoiceStore
@@ -80,13 +83,43 @@ class VoiceManager(private val context: Context, private val onInit: (Boolean) -
     }
 
     fun speak(text: String, queueMode: Int = TextToSpeech.QUEUE_FLUSH) {
-        // For now, only system TTS is implemented.
-        // Later: Add logic to check user preference and use PocketTTS if selected.
-        if (isSystemTtsReady) {
-            systemTts?.speak(text, queueMode, null, null)
+        val voice = activeVoice
+        if (voice != null) {
+            // Use PocketTTS for cloned voice
+            val audio = pocketTts.generateAudio(text, voice)
+            if (audio != null) {
+                playAudio(audio)
+            } else {
+                Log.e("VoiceManager", "Failed to generate audio with PocketTTS")
+            }
         } else {
-            Log.w("VoiceManager", "TTS not ready. Cannot speak: $text")
+            // Fallback to system TTS
+            if (isSystemTtsReady) {
+                systemTts?.speak(text, queueMode, null, null)
+            } else {
+                Log.w("VoiceManager", "TTS not ready. Cannot speak: $text")
+            }
         }
+    }
+
+    private fun playAudio(samples: FloatArray) {
+        val audioTrack = AudioTrack.Builder()
+            .setAudioAttributes(AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build())
+            .setAudioFormat(AudioFormat.Builder()
+                .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                .setSampleRate(16000)
+                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                .build())
+            .setBufferSizeInBytes(samples.size * 4)
+            .setTransferMode(AudioTrack.MODE_STATIC)
+            .build()
+
+        audioTrack.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
+        audioTrack.play()
+        // Note: In a real app, manage lifecycle of AudioTrack
     }
 
     fun stop() {
