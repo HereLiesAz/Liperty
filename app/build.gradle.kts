@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.HereLiesAz.Liperty"
+    namespace = "com.hereliesaz.liperty"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.HereLiesAz.Liperty"
+        applicationId = "com.hereliesz.liperty"
         minSdk = 26
         targetSdk = 36
         versionCode = 1

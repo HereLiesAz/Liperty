@@ -29,7 +29,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
+        <activity
+            android:name=".voicebox.spike.SpikeActivity"
+            android:exported="true"
+            android:label="VoiceBox Spike"
+           android:theme="@style/Theme.Liperty" />
         <activity
             android:name=".ui.SettingsActivity"
             android:exported="false"

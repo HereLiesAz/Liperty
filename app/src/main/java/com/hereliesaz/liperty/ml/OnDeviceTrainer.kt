@@ -1,0 +1,88 @@
+package com.HereLiesAz.liperty.ml
+
+import android.content.Context
+import android.util.Log
+import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.support.common.FileUtil
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+
+/**
+ * Handles On-Device Personalization (LoRA) using TFLite Training Signatures.
+ * This allows the model to adapt to the specific user's lip movements.
+ */
+class OnDeviceTrainer(private val context: Context) {
+
+    private var interpreter: Interpreter? = null
+    private val MODEL_NAME = "vsr_lora_model.tflite"
+
+    fun initialize() {
+        try {
+            val options = Interpreter.Options()
+            // Training usually requires CPU as GPU delegates rarely support training ops (Select TF ops)
+            options.setUseNNAPI(false)
+            
+            // Load the model
+            val modelFile = FileUtil.loadMappedFile(context, MODEL_NAME)
+            interpreter = Interpreter(modelFile, options)
+            Log.i("OnDeviceTrainer", "Trainable LoRA Model loaded successfully")
+        } catch (e: Exception) {
+            Log.e("OnDeviceTrainer", "Failed to load trainable model", e)
+        }
+    }
+
+    /**
+     * Runs a single training step (batch) to update model weights.
+     * @param inputBuffer ByteBuffer containing video frames [Batch, Time, Height, Width, Channels]
+     * @param labelBuffer ByteBuffer containing one-hot encoded labels [Batch, Time, Classes]
+     * @return The loss value for this step.
+     */
+    fun trainStep(inputBuffer: ByteBuffer, labelBuffer: ByteBuffer): Float {
+        val interpreter = interpreter ?: return -1f
+
+        // Inputs map matching the signature defined in create_trainable_model.py
+        val inputs = mapOf(
+            "video_input" to inputBuffer,
+            "target_labels" to labelBuffer
+        )
+
+        // Outputs map
+        val lossBuffer = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder())
+        val outputs = mapOf(
+            "loss" to lossBuffer
+        )
+
+        try {
+            // Run the 'train' signature
+            interpreter.runSignature(inputs, outputs, "train")
+            
+            lossBuffer.rewind()
+            return lossBuffer.float
+        } catch (e: Exception) {
+            Log.e("OnDeviceTrainer", "Training step failed", e)
+            return -1f
+        }
+    }
+
+    /**
+     * Saves the updated model weights to internal storage so they persist across app restarts.
+     * Note: TFLite Checkpoints are complex; often easier to save the specific weight buffers 
+     * if the model architecture supports exporting them, or rely on OS file persistence if 
+     * the interpreter was initialized from a writable file.
+     * 
+     * Since we loaded from Assets (read-only), we can't save *over* it.
+     * In a real implementation, we would copy the asset to context.filesDir first,
+     * load it from there, and then the updates are persisted in that file.
+     */
+    fun saveModelCheckpoint() {
+        // TFLite doesn't automatically "save" the file back to disk just by running inference/training.
+        // The interpreter holds the state in RAM.
+        // Exporting weights requires a specific "save" signature in the model or 
+        // using the experimental variables export.
+        Log.w("OnDeviceTrainer", "Model weight persistence requires 'save' signature implementation.")
+    }
+
+    fun close() {
+        interpreter?.close()
+    }
+}
