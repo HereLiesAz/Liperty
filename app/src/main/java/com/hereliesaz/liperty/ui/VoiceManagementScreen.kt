@@ -1,13 +1,15 @@
 package com.hereliesaz.liperty.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material3.*
@@ -27,6 +29,12 @@ fun VoiceManagementScreen(
     vm: VoiceViewModel = viewModel()
 ) {
     val state by vm.uiState.collectAsState()
+
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let { vm.cloneFromUri(it) }
+    }
 
     Column(
         modifier = Modifier

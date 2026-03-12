@@ -1,16 +1,20 @@
 package com.hereliesaz.liperty.voicebox
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.hereliesaz.liperty.voicebox.cloning.VoiceStore
 import com.hereliesaz.liperty.voicebox.recording.VoiceRecorder
 import androidx.core.content.edit
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
 
 data class VoiceUiState(
     val voices: List<VoiceState> = emptyList(),
@@ -57,6 +61,32 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
 
     fun stopRecording() {
         voiceRecorder.stopRecording()
+    }
+
+    fun cloneFromUri(uri: Uri) {
+        _uiState.value = _uiState.value.copy(isCloning = true, statusMessage = "Importing audio...")
+        viewModelScope.launch {
+            val tempFile = File(getApplication<Application>().cacheDir, "imported_voice_${System.currentTimeMillis()}.wav")
+            val success = withContext(Dispatchers.IO) {
+                try {
+                    getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
+                        FileOutputStream(tempFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    true
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    false
+                }
+            }
+
+            if (success) {
+                cloneVoice("Imported_${System.currentTimeMillis()}", tempFile)
+            } else {
+                _uiState.value = _uiState.value.copy(isCloning = false, statusMessage = "Import failed")
+            }
+        }
     }
 
     private fun cloneVoice(name: String, audioFile: File) {
