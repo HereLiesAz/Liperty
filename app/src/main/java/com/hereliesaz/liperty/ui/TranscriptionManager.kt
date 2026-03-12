@@ -1,7 +1,7 @@
-package com.HereLiesAz.liperty.ui
+package com.hereliesaz.liperty.ui
 
 import android.content.Context
-import com.HereLiesAz.liperty.ml.HomopheneCorrector
+import com.hereliesaz.liperty.ml.HomopheneCorrector
 
 class TranscriptionManager(private val context: Context) {
 

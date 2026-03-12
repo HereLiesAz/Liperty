@@ -1,4 +1,4 @@
-package com.HereLiesAz.liperty.ui
+package com.hereliesaz.liperty.ui
 
 import android.view.GestureDetector
 import android.view.MotionEvent

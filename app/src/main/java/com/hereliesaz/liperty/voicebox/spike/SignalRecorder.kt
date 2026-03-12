@@ -1,4 +1,4 @@
-package com.HereLiesAz.liperty.voicebox.spike
+package com.hereliesaz.liperty.voicebox.spike
 
 import android.content.Context
 import android.hardware.Sensor

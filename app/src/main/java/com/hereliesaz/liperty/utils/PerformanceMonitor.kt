@@ -1,4 +1,4 @@
-package com.HereLiesAz.liperty.utils
+package com.hereliesaz.liperty.utils
 
 import android.os.SystemClock
 import android.util.Log

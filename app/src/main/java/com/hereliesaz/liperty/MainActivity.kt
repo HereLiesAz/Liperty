@@ -1,4 +1,4 @@
-package com.HereLiesAz.liperty
+package com.hereliesaz.liperty
 
 import android.Manifest
 import android.content.Context
@@ -20,19 +20,20 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.view.PreviewView
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
+import androidx.graphics.opengl.FrameBuffer
 import androidx.lifecycle.lifecycleScope
-import com.HereLiesAz.liperty.camera.CameraManager
-import com.HereLiesAz.liperty.ml.FaceLandmarkerHelper
-import com.HereLiesAz.liperty.ml.FrameBuffer
-import com.HereLiesAz.liperty.ml.TFLiteEngine
-import com.HereLiesAz.liperty.ml.VSRInference
-import com.HereLiesAz.liperty.ui.LipertyApp
-import com.HereLiesAz.liperty.ui.OverlayView
-import com.HereLiesAz.liperty.ui.SettingsActivity
-import com.HereLiesAz.liperty.ui.TranscriptionManager
-import com.HereLiesAz.liperty.utils.BitmapPool
-import com.HereLiesAz.liperty.utils.ImageUtils
-import com.HereLiesAz.liperty.utils.PerformanceMonitor
+import com.hereliesaz.liperty.camera.CameraManager
+import com.hereliesaz.liperty.ml.FaceLandmarkerHelper
+import com.hereliesaz.liperty.ml.FrameBuffer
+import com.hereliesaz.liperty.ml.TFLiteEngine
+import com.hereliesaz.liperty.ml.VSRInference
+import com.hereliesaz.liperty.ui.LipertyApp
+import com.hereliesaz.liperty.ui.OverlayView
+import com.hereliesaz.liperty.ui.SettingsActivity
+import com.hereliesaz.liperty.ui.TranscriptionManager
+import com.hereliesaz.liperty.utils.BitmapPool
+import com.hereliesaz.liperty.utils.ImageUtils
+import com.hereliesaz.liperty.utils.PerformanceMonitor
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -220,7 +221,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         // We reuse the programmatically created previewView
         val analyzer = ImageAnalysis.Analyzer { imageProxy ->
             PerformanceMonitor.logFrame()
-            val bitmap = com.HereLiesAz.liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy)
+            val bitmap = com.hereliesaz.liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy)
             // Synchronous detection
             val result = faceLandmarkerHelper.detectSynchronously(bitmap)
 

@@ -1,4 +1,4 @@
-package com.HereLiesAz.liperty.ml
+package com.hereliesaz.liperty.ml
 
 import kotlin.math.log
 

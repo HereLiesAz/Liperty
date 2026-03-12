@@ -1,4 +1,4 @@
-package com.HereLiesAz.liperty
+package com.hereliesaz.liperty
 
 import android.app.Application
 

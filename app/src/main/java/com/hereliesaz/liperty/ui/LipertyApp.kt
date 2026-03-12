@@ -1,4 +1,4 @@
-package com.HereLiesAz.liperty.ui
+package com.hereliesaz.liperty.ui
 
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.HereLiesAz.liperty.voicebox.spike.SpikeScreen
+import com.hereliesaz.liperty.voicebox.spike.SpikeScreen
 import com.hereliesaz.aznavrail.AzHostActivityLayout
 import com.hereliesaz.aznavrail.AzNavHost
 import com.hereliesaz.aznavrail.AzTextBox

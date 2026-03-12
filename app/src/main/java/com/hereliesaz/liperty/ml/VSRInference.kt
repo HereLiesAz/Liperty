@@ -1,9 +1,9 @@
-package com.HereLiesAz.liperty.ml
+package com.hereliesaz.liperty.ml
 
 import android.graphics.Bitmap
 import android.os.SystemClock
 import android.util.Log
-import com.HereLiesAz.liperty.utils.PerformanceMonitor
+import com.hereliesaz.liperty.utils.PerformanceMonitor
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
