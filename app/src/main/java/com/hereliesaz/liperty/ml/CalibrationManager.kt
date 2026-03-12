@@ -78,10 +78,11 @@ class CalibrationManager(private val context: Context) {
         val labelBuffer = ByteBuffer.allocateDirect(1 * NUM_FRAMES * VOCAB_SIZE * 4)
         labelBuffer.order(ByteOrder.nativeOrder())
         
-        val vocab = " ABCDEFGHIJKLMNOPQRSTUVWXYZ" // Simplified vocab for dummy training
+        // Vocab matching BeamSearchDecoder: 0=Blank, 1=A, ..., 26=Z, 27=Space
+        val vocab = "_ABCDEFGHIJKLMNOPQRSTUVWXYZ "
         val targetIndices = label.uppercase().map { char ->
             val idx = vocab.indexOf(char)
-            if (idx != -1) idx else 0 // Use blank/0 for unknown
+            if (idx != -1) idx else 0 // Use blank for unknown
         }
 
         for (t in 0 until NUM_FRAMES) {

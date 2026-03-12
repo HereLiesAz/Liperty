@@ -33,11 +33,14 @@ class LaryngealSensor(private val context: Context) {
     private var processingJob: Job? = null
     
     @Volatile private var accelMagnitude = 0f
+    @Volatile private var sensitivity = 0.5f
     
-    // Threshold for dynamic acceleration (m/s^2) to detect activity.
-    // In SSI mode, this detects if the user is pressing the phone firmly enough
-    // and if laryngeal articulators are moving.
-    private val VAD_THRESHOLD = 0.010f 
+    // Base threshold for activity detection.
+    private val BASE_VAD_THRESHOLD = 0.020f 
+
+    fun setSensitivity(value: Float) {
+        sensitivity = value
+    }
 
     private val accelListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
@@ -97,12 +100,7 @@ class LaryngealSensor(private val context: Context) {
             var framesCaptured = 0
             while (framesCaptured < 10 && isActive && isRunning.get()) {
                 val read = recorder.read(audioBuffer, 0, audioBuffer.size)
-                if (read > 0) {
-                    val floatBuffer = FloatArray(read) { audioBuffer[it] / 32768.0f }
-                    // Simple average magnitude for noise (Real implementation would use power spectrum)
-                    // For now, let's just use a fixed low floor if estimation is too noisy
-                    framesCaptured++
-                }
+                if (read > 0) framesCaptured++
             }
             // Use a conservative noise floor for spectral subtraction
             for (i in noiseProfile.indices) noiseProfile[i] = 0.002f
@@ -114,8 +112,10 @@ class LaryngealSensor(private val context: Context) {
                         // 1. Convert to Float [-1.0, 1.0]
                         val floatBuffer = FloatArray(read) { audioBuffer[it] / 32768.0f }
                         
-                        // 2. Multimodal VAD: Only process if accelerometer detects vibration
-                        val isVoicing = accelMagnitude > VAD_THRESHOLD
+                        // 2. Multimodal VAD: Inversely proportional to sensitivity
+                        // Higher sensitivity = lower threshold
+                        val threshold = BASE_VAD_THRESHOLD * (1.0f - sensitivity).coerceAtLeast(0.1f)
+                        val isVoicing = accelMagnitude > threshold
                         onVoicingState(isVoicing)
                         
                         if (isVoicing) {

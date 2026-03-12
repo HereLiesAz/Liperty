@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
     private val selectedWordIndex = mutableStateOf(-1)
     private val isRecordingState = mutableStateOf(false)
     private val isSSIModeState = mutableStateOf(false)
+    private val isLipReadModeState = mutableStateOf(true)
 
     // Camera State
     private var currentLensFacing = CameraSelector.LENS_FACING_FRONT
@@ -149,8 +150,19 @@ class MainActivity : ComponentActivity() {
                 },
                 onSpeak = { speakText() },
                 onToggleSSI = { toggleSSIMode() },
+                onToggleLipRead = { isLipReadModeState.value = !isLipReadModeState.value },
                 isPaused = isPausedState.value,
                 isSSIActive = isSSIModeState.value,
+                isLipReadActive = isLipReadModeState.value,
+                currentLensFacing = if (currentLensFacing == CameraSelector.LENS_FACING_BACK) 1 else 0,
+                vsrSensitivity = vsrSensitivity.value,
+                onVsrSensitivityChange = { vsrSensitivity.value = it },
+                larynxSensitivity = larynxSensitivity.value,
+                onLarynxSensitivityChange = { 
+                    larynxSensitivity.value = it
+                    laryngealSensor.setSensitivity(it)
+                },
+                isDarkTheme = isDarkTheme.value,
                 onRegisterCalibrationCallback = { cb ->
                     calibrationCallback = cb
                 }
@@ -172,11 +184,8 @@ class MainActivity : ComponentActivity() {
     private fun applySettings() {
         val sharedPrefs = getSharedPreferences("LipertyPrefs", Context.MODE_PRIVATE)
 
-        // Font Size
-        val fontSize = sharedPrefs.getInt("font_size", 20)
-        // transcriptionText.textSize = fontSize.toFloat() // Handled by Compose now?
-        // Note: Compose AzTextBox might need font size param.
-        // For now, we skip dynamic font size update in Compose unless we pass it.
+        // Theme
+        isDarkTheme.value = sharedPrefs.getBoolean("dark_theme", true)
 
         // Telephoto Preference
         val newTelephotoPref = sharedPrefs.getBoolean("telephoto_preference", true)

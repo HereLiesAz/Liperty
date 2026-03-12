@@ -110,14 +110,15 @@ fun LipertyApp(
                 displayAppName = true
             )
 
-            azTheme(activeColor = Color.White)
+            azTheme(activeColor = Color.Cyan)
 
             // ── Navigation rail items ─────────────────────────────────────
             azRailItem(
                 id      = "home",
                 text    = "Home",
                 route   = "home",
-                content = Icons.Filled.Home
+                content = Icons.Filled.Home,
+                color   = Color.White
             )
 
             azRailToggle(
@@ -125,7 +126,8 @@ fun LipertyApp(
                 isChecked     = isLipReadActive,
                 toggleOnText  = "Lip-Read ON",
                 toggleOffText = "Lip-Read OFF",
-                onClick       = { onToggleLipRead() }
+                onClick       = { onToggleLipRead() },
+                color         = Color.White
             )
 
             azRailToggle(
@@ -133,7 +135,8 @@ fun LipertyApp(
                 isChecked     = isSSIActive,
                 toggleOnText  = "Larynx ON",
                 toggleOffText = "Larynx OFF",
-                onClick       = { onToggleSSI() }
+                onClick       = { onToggleSSI() },
+                color         = Color.White
             )
 
             azRailToggle(
@@ -141,28 +144,32 @@ fun LipertyApp(
                 isChecked     = currentLensFacing == 1, // 1 for Back
                 toggleOnText  = "Back",
                 toggleOffText = "Front",
-                onClick       = { onSwitchCamera() }
+                onClick       = { onSwitchCamera() },
+                color         = Color.White
             )
 
             azRailItem(
                 id      = "voice_mgmt",
                 text    = "Voice",
                 route   = "voice_mgmt",
-                content = Icons.Filled.RecordVoiceOver
+                content = Icons.Filled.RecordVoiceOver,
+                color   = Color.White
             )
 
             azRailItem(
                 id      = "calibrate",
-                text    = "Personalize",
+                text    = "Tweak",
                 route   = "calibrate",
-                content = Icons.Filled.Refresh
+                content = Icons.Filled.Refresh,
+                color   = Color.White
             )
 
             azRailItem(
                 id      = "settings",
                 text    = "Settings",
                 route   = "settings",
-                content = Icons.Filled.Settings
+                content = Icons.Filled.Settings,
+                color   = Color.White
             )
 
             // ── Action menu items ─────────────────────────────────────────

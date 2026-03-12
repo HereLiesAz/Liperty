@@ -34,6 +34,15 @@
         android:layout_height="wrap_content"
         android:text="Prefer Telephoto Lens (Rear Camera)"
         android:textSize="16sp"
+        android:checked="true"
+        android:layout_marginBottom="16dp"/>
+
+    <Switch
+        android:id="@+id/switch_dark_theme"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Dark Theme"
+        android:textSize="16sp"
         android:checked="true" />
 
 </LinearLayout>
