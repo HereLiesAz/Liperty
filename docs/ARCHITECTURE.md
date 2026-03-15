@@ -29,10 +29,10 @@ The Liperty application architecture is designed for real-time, on-device execut
 *   **VoiceStore:** Securely persists voice embeddings and identities.
 
 ### 4. Planned Alaryngeal and SSR Audio Translation (RESEARCH3)
-*   **Native Low-Latency Audio:** Planned Native C++ Oboe / AAudio wrapper for ultra-low latency playback.
-*   **Expansion:** Planned TRAMBA high-frequency bandwidth expansion model for reconstructing components from BCMs.
-*   **Voice Cloning:** Planned real-time Voice Cloning architectures as detailed in RESEARCH3.md.
-*   **Noise Suppression:** Planned Pitch-synchronous generalized spectral subtraction via NDK.
+*   **Native Low-Latency Audio:** Native C++ Oboe / AAudio wrapper for ultra-low latency playback.
+*   **Expansion:** TRAMBA high-frequency bandwidth expansion model for reconstructing components from BCMs.
+*   **Voice Cloning:** Real-time Voice Cloning architectures as detailed in RESEARCH3.md.
+*   **Noise Suppression:** Pitch-synchronous generalized spectral subtraction via NDK.
 
 ## Hardware Acceleration Strategy
 
