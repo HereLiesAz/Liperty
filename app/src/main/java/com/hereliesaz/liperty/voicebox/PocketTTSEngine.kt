@@ -87,7 +87,7 @@ class PocketTTSEngine(private val context: Context) {
             // 3. Vocoder: (mel-spectrogram) -> PCM
             val vocoder = vocoderSession ?: return null
 
-            val melTensorOpt = result[0] as OnnxTensor
+            val melTensorOpt = result.get(0)?.value as? OnnxTensor ?: return null
             val vocoderInputs = mapOf(vocoderInputName to melTensorOpt)
 
             val vocoderResult = vocoder.run(vocoderInputs)
@@ -95,22 +95,14 @@ class PocketTTSEngine(private val context: Context) {
             Log.i(TAG, "Generated audio for text: $text")
             
             // Extract the float array
-            val audioOutput = vocoderResult[0].value
-
-            // The output is typically [1, 1, samples] or [1, samples] or flat
-            if (audioOutput is FloatArray) {
-                return audioOutput
-            } else if (audioOutput is Array<*>) {
-                val firstDim = audioOutput[0]
-                if (firstDim is FloatArray) {
-                    return firstDim
-                } else if (firstDim is Array<*>) {
-                     val secondDim = firstDim[0] as FloatArray
-                     return secondDim
-                }
+            // The output is typically [1, 1, samples] or [1, samples] or flat.
+            // This logic safely unnests the array to get the underlying FloatArray.
+            var currentData: Any? = vocoderResult.get(0)?.value
+            while (currentData is Array<*>) {
+                if (currentData.isEmpty()) return null
+                currentData = currentData[0]
             }
-
-            return null
+            return currentData as? FloatArray
             
         } catch (e: Exception) {
             Log.e(TAG, "TTS Generation failed", e)

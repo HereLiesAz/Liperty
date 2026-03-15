@@ -7,6 +7,7 @@ class GreedyDecoder {
     // Including ' ' as space and assuming index 0 might be blank or padding.
     // Let's assume standard CTC: [blank, A, B, ..., Z, space] or similar.
     // For this example: 0=blank, 1=A, ..., 26=Z, 27=space.
+    private val vocab = MLConstants.PHONEME_VOCAB
     private val vocab = listOf(
         "_", "AA", "AE", "AH", "AO", "AW", "AY", "B", "CH", "D", "DH", "EH", "ER", "EY",
         "F", "G", "HH", "IH", "IY", "JH", "K", "L", "M", "N", "NG", "OW", "OY", "P",

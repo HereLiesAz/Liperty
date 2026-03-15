@@ -21,6 +21,7 @@ class VibraPhoneDSP {
         const val SAMPLE_RATE = 16000
         const val FRAME_SIZE = 512
         const val HOP_SIZE = 256
+        private const val EXCITED_HARMONICS_SCALE = 0.5f
     }
 
     /**
@@ -92,26 +93,22 @@ class VibraPhoneDSP {
         // Implementation note: Using a non-linear excitation model to
         // recreate high-frequency harmonics (>2kHz).
         
-        val n = inputSignal.size / 2
-        val cutoffIdx = (2000 * FRAME_SIZE / SAMPLE_RATE).toInt()
-        
         // 1. Apply non-linear excitation directly to the time domain inputSignal (x * |x|)
-        val excitedSignal = FloatArray(inputSignal.size)
-        for (i in inputSignal.indices) {
-            excitedSignal[i] = inputSignal[i] * kotlin.math.abs(inputSignal[i])
-        }
+        val excitedSignal = inputSignal.map { it * kotlin.math.abs(it) }.toFloatArray()
 
         // 2. FFT of original and excited signal
         val complexSpectrum = fft(inputSignal)
         val excitedSpectrum = fft(excitedSignal)
+        
+        val n = complexSpectrum.size / 2
+        val cutoffIdx = (2000 * FRAME_SIZE / SAMPLE_RATE).toInt()
 
         // 3. High-pass filter: replace/add to original spectrum above cutoff
         if (cutoffIdx < n) {
             for (i in cutoffIdx until n) {
                 // Scale down the excited harmonics to blend naturally
-                val scale = 0.5f
-                complexSpectrum[2 * i] = excitedSpectrum[2 * i] * scale
-                complexSpectrum[2 * i + 1] = excitedSpectrum[2 * i + 1] * scale
+                complexSpectrum[2 * i] = excitedSpectrum[2 * i] * EXCITED_HARMONICS_SCALE
+                complexSpectrum[2 * i + 1] = excitedSpectrum[2 * i + 1] * EXCITED_HARMONICS_SCALE
             }
         }
         
