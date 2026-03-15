@@ -88,12 +88,14 @@ class PocketTTSEngine(private val context: Context) {
         val session = speakerEncoderSession ?: throw IllegalStateException("Speaker encoder not initialized")
         Log.i(TAG, "Cloning voice from: ${audioFile.name}")
         
-        // Minimal PCM load logic
+        // Minimal PCM load logic: skip 44-byte WAV header
         val bytes = audioFile.readBytes()
-        val numSamples = bytes.size / 2
+        val headerOffset = 44
+        val numSamples = Math.max(0, (bytes.size - headerOffset) / 2)
         val floatSamples = FloatArray(numSamples)
         for (i in 0 until numSamples) {
-            val sample = ((bytes[i * 2 + 1].toInt() shl 8) or (bytes[i * 2].toInt() and 0xFF)).toShort()
+            val byteIndex = headerOffset + (i * 2)
+            val sample = ((bytes[byteIndex + 1].toInt() shl 8) or (bytes[byteIndex].toInt() and 0xFF)).toShort()
             floatSamples[i] = sample.toFloat() / Short.MAX_VALUE
         }
 

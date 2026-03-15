@@ -38,8 +38,10 @@ Java_com_hereliesaz_liperty_utils_ImageUtils_pitchSynchronousSpectralSubtraction
     cv::Mat mag, phase;
     cv::cartToPolar(planes[0], planes[1], mag, phase);
 
-    // Estimate Noise Profile (simple assumption: average magnitude over first few frames)
-    // For simplicity, we just use a baseline across the spectrum
+    // Estimate Noise Profile: This implementation calculates the mean magnitude
+    // of the current frame and uses a fraction of that as the noiseFloor.
+    // It acts as a dynamic spectral filter based on the current frame's content
+    // rather than stationary background noise subtraction.
     cv::Scalar meanMag = cv::mean(mag);
     float noiseFloor = meanMag[0] * 0.1f; // Thresholding factor
 

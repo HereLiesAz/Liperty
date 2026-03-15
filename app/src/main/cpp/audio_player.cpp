@@ -5,6 +5,7 @@
 #include <vector>
 #include <string.h>
 #include <algorithm>
+#include <mutex>
 
 #define LOG_TAG "NativeAudioPlayer"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
@@ -31,9 +32,12 @@ public:
     }
 
     bool write(const float* data, size_t count) {
-        if (count > availableWrite()) return false; // Buffer full
-
         size_t currentWrite = writeIndex.load(std::memory_order_relaxed);
+        size_t currentRead = readIndex.load(std::memory_order_acquire);
+        size_t available = capacity - (currentWrite - currentRead);
+
+        if (count > available) return false; // Buffer full
+
         size_t index1 = currentWrite % capacity;
         size_t count1 = std::min(count, capacity - index1);
         size_t count2 = count - count1;
@@ -73,6 +77,7 @@ public:
 };
 
 // Global instance (simplified for JNI context)
+std::mutex globalAudioMutex;
 LockFreeRingBuffer* audioRingBuffer = nullptr;
 AAudioStream *audioStream = nullptr;
 
@@ -83,8 +88,9 @@ aaudio_data_callback_result_t dataCallback(
         int32_t numFrames) {
 
     float *floatData = static_cast<float *>(audioData);
+    std::unique_lock<std::mutex> lock(globalAudioMutex, std::try_to_lock);
 
-    if (audioRingBuffer != nullptr) {
+    if (lock.owns_lock() && audioRingBuffer != nullptr) {
         size_t readCount = audioRingBuffer->read(floatData, numFrames);
         if (readCount < numFrames) {
             // Underflow: pad with zeros
@@ -102,6 +108,7 @@ Java_com_hereliesaz_liperty_voicebox_NativeAudioPlayer_startPlaybackNative(
         JNIEnv* env,
         jobject /* this */) {
 
+    std::lock_guard<std::mutex> lock(globalAudioMutex);
     if (audioStream != nullptr) {
         return JNI_TRUE;
     }
@@ -151,6 +158,7 @@ Java_com_hereliesaz_liperty_voicebox_NativeAudioPlayer_writeAudioDataNative(
     jsize length = env->GetArrayLength(pcmData);
     jfloat* elements = env->GetFloatArrayElements(pcmData, nullptr);
 
+    std::lock_guard<std::mutex> lock(globalAudioMutex);
     if (audioRingBuffer != nullptr) {
         audioRingBuffer->write(elements, length);
     }
@@ -162,6 +170,7 @@ extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_liperty_voicebox_NativeAudioPlayer_stopPlaybackNative(
         JNIEnv* env,
         jobject /* this */) {
+    std::lock_guard<std::mutex> lock(globalAudioMutex);
     if (audioStream != nullptr) {
         AAudioStream_requestStop(audioStream);
         AAudioStream_close(audioStream);

@@ -16,8 +16,8 @@ class TFLiteEngine(private val context: Context) : ModelEngine {
     private var gpuDelegate: Delegate? = null
     private val MODEL_NAME = "vsr_model.tflite"
 
-    override fun initialize() {
-        if (interpreter != null) return
+    override fun initialize(): Boolean {
+        if (interpreter != null) return true
 
         try {
             val options = Interpreter.Options()
@@ -36,11 +36,13 @@ class TFLiteEngine(private val context: Context) : ModelEngine {
             val modelFile = FileUtil.loadMappedFile(context, MODEL_NAME)
             interpreter = Interpreter(modelFile, options)
             Log.i("TFLiteEngine", "TFLite Model loaded successfully")
-
+            return true
         } catch (e: java.io.FileNotFoundException) {
             Log.e("TFLiteEngine", "Model file not found: $MODEL_NAME")
+            return false
         } catch (e: Exception) {
             Log.e("TFLiteEngine", "Error initializing TFLite", e)
+            return false
         }
     }
 

@@ -16,8 +16,8 @@ class SSREngine(private val context: Context) : ModelEngine {
     private var gpuDelegate: Delegate? = null
     private val MODEL_NAME = "ssr_model.tflite"
 
-    override fun initialize() {
-        if (interpreter != null) return
+    override fun initialize(): Boolean {
+        if (interpreter != null) return true
         try {
             val options = Interpreter.Options()
             try {
@@ -30,8 +30,10 @@ class SSREngine(private val context: Context) : ModelEngine {
             val modelFile = FileUtil.loadMappedFile(context, MODEL_NAME)
             interpreter = Interpreter(modelFile, options)
             Log.i("SSREngine", "SSR Model loaded successfully")
+            return true
         } catch (e: Exception) {
             Log.e("SSREngine", "Error initializing SSREngine", e)
+            return false
         }
     }
 
