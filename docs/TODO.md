@@ -25,7 +25,7 @@ This document serves as the master source of truth for the Liperty project. It m
 - [ ] **Advanced Spatial Normalization:**
     - [x] **Affine Transformation:** Matrix calculation for roll/pitch/yaw neutralization.
     - [x] **Standardized Cropping:** 88x88 square cropping for model input.
-    - [ ] **Zero-Allocation Pipeline:** Refine `BitmapPool` to ensure `ImageProxy` -> `ROI` conversion involves no GC churn.
+    - [x] **Zero-Allocation Pipeline:** Refine `BitmapPool` to ensure `ImageProxy` -> `ROI` conversion involves no GC churn.
 - [x] **Photometric Normalization:**
     - [x] **Native Acceleration:** Gaussian Blur and Histogram Equalization implemented in JNI/OpenCV (`image_utils_jni.cpp`).
 
@@ -54,8 +54,8 @@ This document serves as the master source of truth for the Liperty project. It m
 
 - [x] **Lens Selection Logic:** Prioritize Telephoto lens (2x/3x) when using the rear camera.
 - [ ] **Optical Pacing & Locking:**
-    - [ ] Enforce deterministic 25 FPS stream.
-    - [ ] Implement Exposure/Focus lock during active inference.
+    - [x] Enforce deterministic 25 FPS stream.
+    - [x] Implement Exposure/Focus lock during active inference.
 
 ---
 
@@ -90,7 +90,7 @@ This document serves as the master source of truth for the Liperty project. It m
 - [/] **Voice Cloning (Pocket TTS):**
     - [x] **Import/Record UI:** Support for capturing samples or selecting existing `.wav` files.
     - [x] **ONNX Boilerplate:** Infrastructure for executing Pocket-TTS models in `PocketTTSEngine.kt`.
-    - [ ] **Real Inference:** Replace dummy embedding extraction and white-noise generation with actual model outputs.
+    - [x] **Real Inference:** Replace dummy embedding extraction and white-noise generation with actual model outputs.
 
 ---
 

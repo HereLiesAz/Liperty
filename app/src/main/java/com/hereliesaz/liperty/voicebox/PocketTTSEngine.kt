@@ -95,14 +95,12 @@ class PocketTTSEngine(private val context: Context) {
             Log.i(TAG, "Generated audio for text: $text")
             
             // Extract the float array
-            // The output is typically [1, 1, samples] or [1, samples] or flat.
-            // This logic safely unnests the array to get the underlying FloatArray.
-            var currentData: Any? = vocoderResult.get(0)?.value
-            while (currentData is Array<*>) {
-                if (currentData.isEmpty()) return null
-                currentData = currentData[0]
-            }
-            return currentData as? FloatArray
+            val tensor = vocoderResult[0] as OnnxTensor
+            val floatBuffer = tensor.floatBuffer
+            val audioOutput = FloatArray(floatBuffer.remaining())
+            floatBuffer.get(audioOutput)
+
+            return audioOutput
             
         } catch (e: Exception) {
             Log.e(TAG, "TTS Generation failed", e)

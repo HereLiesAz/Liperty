@@ -4,7 +4,11 @@ import android.content.Context
 import android.hardware.camera2.CameraCharacteristics
 import android.util.Log
 import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
+import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CameraMetadata
+import android.util.Range
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -52,9 +56,15 @@ class CameraManager(private val context: Context) {
                 }
 
             // Image Analysis Use Case
-            val imageAnalysis = ImageAnalysis.Builder()
+            val imageAnalysisBuilder = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .build()
+
+            val extender = Camera2Interop.Extender(imageAnalysisBuilder)
+            extender.setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(25, 25))
+            extender.setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
+            extender.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF)
+
+            val imageAnalysis = imageAnalysisBuilder.build()
                 .also {
                     it.setAnalyzer(executor, analyzer)
                 }
