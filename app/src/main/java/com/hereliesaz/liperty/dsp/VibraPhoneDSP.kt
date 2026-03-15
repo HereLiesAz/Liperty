@@ -89,22 +89,29 @@ class VibraPhoneDSP {
      * Reconstructs missing high-frequency harmonics (>2kHz) based on F0 and F1/F2.
      */
     fun voiceSourceExpansion(inputSignal: FloatArray): FloatArray {
-        // Implementation note: This typically uses a non-linear oscillator or 
-        // spectral folding/translation to recreate HF content.
+        // Implementation note: Using a non-linear excitation model to
+        // recreate high-frequency harmonics (>2kHz).
         
-        val complexSpectrum = fft(inputSignal)
-        val n = complexSpectrum.size / 2
-        
-        // Find index for 2kHz
+        val n = inputSignal.size / 2
         val cutoffIdx = (2000 * FRAME_SIZE / SAMPLE_RATE).toInt()
         
+        // 1. Apply non-linear excitation directly to the time domain inputSignal (x * |x|)
+        val excitedSignal = FloatArray(inputSignal.size)
+        for (i in inputSignal.indices) {
+            excitedSignal[i] = inputSignal[i] * kotlin.math.abs(inputSignal[i])
+        }
+
+        // 2. FFT of original and excited signal
+        val complexSpectrum = fft(inputSignal)
+        val excitedSpectrum = fft(excitedSignal)
+
+        // 3. High-pass filter: replace/add to original spectrum above cutoff
         if (cutoffIdx < n) {
             for (i in cutoffIdx until n) {
-                // Spectral folding: mirror low frequency content to high frequency
-                // This is a crude but effective way to add "texture" to the voice.
-                val mirrorIdx = i % cutoffIdx
-                complexSpectrum[2 * i] = complexSpectrum[2 * mirrorIdx] * 0.5f
-                complexSpectrum[2 * i + 1] = complexSpectrum[2 * mirrorIdx + 1] * 0.5f
+                // Scale down the excited harmonics to blend naturally
+                val scale = 0.5f
+                complexSpectrum[2 * i] = excitedSpectrum[2 * i] * scale
+                complexSpectrum[2 * i + 1] = excitedSpectrum[2 * i + 1] * scale
             }
         }
         

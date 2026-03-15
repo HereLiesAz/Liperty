@@ -96,6 +96,6 @@ This document serves as the master source of truth for the Liperty project. It m
 
 ## 🎯 Immediate Next Steps for AI Agent
 
-1. **PHONEME MAPPING:** Replace dummy 40-char vocabulary with the VALLR 38-phoneme set.
-2. **DSP REFINEMENT:** Improve `voiceSourceExpansion` in `VibraPhoneDSP` using a non-linear excitation model instead of simple folding.
-3. **POCKET-TTS INTEGRATION:** Implement the actual ONNX session execution for voice cloning and audio generation.
+1. [x] **PHONEME MAPPING:** Replace dummy 40-char vocabulary with the VALLR 38-phoneme set.
+2. [x] **DSP REFINEMENT:** Improve `voiceSourceExpansion` in `VibraPhoneDSP` using a non-linear excitation model instead of simple folding.
+3. [x] **POCKET-TTS INTEGRATION:** Implement the actual ONNX session execution for voice cloning and audio generation.

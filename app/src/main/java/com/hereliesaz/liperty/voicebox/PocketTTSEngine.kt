@@ -71,7 +71,7 @@ class PocketTTSEngine(private val context: Context) {
     /**
      * Generates audio from text using a specific voice state.
      */
-    fun generateAudio(text: String, voiceState: VoiceState): FloatArray? {
+    fun generateAudio(text: String, voiceState: VoiceState, vocoderInputName: String = "mel"): FloatArray? {
         val session = acousticSession ?: return null
         
         try {
@@ -83,16 +83,34 @@ class PocketTTSEngine(private val context: Context) {
             // 2. Acoustic Model: (tokens, voice) -> mel-spectrogram
             val inputs = mapOf("input_ids" to tokenTensor, "speaker_ids" to voiceTensor)
             val result = session.run(inputs)
-            val melSpectrogram = result[0].value as Array<Array<FloatArray>> // Dummy shape [1, Time, Mels]
             
             // 3. Vocoder: (mel-spectrogram) -> PCM
-            // vocoderSession?.run(...)
+            val vocoder = vocoderSession ?: return null
+
+            val melTensorOpt = result[0] as OnnxTensor
+            val vocoderInputs = mapOf(vocoderInputName to melTensorOpt)
+
+            val vocoderResult = vocoder.run(vocoderInputs)
             
             Log.i(TAG, "Generated audio for text: $text")
             
-            // Dummy implementation: Return some white noise for now
-            val sampleCount = 16000 * 2 // 2 seconds
-            return FloatArray(sampleCount) { Math.random().toFloat() * 0.1f }
+            // Extract the float array
+            val audioOutput = vocoderResult[0].value
+
+            // The output is typically [1, 1, samples] or [1, samples] or flat
+            if (audioOutput is FloatArray) {
+                return audioOutput
+            } else if (audioOutput is Array<*>) {
+                val firstDim = audioOutput[0]
+                if (firstDim is FloatArray) {
+                    return firstDim
+                } else if (firstDim is Array<*>) {
+                     val secondDim = firstDim[0] as FloatArray
+                     return secondDim
+                }
+            }
+
+            return null
             
         } catch (e: Exception) {
             Log.e(TAG, "TTS Generation failed", e)

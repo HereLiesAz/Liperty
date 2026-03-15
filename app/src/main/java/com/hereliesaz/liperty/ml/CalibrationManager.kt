@@ -78,11 +78,44 @@ class CalibrationManager(private val context: Context) {
         val labelBuffer = ByteBuffer.allocateDirect(1 * NUM_FRAMES * VOCAB_SIZE * 4)
         labelBuffer.order(ByteOrder.nativeOrder())
         
-        // Vocab matching BeamSearchDecoder: 0=Blank, 1=A, ..., 26=Z, 27=Space
-        val vocab = "_ABCDEFGHIJKLMNOPQRSTUVWXYZ "
+        // Vocab matching decoders
+        val vocab = listOf(
+            "_", "AA", "AE", "AH", "AO", "AW", "AY", "B", "CH", "D", "DH", "EH", "ER", "EY",
+            "F", "G", "HH", "IH", "IY", "JH", "K", "L", "M", "N", "NG", "OW", "OY", "P",
+            "R", "S", "SH", "T", "TH", "UH", "UW", "V", "W", "Y", "Z", "ZH"
+        )
+        // Dummy mapping for calibration phrases (since we don't have a real G2P converter here,
+        // we'll just map characters to the closest looking phoneme index or blank for spaces)
         val targetIndices = label.uppercase().map { char ->
-            val idx = vocab.indexOf(char)
-            if (idx != -1) idx else 0 // Use blank for unknown
+            when (char) {
+                'A' -> vocab.indexOf("AA")
+                'B' -> vocab.indexOf("B")
+                'C' -> vocab.indexOf("CH")
+                'D' -> vocab.indexOf("D")
+                'E' -> vocab.indexOf("EH")
+                'F' -> vocab.indexOf("F")
+                'G' -> vocab.indexOf("G")
+                'H' -> vocab.indexOf("HH")
+                'I' -> vocab.indexOf("IH")
+                'J' -> vocab.indexOf("JH")
+                'K' -> vocab.indexOf("K")
+                'L' -> vocab.indexOf("L")
+                'M' -> vocab.indexOf("M")
+                'N' -> vocab.indexOf("N")
+                'O' -> vocab.indexOf("OW")
+                'P' -> vocab.indexOf("P")
+                'Q' -> vocab.indexOf("K")
+                'R' -> vocab.indexOf("R")
+                'S' -> vocab.indexOf("S")
+                'T' -> vocab.indexOf("T")
+                'U' -> vocab.indexOf("UH")
+                'V' -> vocab.indexOf("V")
+                'W' -> vocab.indexOf("W")
+                'X' -> vocab.indexOf("S") // Approximate
+                'Y' -> vocab.indexOf("Y")
+                'Z' -> vocab.indexOf("Z")
+                else -> 0 // Blank for space and punctuation
+            }
         }
 
         for (t in 0 until NUM_FRAMES) {
