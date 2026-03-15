@@ -9,12 +9,14 @@ class DecoderTest {
     fun testGreedyDecoder() {
         val decoder = GreedyDecoder()
 
-        // Vocab: 0=_, 1=A..8=H..5=E..12=L..15=O
-        // Sequence: H, H, _, E, L, L, _, L, O -> HELLO
-        // Indices: 8, 8, 0, 5, 12, 12, 0, 12, 15
-        val indices = listOf(8, 8, 0, 5, 12, 12, 0, 12, 15)
+        // Test with new 40 phoneme vocabulary
+        // Indices: 1=AA, 2=AE, 3=AH
+        // Sequence: AA, AA, _, AE, AH, AH, _, AH, AE
+        // Collapses to: AA, _, AE, AH, _, AH, AE
+        // Blanks removed: AAAEAHAHAE
+        val indices = listOf(1, 1, 0, 2, 3, 3, 0, 3, 2)
 
-        val vocabSize = 28
+        val vocabSize = 40
         val probabilities = Array(indices.size) { i ->
             val arr = FloatArray(vocabSize)
             arr[indices[i]] = 1.0f // Certainty
@@ -22,39 +24,38 @@ class DecoderTest {
         }
 
         val result = decoder.decode(probabilities)
-        assertEquals("HELLO", result)
+        assertEquals("AAAEAHAHAE", result)
     }
 
     @Test
     fun testGreedyDecoderWithRepeatedCharacters() {
-        // "LL" should be decoded as "L" if no blank in between
         val decoder = GreedyDecoder()
 
-        // L, L -> L
-        val indices = listOf(12, 12)
+        // AH, AH -> AH
+        val indices = listOf(3, 3)
         val probabilities = Array(indices.size) { i ->
-            val arr = FloatArray(28)
+            val arr = FloatArray(40)
             arr[indices[i]] = 1.0f
             arr
         }
 
         val result = decoder.decode(probabilities)
-        assertEquals("L", result)
+        assertEquals("AH", result)
     }
 
     @Test
     fun testGreedyDecoderWithBlankBetweenRepeated() {
-        // "L", "_", "L" -> "LL"
         val decoder = GreedyDecoder()
 
-        val indices = listOf(12, 0, 12)
+        // AH, _, AH -> AHAH
+        val indices = listOf(3, 0, 3)
         val probabilities = Array(indices.size) { i ->
-            val arr = FloatArray(28)
+            val arr = FloatArray(40)
             arr[indices[i]] = 1.0f
             arr
         }
 
         val result = decoder.decode(probabilities)
-        assertEquals("LL", result)
+        assertEquals("AHAH", result)
     }
 }
