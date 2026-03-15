@@ -40,7 +40,7 @@ object ImageUtils {
     }
 
     // Pre-allocated buffers for zero-allocation YUV to ARGB conversion
-    private var nv21Buffer: ByteArray? = null
+    private var yuvPlanesBuffer: ByteArray? = null
     private var argbBuffer: IntArray? = null
 
     /**
