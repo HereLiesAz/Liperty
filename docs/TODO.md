@@ -94,6 +94,53 @@ This document serves as the master source of truth for the Liperty project. It m
 
 ---
 
+## 🦴 Phase 8: Hardware Input & Pre-Processing (Bone Conduction)
+
+*Ref: RESEARCH3.md Section "Hardware: Bone Conduction Microphones (BCMs) as Input Sensors"*
+
+- [ ] **Integrate Bone Conduction Microphone (BCM) Support:**
+    - [ ] Implement input routing to prioritize BCMs and head-worn accelerometers when connected.
+- [ ] **Audio Bandwidth Expansion (Super-Resolution):**
+    - [ ] Deploy a lightweight deep-learning model (e.g., TRAMBA architecture) to reconstruct high-frequency vocal components attenuated by tissue transmission.
+
+---
+
+## 🔕 Phase 9: Architecture 1 - Silent Speech Recognition (SSR)
+
+*Ref: RESEARCH3.md Section "Architecture 1: Vibration-to-Text-to-Speech (Silent Speech Recognition)"*
+
+- [ ] **SSR Translation Module:**
+    - [ ] Integrate a CNN-based machine learning model to decode bone vibrations/sEMG into text strings.
+- [ ] **Ultra-Low Latency On-Device TTS:**
+    - [ ] Optimize the PocketTTS engine for streaming execution.
+    - [ ] Achieve first-word audio latency targets of ~130 milliseconds.
+
+---
+
+## 🤖 Phase 10: Architecture 2 - Electrolarynx Translator
+
+*Ref: RESEARCH3.md Section "Architecture 2: The Smartphone as an Electrolarynx Translator"*
+
+- [ ] **Active Noise Suppression:**
+    - [ ] Implement pitch-synchronous generalized spectral subtraction to dynamically estimate and subtract the mechanical EL buzz (self-noise) from captured speech in real-time.
+- [ ] **Real-Time Voice Cloning (Intelligibility Enhancement):**
+    - [ ] Deploy an advanced voice conversion neural network (e.g., Respeecher-style architecture) to map cleaned EL speech to a high-fidelity target voice.
+
+---
+
+## ⚡ Phase 11: Wireless Latency & Native Audio Stack
+
+*Ref: RESEARCH3.md Section "Overcoming the Wireless Latency Bottleneck"*
+
+- [ ] **Native C++ Audio Integration:**
+    - [ ] Bypass the standard Android Java/Kotlin audio framework.
+    - [ ] Implement AAudio or the Oboe C++ wrapper for audio playback and capture with MMAP buffers and low-latency performance modes.
+- [ ] **Bluetooth LE Audio & LC3 Codec:**
+    - [ ] Ensure the application is fully compatible with Bluetooth 5.2/5.3 LE Audio.
+    - [ ] Leverage Isochronous Channels (ISOC) and the LC3/LC3plus codec to reduce wireless transmission latency to 10-15 ms.
+
+---
+
 ## 🎯 Immediate Next Steps for AI Agent
 
 1. [ ] **PHONEME MAPPING:** Replace dummy 40-char vocabulary with the VALLR 38-phoneme set.

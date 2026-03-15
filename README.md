@@ -9,6 +9,9 @@
 *   **Multimodal Laryngeal Sensing:** Synchronizes contact-mic and accelerometer data for robust voice activity detection.
 *   **Voice Cloning:** Create and manage personalized voice profiles using local ONNX-based PocketTTS.
 *   **Privacy-First:** All processing (Face Mesh, VSR, DSP, TTS) happens on-device.
+*   **Bone Conduction & Advanced SSR (Planned):** Hardware integration for laryngeal and bone-conduction microphones, with TRAMBA-based high-frequency bandwidth expansion.
+*   **Electrolarynx Translator Pipeline (Planned):** Real-time mechanical buzz suppression with Respeecher-style voice cloning to restore a natural voice profile.
+*   **Ultra-Low Latency Audio Stack (Planned):** Utilizes AAudio/Oboe native C++ APIs and Bluetooth LE Audio (LC3 codec) for sub-20ms audio transmission.
 *   **Innovative UI/UX:**
     *   **Interactive Overlay:** Transcription rendered as tappable word blocks directly over video.
     *   **Pinch-to-Zoom Scaling:** Dynamic font sizing via multi-touch gestures.
