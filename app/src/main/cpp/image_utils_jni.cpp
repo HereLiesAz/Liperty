@@ -8,6 +8,68 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
+extern "C" JNIEXPORT jfloatArray JNICALL
+Java_com_hereliesaz_liperty_utils_ImageUtils_pitchSynchronousSpectralSubtractionNative(
+        JNIEnv* env,
+        jobject /* this */,
+        jfloatArray inputSignal) {
+
+    jsize length = env->GetArrayLength(inputSignal);
+    jfloat* inputElements = env->GetFloatArrayElements(inputSignal, nullptr);
+
+    // Prepare data for DFT
+    cv::Mat inputMat(1, length, CV_32FC1, inputElements);
+
+    // Pad for optimal DFT size
+    int dftSize = cv::getOptimalDFTSize(length);
+    cv::Mat padded;
+    cv::copyMakeBorder(inputMat, padded, 0, 0, 0, dftSize - length, cv::BORDER_CONSTANT, cv::Scalar::all(0));
+
+    // Create complex array (real, imaginary)
+    cv::Mat planes[] = {cv::Mat_<float>(padded), cv::Mat::zeros(padded.size(), CV_32F)};
+    cv::Mat complexI;
+    cv::merge(planes, 2, complexI);
+
+    // Forward DFT
+    cv::dft(complexI, complexI);
+
+    // Split into magnitude and phase
+    cv::split(complexI, planes);
+    cv::Mat mag, phase;
+    cv::cartToPolar(planes[0], planes[1], mag, phase);
+
+    // Estimate Noise Profile (simple assumption: average magnitude over first few frames)
+    // For simplicity, we just use a baseline across the spectrum
+    cv::Scalar meanMag = cv::mean(mag);
+    float noiseFloor = meanMag[0] * 0.1f; // Thresholding factor
+
+    float alpha = 2.0f; // Oversubtraction factor
+    float spectralFloor = 0.01f;
+
+    // Apply Generalized Spectral Subtraction
+    for (int i = 0; i < mag.cols; i++) {
+        float m = mag.at<float>(0, i);
+        float sub = m - (alpha * noiseFloor);
+        mag.at<float>(0, i) = std::max(sub, spectralFloor * m);
+    }
+
+    // Reconstruct complex spectrum
+    cv::polarToCart(mag, phase, planes[0], planes[1]);
+    cv::merge(planes, 2, complexI);
+
+    // Inverse DFT
+    cv::Mat inverseTransform;
+    cv::idft(complexI, inverseTransform, cv::DFT_SCALE | cv::DFT_REAL_OUTPUT);
+
+    // Copy back to JNI array
+    jfloatArray outputArray = env->NewFloatArray(length);
+    env->SetFloatArrayRegion(outputArray, 0, length, (jfloat*)inverseTransform.data);
+
+    env->ReleaseFloatArrayElements(inputSignal, inputElements, JNI_ABORT);
+
+    return outputArray;
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_liperty_utils_ImageUtils_applyHistogramEqualizationNative(
         JNIEnv* env,
