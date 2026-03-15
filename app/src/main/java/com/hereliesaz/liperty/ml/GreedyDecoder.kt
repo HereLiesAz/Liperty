@@ -8,10 +8,9 @@ class GreedyDecoder {
     // Let's assume standard CTC: [blank, A, B, ..., Z, space] or similar.
     // For this example: 0=blank, 1=A, ..., 26=Z, 27=space.
     private val vocab = listOf(
-        "_", // Blank
-        "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
-        "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
-        " "
+        "_", "AA", "AE", "AH", "AO", "AW", "AY", "B", "CH", "D", "DH", "EH", "ER", "EY",
+        "F", "G", "HH", "IH", "IY", "JH", "K", "L", "M", "N", "NG", "OW", "OY", "P",
+        "R", "S", "SH", "T", "TH", "UH", "UW", "V", "W", "Y", "Z", "ZH"
     )
 
     /**
