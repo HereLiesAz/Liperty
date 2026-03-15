@@ -10,6 +10,8 @@ import androidx.annotation.RequiresApi
 
 object BluetoothLEAudioManager {
 
+    private var previousMode: Int? = null
+
     /**
      * Attempts to start an Isochronous Stream (ISOC) for Bluetooth LE Audio using the LC3 Codec.
      * This is crucial for transmitting high-fidelity data with ultra-low latency (10-15ms).
@@ -33,6 +35,9 @@ object BluetoothLEAudioManager {
         }
 
         // 2. Configure AudioManager for Communication (low latency)
+        if (previousMode == null) {
+            previousMode = audioManager.mode
+        }
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
 
         // 3. Route audio to BLE Headset if connected
@@ -61,6 +66,7 @@ object BluetoothLEAudioManager {
     fun stopIsochronousStream(context: Context) {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         audioManager.clearCommunicationDevice()
-        audioManager.mode = AudioManager.MODE_NORMAL
+        previousMode?.let { audioManager.mode = it }
+        previousMode = null
     }
 }
