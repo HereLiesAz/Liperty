@@ -57,10 +57,12 @@ object ImageUtils {
         val vSize = vPlane.remaining()
 
         val totalSize = ySize + uSize + vSize
-        if (nv21Buffer == null || nv21Buffer!!.size < totalSize) {
-            nv21Buffer = ByteArray(totalSize)
+        val buffer = nv21Buffer
+        val nv21 = if (buffer == null || buffer.size < totalSize) {
+            ByteArray(totalSize).also { nv21Buffer = it }
+        } else {
+            buffer
         }
-        val nv21 = nv21Buffer!!
 
         yPlane.get(nv21, 0, ySize)
         vPlane.get(nv21, ySize, vSize)
