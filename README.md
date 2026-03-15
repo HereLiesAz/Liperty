@@ -18,6 +18,7 @@
 ## Architecture
 
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for a deep dive into the technical stack, including:
+*   **Planned:** Native C++ AAudio/Oboe and Bluetooth LE Audio LC3 codec support for robust Alaryngeal speech translation.
 *   CameraX & MediaPipe for the vision pipeline.
 *   JNI/OpenCV for hardware-accelerated image normalization.
 *   LiteRT (TFLite) for inference and on-device personalization (LoRA).

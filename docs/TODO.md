@@ -96,6 +96,18 @@ This document serves as the master source of truth for the Liperty project. It m
 
 ## 🎯 Immediate Next Steps for AI Agent
 
-1. [x] **PHONEME MAPPING:** Replace dummy 40-char vocabulary with the VALLR 38-phoneme set.
-2. [x] **DSP REFINEMENT:** Improve `voiceSourceExpansion` in `VibraPhoneDSP` using a non-linear excitation model instead of simple folding.
-3. [x] **POCKET-TTS INTEGRATION:** Implement the actual ONNX session execution for voice cloning and audio generation.
+1. [ ] **PHONEME MAPPING:** Replace dummy 40-char vocabulary with the VALLR 38-phoneme set.
+2. [ ] **DSP REFINEMENT:** Improve `voiceSourceExpansion` in `VibraPhoneDSP` using a non-linear excitation model instead of simple folding.
+3. [ ] **POCKET-TTS INTEGRATION:** Implement the actual ONNX session execution for voice cloning and audio generation.
+
+---
+
+## 🔬 Phase 10: RESEARCH3 Implementation Plan
+
+- [ ] **TRAMBA High-frequency bandwidth expansion model:** Restore attenuated high-frequency components from BCMs.
+- [ ] **Silent Speech Recognition (SSR) CNN:** Decode non-auditory physiological signals into text.
+- [ ] **Pitch-synchronous generalized spectral subtraction:** Suppress mechanical EL buzz and leakage noise via NDK.
+- [ ] **On-device Streaming TTS:** Synthesize speech incrementally as the SSR engine outputs tokens.
+- [ ] **Localized low-latency Voice Cloning:** Voice conversion neural network for high-fidelity target voices.
+- [ ] **Native C++ AAudio / Oboe low-latency playback:** Write audio data directly via MMAP with exclusive low-latency mode.
+- [ ] **Bluetooth LE Audio / LC3 Codec support:** Transmit high-fidelity data with ISOC channels.
