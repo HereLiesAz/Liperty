@@ -21,7 +21,7 @@ This document serves as the master source of truth for the Liperty project. It m
 - [x] **Lip ROI Isolation:** Map specific indices for mouth tracking.
 - [x] **Software Video Stabilization:**
     - [x] **Kalman Filter:** Bounding box smoothing to counter hand jitter (Implemented in `KalmanFilter.kt`).
-    - [ ] **Optical Flow:** Calculate inter-frame movement to maintain mouth centering.
+    - [x] **Optical Flow:** Calculate inter-frame movement to maintain mouth centering.
 - [ ] **Advanced Spatial Normalization:**
     - [x] **Affine Transformation:** Matrix calculation for roll/pitch/yaw neutralization.
     - [x] **Standardized Cropping:** 88x88 square cropping for model input.
