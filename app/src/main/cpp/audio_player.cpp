@@ -160,7 +160,9 @@ Java_com_hereliesaz_liperty_voicebox_NativeAudioPlayer_writeAudioDataNative(
 
     std::lock_guard<std::mutex> lock(globalAudioMutex);
     if (audioRingBuffer != nullptr) {
-        audioRingBuffer->write(elements, length);
+        if (!audioRingBuffer->write(elements, length)) {
+            LOGE("Audio ring buffer overflow, dropping %d samples", length);
+        }
     }
 
     env->ReleaseFloatArrayElements(pcmData, elements, JNI_ABORT);

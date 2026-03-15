@@ -64,17 +64,22 @@ class PocketTTSEngine(private val context: Context) {
     fun performVoiceConversion(sourceAudio: FloatArray, targetVoice: VoiceState): FloatArray? {
         val vcSession = voiceConversionSession ?: return null
         try {
-            val audioTensor = OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(sourceAudio), longArrayOf(1, sourceAudio.size.toLong()))
-            val voiceTensor = OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(targetVoice.embedding), longArrayOf(1, targetVoice.embedding.size.toLong()))
-
-            val inputs = mapOf("source_audio" to audioTensor, "target_embedding" to voiceTensor)
-            val result = vcSession.run(inputs)
-
-            val tensor = result.get(0)?.value as? OnnxTensor ?: return null
-            val floatBuffer = tensor.floatBuffer
-            val audioOutput = FloatArray(floatBuffer.remaining())
-            floatBuffer.get(audioOutput)
-            return audioOutput
+            return OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(sourceAudio), longArrayOf(1, sourceAudio.size.toLong())).use { audioTensor ->
+                OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(targetVoice.embedding), longArrayOf(1, targetVoice.embedding.size.toLong())).use { voiceTensor ->
+                    val inputs = mapOf("source_audio" to audioTensor, "target_embedding" to voiceTensor)
+                    vcSession.run(inputs).use { result ->
+                        val tensor = result.get(0)?.value as? OnnxTensor
+                        if (tensor != null) {
+                            val floatBuffer = tensor.floatBuffer
+                            val audioOutput = FloatArray(floatBuffer.remaining())
+                            floatBuffer.get(audioOutput)
+                            audioOutput
+                        } else {
+                            null
+                        }
+                    }
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Voice conversion failed", e)
             return null
@@ -99,18 +104,20 @@ class PocketTTSEngine(private val context: Context) {
             floatSamples[i] = sample.toFloat() / Short.MAX_VALUE
         }
 
-        val audioTensor = OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(floatSamples), longArrayOf(1, floatSamples.size.toLong()))
-        val inputs = mapOf("audio" to audioTensor)
-        val result = session.run(inputs)
-
-        val tensor = result.get(0)?.value as? OnnxTensor ?: throw IllegalStateException("Failed to extract embedding")
-        val floatBuffer = tensor.floatBuffer
-        val embedding = FloatArray(floatBuffer.remaining())
-        floatBuffer.get(embedding)
+        var embedding: FloatArray? = null
+        OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(floatSamples), longArrayOf(1, floatSamples.size.toLong())).use { audioTensor ->
+            val inputs = mapOf("audio" to audioTensor)
+            session.run(inputs).use { result ->
+                val tensor = result.get(0)?.value as? OnnxTensor ?: throw IllegalStateException("Failed to extract embedding")
+                val floatBuffer = tensor.floatBuffer
+                embedding = FloatArray(floatBuffer.remaining())
+                floatBuffer.get(embedding)
+            }
+        }
 
         return VoiceState(
             name = audioFile.nameWithoutExtension,
-            embedding = embedding
+            embedding = embedding ?: FloatArray(0)
         )
     }
 
@@ -142,31 +149,30 @@ class PocketTTSEngine(private val context: Context) {
         try {
             // 1. Tokenize (Placeholder for real phonemizer)
             val tokens = text.uppercase().map { it.code.toLong() }.toLongArray()
-            val tokenTensor = OnnxTensor.createTensor(ortEnv, java.nio.LongBuffer.wrap(tokens), longArrayOf(1, tokens.size.toLong()))
-            val voiceTensor = OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(voiceState.embedding), longArrayOf(1, voiceState.embedding.size.toLong()))
             
-            // 2. Acoustic Model: (tokens, voice) -> mel-spectrogram
-            val inputs = mapOf("input_ids" to tokenTensor, "speaker_ids" to voiceTensor)
-            val result = session.run(inputs)
-            
-            // 3. Vocoder: (mel-spectrogram) -> PCM
-            val vocoder = vocoderSession ?: return null
+            return OnnxTensor.createTensor(ortEnv, java.nio.LongBuffer.wrap(tokens), longArrayOf(1, tokens.size.toLong())).use { tokenTensor ->
+                OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(voiceState.embedding), longArrayOf(1, voiceState.embedding.size.toLong())).use { voiceTensor ->
+                    // 2. Acoustic Model: (tokens, voice) -> mel-spectrogram
+                    val inputs = mapOf("input_ids" to tokenTensor, "speaker_ids" to voiceTensor)
+                    session.run(inputs).use { result ->
+                        // 3. Vocoder: (mel-spectrogram) -> PCM
+                        val vocoder = vocoderSession ?: return@use null
+                        val melTensorOpt = result.get(0)?.value as? OnnxTensor ?: return@use null
 
-            val melTensorOpt = result.get(0)?.value as? OnnxTensor ?: return null
-            val vocoderInputs = mapOf(vocoderInputName to melTensorOpt)
-
-            val vocoderResult = vocoder.run(vocoderInputs)
-            
-            Log.i(TAG, "Generated audio for text: $text")
-            
-            // Extract the float array
-            val tensor = vocoderResult.get(0)?.value as? OnnxTensor ?: return null
-            val floatBuffer = tensor.floatBuffer
-            val audioOutput = FloatArray(floatBuffer.remaining())
-            floatBuffer.get(audioOutput)
-
-            return audioOutput
-            
+                        val vocoderInputs = mapOf(vocoderInputName to melTensorOpt)
+                        vocoder.run(vocoderInputs).use { vocoderResult ->
+                            Log.i(TAG, "Generated audio for text: $text")
+                            val tensor = vocoderResult.get(0)?.value as? OnnxTensor
+                            if (tensor != null) {
+                                val floatBuffer = tensor.floatBuffer
+                                val audioOutput = FloatArray(floatBuffer.remaining())
+                                floatBuffer.get(audioOutput)
+                                audioOutput
+                            } else null
+                        }
+                    }
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "TTS Generation failed", e)
             return null

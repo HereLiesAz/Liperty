@@ -63,9 +63,15 @@ Java_com_hereliesaz_liperty_utils_ImageUtils_pitchSynchronousSpectralSubtraction
     cv::Mat inverseTransform;
     cv::idft(complexI, inverseTransform, cv::DFT_SCALE | cv::DFT_REAL_OUTPUT);
 
+    // Check continuous and expected type to avoid surprises
+    CV_Assert(inverseTransform.isContinuous());
+    CV_Assert(inverseTransform.type() == CV_32FC1);
+
     // Copy back to JNI array
     jfloatArray outputArray = env->NewFloatArray(length);
-    env->SetFloatArrayRegion(outputArray, 0, length, (jfloat*)inverseTransform.data);
+    if ((jsize)inverseTransform.total() >= length) {
+        env->SetFloatArrayRegion(outputArray, 0, length, inverseTransform.ptr<jfloat>());
+    }
 
     env->ReleaseFloatArrayElements(inputSignal, inputElements, JNI_ABORT);
 
