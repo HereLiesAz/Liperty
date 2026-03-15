@@ -18,11 +18,15 @@ class PocketTTSEngine(private val context: Context) {
     private val ortEnv = OrtEnvironment.getEnvironment()
     private var acousticSession: OrtSession? = null
     private var vocoderSession: OrtSession? = null
+    private var speakerEncoderSession: OrtSession? = null
+    private var voiceConversionSession: OrtSession? = null
 
     companion object {
         private const val TAG = "PocketTTSEngine"
         private const val ACOUSTIC_MODEL = "pocket_tts_acoustic.onnx"
         private const val VOCODER_MODEL = "pocket_tts_vocoder.onnx"
+        private const val SPEAKER_ENCODER_MODEL = "pocket_tts_speaker.onnx"
+        private const val VC_MODEL = "pocket_tts_vc.onnx"
     }
 
     /**
@@ -33,6 +37,8 @@ class PocketTTSEngine(private val context: Context) {
             // Check if models exist in internal storage or assets
             val acousticModelFile = File(context.filesDir, ACOUSTIC_MODEL)
             val vocoderModelFile = File(context.filesDir, VOCODER_MODEL)
+            val speakerModelFile = File(context.filesDir, SPEAKER_ENCODER_MODEL)
+            val vcModelFile = File(context.filesDir, VC_MODEL)
 
             if (!acousticModelFile.exists() || !vocoderModelFile.exists()) {
                 Log.w(TAG, "PocketTTS models not found in filesDir. Checking assets.")
@@ -42,6 +48,10 @@ class PocketTTSEngine(private val context: Context) {
 
             acousticSession = ortEnv.createSession(acousticModelFile.absolutePath)
             vocoderSession = ortEnv.createSession(vocoderModelFile.absolutePath)
+
+            if (speakerModelFile.exists()) speakerEncoderSession = ortEnv.createSession(speakerModelFile.absolutePath)
+            if (vcModelFile.exists()) voiceConversionSession = ortEnv.createSession(vcModelFile.absolutePath)
+
             Log.i(TAG, "PocketTTS Engine initialized successfully.")
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing PocketTTS Engine: ${e.message}")
@@ -49,23 +59,76 @@ class PocketTTSEngine(private val context: Context) {
     }
 
     /**
-     * Extracts a voice state from a reference audio file.
-     * In a real implementation, this would run a specific inference to get the embedding.
+     * Performs voice conversion mapping source audio to a target voice profile.
+     */
+    fun performVoiceConversion(sourceAudio: FloatArray, targetVoice: VoiceState): FloatArray? {
+        val vcSession = voiceConversionSession ?: return null
+        try {
+            val audioTensor = OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(sourceAudio), longArrayOf(1, sourceAudio.size.toLong()))
+            val voiceTensor = OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(targetVoice.embedding), longArrayOf(1, targetVoice.embedding.size.toLong()))
+
+            val inputs = mapOf("source_audio" to audioTensor, "target_embedding" to voiceTensor)
+            val result = vcSession.run(inputs)
+
+            val tensor = result.get(0)?.value as? OnnxTensor ?: return null
+            val floatBuffer = tensor.floatBuffer
+            val audioOutput = FloatArray(floatBuffer.remaining())
+            floatBuffer.get(audioOutput)
+            return audioOutput
+        } catch (e: Exception) {
+            Log.e(TAG, "Voice conversion failed", e)
+            return null
+        }
+    }
+
+    /**
+     * Extracts a voice state from a reference audio file using the speaker encoder model.
      */
     fun cloneVoice(audioFile: File): VoiceState {
-        // Concept:
-        // 1. Read PCM from audioFile
-        // 2. Wrap in OnnxTensor
-        // 3. session.run() -> embedding vector
-        
+        val session = speakerEncoderSession ?: throw IllegalStateException("Speaker encoder not initialized")
         Log.i(TAG, "Cloning voice from: ${audioFile.name}")
         
-        // Mocking successful extraction
-        val dummyEmbedding = FloatArray(256) { (it % 10) / 10f }
+        // Minimal PCM load logic
+        val bytes = audioFile.readBytes()
+        val numSamples = bytes.size / 2
+        val floatSamples = FloatArray(numSamples)
+        for (i in 0 until numSamples) {
+            val sample = ((bytes[i * 2 + 1].toInt() shl 8) or (bytes[i * 2].toInt() and 0xFF)).toShort()
+            floatSamples[i] = sample.toFloat() / Short.MAX_VALUE
+        }
+
+        val audioTensor = OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(floatSamples), longArrayOf(1, floatSamples.size.toLong()))
+        val inputs = mapOf("audio" to audioTensor)
+        val result = session.run(inputs)
+
+        val tensor = result.get(0)?.value as? OnnxTensor ?: throw IllegalStateException("Failed to extract embedding")
+        val floatBuffer = tensor.floatBuffer
+        val embedding = FloatArray(floatBuffer.remaining())
+        floatBuffer.get(embedding)
+
         return VoiceState(
             name = audioFile.nameWithoutExtension,
-            embedding = dummyEmbedding
+            embedding = embedding
         )
+    }
+
+    /**
+     * Generates audio from text incrementally as words/tokens become available.
+     * Provides streaming output for ultra-low latency TTS.
+     */
+    fun generateAudioStreaming(text: String, voiceState: VoiceState, vocoderInputName: String = "mel"): Sequence<FloatArray> {
+        return sequence {
+            // Split text into smaller chunks (e.g., words) for streaming synthesis
+            val chunks = text.split(" ")
+            for (chunk in chunks) {
+                if (chunk.isNotBlank()) {
+                    val audioChunk = generateAudio(chunk, voiceState, vocoderInputName)
+                    if (audioChunk != null) {
+                        yield(audioChunk)
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -95,7 +158,7 @@ class PocketTTSEngine(private val context: Context) {
             Log.i(TAG, "Generated audio for text: $text")
             
             // Extract the float array
-            val tensor = vocoderResult[0] as OnnxTensor
+            val tensor = vocoderResult.get(0)?.value as? OnnxTensor ?: return null
             val floatBuffer = tensor.floatBuffer
             val audioOutput = FloatArray(floatBuffer.remaining())
             floatBuffer.get(audioOutput)
@@ -111,6 +174,8 @@ class PocketTTSEngine(private val context: Context) {
     fun close() {
         acousticSession?.close()
         vocoderSession?.close()
+        speakerEncoderSession?.close()
+        voiceConversionSession?.close()
         ortEnv.close()
     }
 }

@@ -17,6 +17,12 @@ object ImageUtils {
     private var openCVLoaded = false
 
     /**
+     * Applies pitch-synchronous generalized spectral subtraction to suppress mechanical EL buzz via NDK.
+     */
+    @JvmStatic
+    external fun pitchSynchronousSpectralSubtractionNative(inputSignal: FloatArray): FloatArray
+
+    /**
      * Initializes OpenCV. Call this in Application.onCreate or Activity.onCreate.
      */
     fun initializeOpenCV(context: Context) {
@@ -40,7 +46,7 @@ object ImageUtils {
     }
 
     // Pre-allocated buffers for zero-allocation YUV to ARGB conversion
-    private var yuvPlanesBuffer: ByteArray? = null
+    private var nv21Buffer: ByteArray? = null
     private var argbBuffer: IntArray? = null
 
     /**
@@ -63,10 +69,11 @@ object ImageUtils {
         } else {
             buffer
         }
+        val nv21Array = nv21 as ByteArray
 
-        yPlane.get(nv21, 0, ySize)
-        vPlane.get(nv21, ySize, vSize)
-        uPlane.get(nv21, ySize + vSize, uSize)
+        yPlane.get(nv21Array, 0, ySize)
+        vPlane.get(nv21Array, ySize, vSize)
+        uPlane.get(nv21Array, ySize + vSize, uSize)
 
         val width = image.width
         val height = image.height
@@ -89,9 +96,9 @@ object ImageUtils {
             for (i in 0 until width) {
                 val uvOffset = pUV + (i shr 1) * uvPixelStride
 
-                val y = nv21[pY + i].toInt() and 0xFF
-                val v = nv21[ySize + uvOffset].toInt() and 0xFF
-                val u = nv21[ySize + vSize + uvOffset].toInt() and 0xFF
+                val y = nv21Array[pY + i].toInt() and 0xFF
+                val v = nv21Array[ySize + uvOffset].toInt() and 0xFF
+                val u = nv21Array[ySize + vSize + uvOffset].toInt() and 0xFF
 
                 var r = y + (1.370705 * (v - 128)).toInt()
                 var g = y - (0.698001 * (v - 128)).toInt() - (0.337633 * (u - 128)).toInt()
