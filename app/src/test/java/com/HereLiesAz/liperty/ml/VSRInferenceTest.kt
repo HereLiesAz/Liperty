@@ -23,10 +23,10 @@ class VSRInferenceTest {
         override fun run(inputBuffer: ByteBuffer, outputBuffer: ByteBuffer) {
             runCalled = true
             // Fill output buffer with dummy probabilities
-            // Shape [1, 5, 28] (Batch=1, Time=5, Vocab=28)
-            // Let's output "A", "B", "C", "D", "E"
-            // A=1, B=2, C=3, D=4, E=5
-            val vocabSize = 28
+            // Shape [1, 5, 40] (Batch=1, Time=5, Vocab=40)
+            // Let's output "AA", "AE", "AH", "AO", "AW"
+            // AA=1, AE=2, AH=3, AO=4, AW=5
+            val vocabSize = 40
             val timeSteps = 5
 
             // For each time step, set prob of corresponding index to 1.0
@@ -39,7 +39,7 @@ class VSRInferenceTest {
         }
 
         override fun getOutputShape(outputIndex: Int): IntArray {
-            return intArrayOf(1, 5, 28)
+            return intArrayOf(1, 5, 40)
         }
 
         override fun close() {}
@@ -57,8 +57,8 @@ class VSRInferenceTest {
         val result = vsr.runInference(frames)
 
         assert(engine.runCalled)
-        // A, B, C, D, E -> "ABCDE"
-        assertEquals("ABCDE", result.text)
+        // 1=AA, 2=AE, 3=AH, 4=AO, 5=AW
+        assertEquals("AAAEAHAOAW", result.text)
     }
 
     @Test
@@ -69,7 +69,7 @@ class VSRInferenceTest {
                  throw RuntimeException("Inference crashed")
              }
              override fun getOutputShape(outputIndex: Int): IntArray {
-                 return intArrayOf(1, 5, 28)
+                 return intArrayOf(1, 5, 40)
              }
              override fun close() {}
          }

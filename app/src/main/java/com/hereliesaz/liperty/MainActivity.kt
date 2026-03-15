@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var vsrInference: VSRInference
     private lateinit var frameBuffer: FrameBuffer
     private val lipBoxFilter = RectKalmanFilter()
+    private val opticalFlowTracker = com.hereliesaz.liperty.utils.OpticalFlowTracker()
 
     private val transcriptionManager by lazy { TranscriptionManager(this) }
     private lateinit var voiceManager: VoiceManager
@@ -343,6 +344,7 @@ class MainActivity : ComponentActivity() {
                 runOnUiThread { overlayView.clear() }
                 frameBuffer.clear()
                 lipBoxFilter.reset()
+                opticalFlowTracker.reset()
             }
         }
 
@@ -354,7 +356,9 @@ class MainActivity : ComponentActivity() {
         val rawLipBox = faceLandmarkerHelper.extractLipBoundingBox(result, bitmap.width, bitmap.height)
 
         if (rawLipBox != null) {
-            val lipBox = lipBoxFilter.update(rawLipBox)
+            // Apply Optical Flow first, then Kalman Filter for smooth trajectory tracking
+            val flowStabilizedBox = opticalFlowTracker.stabilizeBox(bitmap, rawLipBox)
+            val lipBox = lipBoxFilter.update(flowStabilizedBox)
 
             runOnUiThread {
                 val scaleX = overlayView.width.toFloat() / bitmap.width

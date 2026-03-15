@@ -21,6 +21,7 @@ class VibraPhoneDSP {
         const val SAMPLE_RATE = 16000
         const val FRAME_SIZE = 512
         const val HOP_SIZE = 256
+        private const val EXCITED_HARMONICS_SCALE = 0.5f
     }
 
     /**
@@ -89,22 +90,25 @@ class VibraPhoneDSP {
      * Reconstructs missing high-frequency harmonics (>2kHz) based on F0 and F1/F2.
      */
     fun voiceSourceExpansion(inputSignal: FloatArray): FloatArray {
-        // Implementation note: This typically uses a non-linear oscillator or 
-        // spectral folding/translation to recreate HF content.
+        // Implementation note: Using a non-linear excitation model to
+        // recreate high-frequency harmonics (>2kHz).
         
+        // 1. Apply non-linear excitation directly to the time domain inputSignal (x * |x|)
+        val excitedSignal = inputSignal.map { it * kotlin.math.abs(it) }.toFloatArray()
+
+        // 2. FFT of original and excited signal
         val complexSpectrum = fft(inputSignal)
+        val excitedSpectrum = fft(excitedSignal)
+        
         val n = complexSpectrum.size / 2
-        
-        // Find index for 2kHz
         val cutoffIdx = (2000 * FRAME_SIZE / SAMPLE_RATE).toInt()
-        
+
+        // 3. High-pass filter: replace/add to original spectrum above cutoff
         if (cutoffIdx < n) {
             for (i in cutoffIdx until n) {
-                // Spectral folding: mirror low frequency content to high frequency
-                // This is a crude but effective way to add "texture" to the voice.
-                val mirrorIdx = i % cutoffIdx
-                complexSpectrum[2 * i] = complexSpectrum[2 * mirrorIdx] * 0.5f
-                complexSpectrum[2 * i + 1] = complexSpectrum[2 * mirrorIdx + 1] * 0.5f
+                // Scale down the excited harmonics to blend naturally
+                complexSpectrum[2 * i] = excitedSpectrum[2 * i] * EXCITED_HARMONICS_SCALE
+                complexSpectrum[2 * i + 1] = excitedSpectrum[2 * i + 1] * EXCITED_HARMONICS_SCALE
             }
         }
         

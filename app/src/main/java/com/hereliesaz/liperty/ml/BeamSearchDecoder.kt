@@ -10,12 +10,7 @@ class BeamSearchDecoder(
 
     // Simple vocabulary for testing/prototype (Default)
     constructor(beamWidth: Int = 10) : this(
-        listOf(
-            "_", // Blank
-            "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
-            "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
-            " "
-        ),
+        MLConstants.PHONEME_VOCAB,
         beamWidth,
         0
     )
