@@ -95,22 +95,12 @@ class PocketTTSEngine(private val context: Context) {
             Log.i(TAG, "Generated audio for text: $text")
             
             // Extract the float array
-            val audioOutput = vocoderResult[0].value
+            val tensor = vocoderResult[0] as OnnxTensor
+            val floatBuffer = tensor.floatBuffer
+            val audioOutput = FloatArray(floatBuffer.remaining())
+            floatBuffer.get(audioOutput)
 
-            // The output is typically [1, 1, samples] or [1, samples] or flat
-            if (audioOutput is FloatArray) {
-                return audioOutput
-            } else if (audioOutput is Array<*>) {
-                val firstDim = audioOutput[0]
-                if (firstDim is FloatArray) {
-                    return firstDim
-                } else if (firstDim is Array<*>) {
-                     val secondDim = firstDim[0] as FloatArray
-                     return secondDim
-                }
-            }
-
-            return null
+            return audioOutput
             
         } catch (e: Exception) {
             Log.e(TAG, "TTS Generation failed", e)

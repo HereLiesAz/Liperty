@@ -287,12 +287,14 @@ class MainActivity : ComponentActivity() {
             frameCount++
             
             val rotationDegrees = imageProxy.imageInfo.rotationDegrees
-            val rawBitmap = com.hereliesaz.liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy)
+
+            val rawBitmap = com.hereliesaz.liperty.utils.BitmapPool.get(imageProxy.width, imageProxy.height)
+            com.hereliesaz.liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy, rawBitmap)
             
             // Rotate bitmap to upright orientation
             var bitmap = if (rotationDegrees != 0) {
                 val rotated = com.hereliesaz.liperty.utils.ImageUtils.rotateBitmap(rawBitmap, rotationDegrees.toFloat())
-                rawBitmap.recycle()
+                com.hereliesaz.liperty.utils.BitmapPool.recycle(rawBitmap)
                 rotated
             } else {
                 rawBitmap
@@ -301,7 +303,11 @@ class MainActivity : ComponentActivity() {
             // If front camera, mirror to match mirrored preview perception
             if (currentLensFacing == CameraSelector.LENS_FACING_FRONT) {
                 val mirrored = com.hereliesaz.liperty.utils.ImageUtils.mirrorBitmap(bitmap)
-                bitmap.recycle()
+                if (bitmap === rawBitmap) {
+                    com.hereliesaz.liperty.utils.BitmapPool.recycle(bitmap)
+                } else {
+                    bitmap.recycle()
+                }
                 bitmap = mirrored
             }
 
@@ -329,7 +335,11 @@ class MainActivity : ComponentActivity() {
 
             if (isPausedState.value) {
                 imageProxy.close()
-                bitmap.recycle()
+                if (bitmap === rawBitmap) {
+                    com.hereliesaz.liperty.utils.BitmapPool.recycle(bitmap)
+                } else {
+                    bitmap.recycle()
+                }
                 return@Analyzer
             }
 
@@ -345,6 +355,12 @@ class MainActivity : ComponentActivity() {
                 frameBuffer.clear()
                 lipBoxFilter.reset()
                 opticalFlowTracker.reset()
+            }
+
+            if (bitmap === rawBitmap) {
+                com.hereliesaz.liperty.utils.BitmapPool.recycle(bitmap)
+            } else {
+                bitmap.recycle()
             }
         }
 
