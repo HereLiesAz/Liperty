@@ -87,7 +87,7 @@ class PocketTTSEngine(private val context: Context) {
             // 3. Vocoder: (mel-spectrogram) -> PCM
             val vocoder = vocoderSession ?: return null
 
-            val melTensorOpt = result[0] as OnnxTensor
+            val melTensorOpt = result.get(0)?.value as? OnnxTensor ?: return null
             val vocoderInputs = mapOf(vocoderInputName to melTensorOpt)
 
             val vocoderResult = vocoder.run(vocoderInputs)

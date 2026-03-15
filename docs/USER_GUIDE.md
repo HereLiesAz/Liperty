@@ -30,6 +30,8 @@ You must also agree to the **Legal Consent** dialog to proceed with biometric pr
 *   The phone will vibrate intensely to provide a carrier sound source.
 *   Press the back of the phone firmly against your throat, below the Adam's apple.
 *   Mouth words silently; your articulators will modulate the vibration into a signal the app can process.
+*   **Planned Electrolarynx Translator Mode:** Future integration will support connecting a traditional hardware electrolarynx and using a Bluetooth LE Audio headset (with LC3 support) to transmit audio via C++ Oboe.
+*   **Planned Silent Speech BCM Mode:** Future integration will support pairing compatible Bone Conduction Microphones (BCMs) to capture tissue vibrations and translating them using TRAMBA bandwidth expansion.
 
 ### 3. Voice Management
 *   Navigate to the **Voice** screen.

@@ -79,43 +79,19 @@ class CalibrationManager(private val context: Context) {
         labelBuffer.order(ByteOrder.nativeOrder())
         
         // Vocab matching decoders
-        val vocab = listOf(
-            "_", "AA", "AE", "AH", "AO", "AW", "AY", "B", "CH", "D", "DH", "EH", "ER", "EY",
-            "F", "G", "HH", "IH", "IY", "JH", "K", "L", "M", "N", "NG", "OW", "OY", "P",
-            "R", "S", "SH", "T", "TH", "UH", "UW", "V", "W", "Y", "Z", "ZH"
-        )
+        val vocab = MLConstants.PHONEME_VOCAB
+
         // Dummy mapping for calibration phrases (since we don't have a real G2P converter here,
         // we'll just map characters to the closest looking phoneme index or blank for spaces)
+        val charToPhonemeMap = mapOf(
+            'A' to "AA", 'B' to "B", 'C' to "CH", 'D' to "D", 'E' to "EH", 'F' to "F",
+            'G' to "G", 'H' to "HH", 'I' to "IH", 'J' to "JH", 'K' to "K", 'L' to "L",
+            'M' to "M", 'N' to "N", 'O' to "OW", 'P' to "P", 'Q' to "K", 'R' to "R",
+            'S' to "S", 'T' to "T", 'U' to "UH", 'V' to "V", 'W' to "W", 'X' to "S", // Approximate
+            'Y' to "Y", 'Z' to "Z"
+        )
         val targetIndices = label.uppercase().map { char ->
-            when (char) {
-                'A' -> vocab.indexOf("AA")
-                'B' -> vocab.indexOf("B")
-                'C' -> vocab.indexOf("CH")
-                'D' -> vocab.indexOf("D")
-                'E' -> vocab.indexOf("EH")
-                'F' -> vocab.indexOf("F")
-                'G' -> vocab.indexOf("G")
-                'H' -> vocab.indexOf("HH")
-                'I' -> vocab.indexOf("IH")
-                'J' -> vocab.indexOf("JH")
-                'K' -> vocab.indexOf("K")
-                'L' -> vocab.indexOf("L")
-                'M' -> vocab.indexOf("M")
-                'N' -> vocab.indexOf("N")
-                'O' -> vocab.indexOf("OW")
-                'P' -> vocab.indexOf("P")
-                'Q' -> vocab.indexOf("K")
-                'R' -> vocab.indexOf("R")
-                'S' -> vocab.indexOf("S")
-                'T' -> vocab.indexOf("T")
-                'U' -> vocab.indexOf("UH")
-                'V' -> vocab.indexOf("V")
-                'W' -> vocab.indexOf("W")
-                'X' -> vocab.indexOf("S") // Approximate
-                'Y' -> vocab.indexOf("Y")
-                'Z' -> vocab.indexOf("Z")
-                else -> 0 // Blank for space and punctuation
-            }
+            charToPhonemeMap[char]?.let { vocab.indexOf(it) } ?: 0 // Blank for space and punctuation
         }
 
         for (t in 0 until NUM_FRAMES) {
