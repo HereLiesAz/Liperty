@@ -28,6 +28,12 @@ The Liperty application architecture is designed for real-time, on-device execut
 *   **PocketTTS Engine:** Executes ONNX-based voice cloning models locally.
 *   **VoiceStore:** Securely persists voice embeddings and identities.
 
+### 4. Planned Alaryngeal and SSR Audio Translation (RESEARCH3)
+*   **Native Low-Latency Audio:** Planned Native C++ Oboe / AAudio wrapper for ultra-low latency playback.
+*   **Expansion:** Planned TRAMBA high-frequency bandwidth expansion model for reconstructing components from BCMs.
+*   **Voice Cloning:** Planned real-time Voice Cloning architectures as detailed in RESEARCH3.md.
+*   **Noise Suppression:** Planned Pitch-synchronous generalized spectral subtraction via NDK.
+
 ## Hardware Acceleration Strategy
 
 *   **Vision Pipeline:** GPU via MediaPipe and OpenCV NDK.
