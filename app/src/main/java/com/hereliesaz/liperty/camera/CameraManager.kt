@@ -9,7 +9,6 @@ import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.CameraMetadata
-import android.util.Range
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
@@ -32,6 +31,7 @@ class CameraManager(private val context: Context) {
      * Starts the camera with the specified lens facing.
      * @param lensFacing Use CameraSelector.LENS_FACING_BACK (default) or LENS_FACING_FRONT
      */
+    @androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
     fun startCamera(
         lifecycleOwner: LifecycleOwner,
         previewView: PreviewView,
@@ -58,10 +58,8 @@ class CameraManager(private val context: Context) {
                 }
 
             // Image Analysis Use Case — locked to 25 FPS for deterministic inference timing
-            val imageAnalysis = ImageAnalysis.Builder()
+            val imageAnalysisBuilder = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setTargetFrameRate(Range(25, 25))
-                .build()
 
             val extender = Camera2Interop.Extender(imageAnalysisBuilder)
             extender.setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(25, 25))

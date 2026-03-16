@@ -22,7 +22,8 @@ object BitmapPool {
 
     fun recycle(bitmap: Bitmap) {
         if (bitmap.isRecycled) return
-        val key = key(bitmap.width, bitmap.height, bitmap.config)
+        val config = bitmap.config ?: return // Don't pool bitmaps without a config
+        val key = key(bitmap.width, bitmap.height, config)
         synchronized(pools) {
             val deque = pools.getOrPut(key) { ArrayDeque() }
             if (deque.size < MAX_POOL_SIZE) deque.addLast(bitmap)
