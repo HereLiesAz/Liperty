@@ -10,6 +10,7 @@ import java.nio.ByteOrder
 data class VSRResult(
     val text: String,
     val confidence: Float,
+    val wordConfidences: List<Float> = emptyList(),
     val processingTimeMs: Long
 )
 
@@ -115,10 +116,22 @@ class VSRInference(private val engine: ModelEngine) {
             } else {
                 greedyDecoder.decode(probabilities)
             }
+
+            // Compute confidence as mean max-softmax probability across all timesteps.
+            // This reflects how "peaked" the model's output distribution was — a well-trained
+            // model that recognised a clear phoneme will produce high max-prob values.
+            val confidence = if (probabilities.isNotEmpty()) {
+                probabilities.map { timeStep -> timeStep.max() }.average().toFloat()
+            } else 0f
+
+            // Assign the same confidence to every word produced by this inference window.
+            val wordCount = decodedText.trim().split("\\s+".toRegex()).size.coerceAtLeast(1)
+            val wordConfidences = List(wordCount) { confidence }
+
             val processingTime = SystemClock.uptimeMillis() - startTime
             PerformanceMonitor.logInferenceTime(processingTime)
 
-            return VSRResult(decodedText, 0.9f, processingTime)
+            return VSRResult(decodedText, confidence, wordConfidences, processingTime)
 
         } catch (e: Exception) {
             Log.e("VSRInference", "Inference Failed", e)
@@ -128,8 +141,7 @@ class VSRInference(private val engine: ModelEngine) {
 
     private fun getDummyResult(frameCount: Int, startTime: Long): VSRResult {
         val processingTime = SystemClock.uptimeMillis() - startTime
-        // In a real failure, we might return the last known good result or a blank
-        return VSRResult("Model Missing", 0.0f, processingTime)
+        return VSRResult("Model Missing", 0.0f, emptyList(), processingTime)
     }
 
     fun close() {

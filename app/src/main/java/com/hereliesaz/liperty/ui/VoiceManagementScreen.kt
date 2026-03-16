@@ -98,6 +98,18 @@ fun VoiceManagementScreen(
             }
         }
 
+        // Import WAV Button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            IconButton(onClick = { filePickerLauncher.launch("audio/*") }) {
+                Icon(Icons.Default.FileUpload, contentDescription = "Import WAV", tint = Color.Cyan)
+            }
+            Text("Import WAV", color = Color.White, fontSize = 16.sp)
+        }
+
         // Voice List
         Text(
             "Saved Voices",

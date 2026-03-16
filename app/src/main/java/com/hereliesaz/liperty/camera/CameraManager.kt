@@ -3,9 +3,11 @@ package com.hereliesaz.liperty.camera
 import android.content.Context
 import android.hardware.camera2.CameraCharacteristics
 import android.util.Log
+import android.util.Range
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -51,9 +53,10 @@ class CameraManager(private val context: Context) {
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
 
-            // Image Analysis Use Case
+            // Image Analysis Use Case — locked to 25 FPS for deterministic inference timing
             val imageAnalysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setTargetFrameRate(Range(25, 25))
                 .build()
                 .also {
                     it.setAnalyzer(executor, analyzer)
@@ -61,12 +64,21 @@ class CameraManager(private val context: Context) {
 
             try {
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
+                val camera = cameraProvider.bindToLifecycle(
                     lifecycleOwner,
                     cameraSelector,
                     preview,
                     imageAnalysis
                 )
+
+                // Lock AF and AE to the centre of frame so the camera stops hunting
+                // during active inference, which would shift pixel values between frames.
+                val meteringPoint = previewView.meteringPointFactory.createPoint(0.5f, 0.5f)
+                val focusAction = FocusMeteringAction.Builder(meteringPoint)
+                    .disableAutoCancel()
+                    .build()
+                camera.cameraControl.startFocusAndMetering(focusAction)
+                    .addListener({}, ContextCompat.getMainExecutor(context))
             } catch (exc: Exception) {
                 Log.e("CameraManager", "Use case binding failed", exc)
             }

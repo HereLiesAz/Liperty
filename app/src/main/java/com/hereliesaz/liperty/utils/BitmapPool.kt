@@ -3,40 +3,35 @@ package com.hereliesaz.liperty.utils
 import android.graphics.Bitmap
 import java.util.ArrayDeque
 
+/**
+ * Config-aware Bitmap pool for zero-GC-churn image reuse.
+ * Keyed by "widthxheightxconfig" so ALPHA_8 grayscale mouth ROIs
+ * are pooled separately from ARGB_8888 full-frame bitmaps.
+ */
 object BitmapPool {
-    private val pool = ArrayDeque<Bitmap>()
-    private const val MAX_POOL_SIZE = 10
+    private val pools = HashMap<String, ArrayDeque<Bitmap>>()
+    private const val MAX_POOL_SIZE = 6
 
-    fun get(width: Int, height: Int): Bitmap {
-        synchronized(pool) {
-            val iterator = pool.iterator()
-            while (iterator.hasNext()) {
-                val bitmap = iterator.next()
-                if (bitmap.width == width && bitmap.height == height) {
-                    iterator.remove()
-                    // Clear the bitmap if needed, or assume caller handles overwriting
-                    // bitmap.eraseColor(0)
-                    return bitmap
-                }
-            }
+    fun get(width: Int, height: Int, config: Bitmap.Config = Bitmap.Config.ARGB_8888): Bitmap {
+        val key = key(width, height, config)
+        synchronized(pools) {
+            pools[key]?.pollFirst()?.let { return it }
         }
-        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        return Bitmap.createBitmap(width, height, config)
     }
 
     fun recycle(bitmap: Bitmap) {
-        synchronized(pool) {
-            if (pool.size < MAX_POOL_SIZE && !pool.contains(bitmap)) {
-                pool.add(bitmap)
-            } else {
-                // If pool is full, let GC handle it (don't explicitly recycle as it might be used elsewhere briefly, though standard practice is to recycle if not pooling)
-                // bitmap.recycle() // Risky if used in UI
-            }
+        if (bitmap.isRecycled) return
+        val key = key(bitmap.width, bitmap.height, bitmap.config)
+        synchronized(pools) {
+            val deque = pools.getOrPut(key) { ArrayDeque() }
+            if (deque.size < MAX_POOL_SIZE) deque.addLast(bitmap)
         }
     }
 
     fun clear() {
-        synchronized(pool) {
-            pool.clear()
-        }
+        synchronized(pools) { pools.clear() }
     }
+
+    private fun key(w: Int, h: Int, c: Bitmap.Config) = "${w}x${h}x${c.name}"
 }

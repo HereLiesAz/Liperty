@@ -5,6 +5,7 @@ import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.math.PI
 
 /**
  * Implements Digital Signal Processing algorithms for Laryngeal Sensing via Back-EMF (VibraPhone).
@@ -86,33 +87,115 @@ class VibraPhoneDSP {
     }
 
     /**
-     * Step 4: Voice Source Expansion (Formant Extrapolation)
-     * Reconstructs missing high-frequency harmonics (>2kHz) based on F0 and F1/F2.
+     * Step 4: Voice Source Expansion via LPC Vocoding (Formant Extrapolation).
+     *
+     * Replaces the previous dummy spectral-folding approach with a proper
+     * Linear Predictive Coding (LPC) vocoder:
+     *  1. Estimate the vocal-tract filter (LPC all-pole model, order 12).
+     *  2. Detect fundamental pitch (F0) via autocorrelation.
+     *  3. Generate an appropriate excitation: glottal-pulse train (voiced) or white noise (unvoiced).
+     *  4. Re-synthesize through the LPC filter, restoring intelligible formant structure.
      */
     fun voiceSourceExpansion(inputSignal: FloatArray): FloatArray {
-        // Implementation note: Using a non-linear excitation model to
-        // recreate high-frequency harmonics (>2kHz).
-        
-        // 1. Apply non-linear excitation directly to the time domain inputSignal (x * |x|)
-        val excitedSignal = inputSignal.map { it * kotlin.math.abs(it) }.toFloatArray()
+        val lpcOrder = 12
+        val lpcCoeffs = computeLPC(inputSignal, lpcOrder)
 
-        // 2. FFT of original and excited signal
-        val complexSpectrum = fft(inputSignal)
-        val excitedSpectrum = fft(excitedSignal)
-        
-        val n = complexSpectrum.size / 2
-        val cutoffIdx = (2000 * FRAME_SIZE / SAMPLE_RATE).toInt()
-
-        // 3. High-pass filter: replace/add to original spectrum above cutoff
-        if (cutoffIdx < n) {
-            for (i in cutoffIdx until n) {
-                // Scale down the excited harmonics to blend naturally
-                complexSpectrum[2 * i] = excitedSpectrum[2 * i] * EXCITED_HARMONICS_SCALE
-                complexSpectrum[2 * i + 1] = excitedSpectrum[2 * i + 1] * EXCITED_HARMONICS_SCALE
-            }
+        val f0 = estimatePitch(inputSignal)
+        val excitation = if (f0 > 60f) {
+            generateGlottalPulses(inputSignal.size, f0)
+        } else {
+            generateWhiteNoise(inputSignal.size)
         }
-        
-        return ifft(complexSpectrum)
+
+        // Match RMS energy of excitation to input so the synthesised output has the same loudness
+        val inputRms = sqrt(inputSignal.map { it * it }.average().toFloat().coerceAtLeast(1e-10f))
+        val excRms  = sqrt(excitation.map  { it * it }.average().toFloat().coerceAtLeast(1e-10f))
+        val scaled  = excitation.map { it * (inputRms / excRms) }.toFloatArray()
+
+        return allPoleFilter(scaled, lpcCoeffs)
+    }
+
+    // ── LPC helpers ────────────────────────────────────────────────────────
+
+    /**
+     * Estimates LPC coefficients of [order] using the Levinson-Durbin recursion.
+     * Returns the prediction-error coefficients a[1..order] (a[0] = 1 is implicit).
+     */
+    private fun computeLPC(signal: FloatArray, order: Int): FloatArray {
+        // Autocorrelation lags 0..order
+        val r = FloatArray(order + 1)
+        for (lag in 0..order) {
+            var acc = 0.0
+            for (j in 0 until signal.size - lag) acc += signal[j] * signal[j + lag]
+            r[lag] = acc.toFloat()
+        }
+        if (r[0] == 0f) return FloatArray(order)
+
+        // Levinson-Durbin
+        val a = FloatArray(order + 1).also { it[0] = 1f }
+        var err = r[0]
+        for (m in 1..order) {
+            var lambda = 0f
+            for (j in 1 until m) lambda += a[j] * r[m - j]
+            val km = -(r[m] + lambda) / err
+            val prev = a.copyOf()
+            a[m] = km
+            for (j in 1 until m) a[j] = prev[j] + km * prev[m - j]
+            err *= (1f - km * km)
+            if (err <= 0f) break
+        }
+        return a.drop(1).toFloatArray()   // return a[1..order]
+    }
+
+    /**
+     * Autocorrelation-based pitch estimator.
+     * Searches the lag range corresponding to 60–500 Hz and returns F0 in Hz,
+     * or 0 if no clear periodicity is found (unvoiced).
+     */
+    private fun estimatePitch(signal: FloatArray): Float {
+        val minLag = SAMPLE_RATE / 500
+        val maxLag = minOf(SAMPLE_RATE / 60, signal.size / 2 - 1)
+        if (maxLag <= minLag) return 0f
+
+        var bestCorr = 0f
+        var bestLag  = 0
+        for (lag in minLag..maxLag) {
+            var corr = 0f
+            for (i in 0 until signal.size - lag) corr += signal[i] * signal[i + lag]
+            if (corr > bestCorr) { bestCorr = corr; bestLag = lag }
+        }
+        return if (bestLag > 0) SAMPLE_RATE.toFloat() / bestLag else 0f
+    }
+
+    /** Rosenberg-model glottal pulse train for voiced excitation. */
+    private fun generateGlottalPulses(size: Int, f0: Float): FloatArray {
+        val period    = (SAMPLE_RATE / f0).toInt().coerceAtLeast(1)
+        val openPhase = (period * 0.4f).toInt().coerceAtLeast(1)
+        return FloatArray(size) { i ->
+            val phase = i % period
+            if (phase < openPhase) sin(PI * phase / openPhase).toFloat() else 0f
+        }
+    }
+
+    /** White-noise burst for unvoiced excitation. */
+    private fun generateWhiteNoise(size: Int): FloatArray {
+        val rng = java.util.Random()
+        return FloatArray(size) { rng.nextFloat() * 2f - 1f }
+    }
+
+    /**
+     * LPC all-pole synthesis filter: y[n] = x[n] - sum_k(a[k]*y[n-k-1]).
+     * Output is hard-clipped to [-1, 1] to prevent runaway resonances.
+     */
+    private fun allPoleFilter(excitation: FloatArray, lpcCoeffs: FloatArray): FloatArray {
+        val output = FloatArray(excitation.size)
+        val order  = lpcCoeffs.size
+        for (n in output.indices) {
+            var acc = excitation[n].toDouble()
+            for (k in 0 until minOf(order, n)) acc -= lpcCoeffs[k] * output[n - k - 1]
+            output[n] = acc.toFloat().coerceIn(-1f, 1f)
+        }
+        return output
     }
 
     // --- FFT Helpers (Radix-2 Cooley-Tukey) ---

@@ -104,7 +104,7 @@ class VoiceManager(private val context: Context, private val onInit: (Boolean) -
         }
     }
 
-    private fun playAudio(samples: FloatArray) {
+    internal fun playAudio(samples: FloatArray) {
         val audioTrack = AudioTrack.Builder()
             .setAudioAttributes(AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
@@ -119,9 +119,16 @@ class VoiceManager(private val context: Context, private val onInit: (Boolean) -
             .setTransferMode(AudioTrack.MODE_STATIC)
             .build()
 
+        audioTrack.setPlaybackPositionUpdateListener(object : AudioTrack.OnPlaybackPositionUpdateListener {
+            override fun onMarkerReached(track: AudioTrack) {
+                track.stop()
+                track.release()
+            }
+            override fun onPeriodicNotification(track: AudioTrack) = Unit
+        })
+        audioTrack.setNotificationMarkerPosition(samples.size)
         audioTrack.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
         audioTrack.play()
-        // Note: In a real app, manage lifecycle of AudioTrack
     }
 
     fun stop() {

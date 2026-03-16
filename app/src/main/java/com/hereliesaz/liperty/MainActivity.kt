@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
 
     // Compose State
     private val transcriptionWords = mutableStateOf(listOf<String>())
+    private val wordConfidences = mutableStateOf(listOf<Float>())
     private val selectedWordIndex = mutableStateOf(-1)
     private val isRecordingState = mutableStateOf(false)
     private val isSSIModeState = mutableStateOf(false)
@@ -98,6 +99,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        ImageUtils.initializeOpenCV(this)
 
         // Initialize Views programmatically for Compose AndroidView
         previewView = PreviewView(this)
@@ -140,6 +143,7 @@ class MainActivity : ComponentActivity() {
                     transcriptionManager.selectWord(index)
                     updateTranscriptionUI()
                 },
+                wordConfidences = wordConfidences.value,
                 isRecording = isRecordingState.value,
                 onSwitchCamera = { toggleCamera() },
                 onOpenSettings = { startActivity(Intent(this, SettingsActivity::class.java)) },
@@ -157,7 +161,10 @@ class MainActivity : ComponentActivity() {
                 isLipReadActive = isLipReadModeState.value,
                 currentLensFacing = if (currentLensFacing == CameraSelector.LENS_FACING_BACK) 1 else 0,
                 vsrSensitivity = vsrSensitivity.value,
-                onVsrSensitivityChange = { vsrSensitivity.value = it },
+                onVsrSensitivityChange = { value ->
+                    vsrSensitivity.value = value
+                    faceLandmarkerHelper.updateConfidence(value, value)
+                },
                 larynxSensitivity = larynxSensitivity.value,
                 onLarynxSensitivityChange = { 
                     larynxSensitivity.value = it
@@ -255,7 +262,7 @@ class MainActivity : ComponentActivity() {
         if (newMode) {
             // SSI Mode: Phone vibrates, acts as sound source
             laryngealSensor.start(
-                onProcessedAudio = { /* Real-time audio stream could be played or sent to ML */ },
+                onProcessedAudio = { pcmSamples -> voiceManager.playAudio(pcmSamples) },
                 onVoicingState = { isVoicing ->
                     // Optionally show visual feedback for contact detection
                 }
@@ -269,6 +276,7 @@ class MainActivity : ComponentActivity() {
 
     private fun updateTranscriptionUI() {
         transcriptionWords.value = transcriptionManager.getWords()
+        wordConfidences.value = transcriptionManager.getWordConfidences()
         selectedWordIndex.value = transcriptionManager.getSelectedWordIndex()
     }
 
@@ -406,7 +414,7 @@ class MainActivity : ComponentActivity() {
                     withContext(Dispatchers.Main) {
                         val rawText = vsrResult.text.replace("Pred: ", "").replace(Regex("\\(.*\\)"), "")
                         if (rawText.isNotBlank()) {
-                            transcriptionManager.appendText(rawText)
+                            transcriptionManager.appendText(rawText, vsrResult.confidence)
                             updateTranscriptionUI()
                         }
                         isInferencing = false

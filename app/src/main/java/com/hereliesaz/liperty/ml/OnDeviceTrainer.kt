@@ -82,6 +82,25 @@ class OnDeviceTrainer(private val context: Context) {
      * In a real implementation, we would copy the asset to context.filesDir first,
      * load it from there, and then the updates are persisted in that file.
      */
+    /**
+     * Converts a list of phoneme strings into a ByteBuffer of float indices
+     * using the canonical [MLConstants.PHONEME_VOCAB] ordering.
+     * This replaces the previous dummy label approach where index mappings were arbitrary.
+     *
+     * @param phonemes List of phoneme tokens (e.g. ["HH", "AH", "L", "OW"])
+     * @return ByteBuffer ready to pass as `target_labels` to [trainStep]
+     */
+    fun createLabelBuffer(phonemes: List<String>): ByteBuffer {
+        val buf = ByteBuffer.allocateDirect(phonemes.size * 4).order(ByteOrder.nativeOrder())
+        for (phoneme in phonemes) {
+            val index = MLConstants.PHONEME_VOCAB.indexOf(phoneme)
+            // Unknown phonemes map to blank (index 0) rather than -1 to stay within vocab bounds
+            buf.putFloat(if (index >= 0) index.toFloat() else 0f)
+        }
+        buf.rewind()
+        return buf
+    }
+
     fun saveModelCheckpoint() {
         // TFLite doesn't automatically "save" the file back to disk just by running inference/training.
         // The interpreter holds the state in RAM.

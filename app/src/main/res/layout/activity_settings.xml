@@ -13,21 +13,6 @@
         android:textStyle="bold"
         android:layout_marginBottom="24dp"/>
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Font Size"
-        android:textSize="16sp" />
-
-    <SeekBar
-        android:id="@+id/seekbar_font_size"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:max="40"
-        android:min="12"
-        android:progress="20"
-        android:layout_marginBottom="24dp"/>
-
     <Switch
         android:id="@+id/switch_telephoto"
         android:layout_width="match_parent"

@@ -43,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -52,7 +53,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.hereliesaz.liperty.ml.CalibrationViewModel
-import com.hereliesaz.liperty.voicebox.spike.SpikeScreen
 import com.hereliesaz.liperty.ui.CalibrationScreen
 import com.hereliesaz.aznavrail.AzHostActivityLayout
 import com.hereliesaz.aznavrail.AzNavHost
@@ -62,6 +62,7 @@ fun LipertyApp(
     previewView: PreviewView,
     overlayView: OverlayView,
     transcriptionWords: List<String>,
+    wordConfidences: List<Float> = emptyList(),
     selectedWordIndex: Int,
     onWordClick: (Int) -> Unit,
     isRecording: Boolean,
@@ -240,18 +241,23 @@ fun LipertyApp(
                                 }
                             }
 
-                            if (transcriptionWords.isNotEmpty()) {
+                            if (isLipReadActive && transcriptionWords.isNotEmpty()) {
                                 FlowRow(
                                     modifier = Modifier
                                         .align(Alignment.Center)
-                                        .padding(32.dp)
-                                        .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                                        .padding(12.dp),
+                                        .padding(32.dp),
                                     horizontalArrangement = Arrangement.Center,
                                     verticalArrangement = Arrangement.Center
                                 ) {
                                     transcriptionWords.forEachIndexed { index, word ->
                                         val isSelected = index == selectedWordIndex
+                                        val confidence = wordConfidences.getOrElse(index) { 0.5f }
+                                        // Heatmap: red (0) → amber (0.5) → green (1) at 25 % alpha
+                                        val heatColor = lerp(
+                                            lerp(Color(0xFFB71C1C), Color(0xFFF57F17), confidence * 2f),
+                                            lerp(Color(0xFFF57F17), Color(0xFF1B5E20), (confidence - 0.5f) * 2f),
+                                            if (confidence < 0.5f) 0f else 1f
+                                        ).copy(alpha = 0.25f)
                                         Text(
                                             text = word,
                                             color = if (isSelected) Color.Cyan else Color.White,
@@ -260,7 +266,7 @@ fun LipertyApp(
                                             modifier = Modifier
                                                 .padding(4.dp)
                                                 .clip(RoundedCornerShape(4.dp))
-                                                .background(if (isSelected) Color.Cyan.copy(alpha = 0.2f) else Color.Transparent)
+                                                .background(if (isSelected) Color.Cyan.copy(alpha = 0.2f) else heatColor)
                                                 .clickable { onWordClick(index) }
                                                 .padding(horizontal = 4.dp)
                                         )

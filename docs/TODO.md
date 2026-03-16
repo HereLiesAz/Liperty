@@ -25,7 +25,7 @@ This document serves as the master source of truth for the Liperty project. It m
 - [ ] **Advanced Spatial Normalization:**
     - [x] **Affine Transformation:** Matrix calculation for roll/pitch/yaw neutralization.
     - [x] **Standardized Cropping:** 88x88 square cropping for model input.
-    - [ ] **Zero-Allocation Pipeline:** Refine `BitmapPool` to ensure `ImageProxy` -> `ROI` conversion involves no GC churn.
+    - [x] **Zero-Allocation Pipeline:** Refine `BitmapPool` to ensure `ImageProxy` -> `ROI` conversion involves no GC churn.
 - [x] **Photometric Normalization:**
     - [x] **Native Acceleration:** Gaussian Blur and Histogram Equalization implemented in JNI/OpenCV (`image_utils_jni.cpp`).
 
@@ -42,20 +42,20 @@ This document serves as the master source of truth for the Liperty project. It m
     - [ ] Train/Integrate pose-invariant feature extractors for off-axis (30°-60°) lipreading.
 - [/] **Advanced Decoding:**
     - [x] **CTC Beam Search:** Prefix merging implementation in `BeamSearchDecoder.kt`.
-    - [ ] **Dynamic Language Model:** Replace placeholder `HomopheneCorrector` with a probabilistic dictionary.
+    - [x] **Dynamic Language Model:** Replace placeholder `HomopheneCorrector` with a probabilistic dictionary.
 - [/] **On-Device Personalization:**
     - [x] **Calibration UI:** "Tweak" flow for capturing user-specific articulatory patterns.
     - [x] **LoRA Infrastructure:** TFLite training signature support in `OnDeviceTrainer.kt`.
-    - [ ] **Real Fine-Tuning:** Replace dummy label mapping with actual phoneme-to-index alignment.
+    - [x] **Real Fine-Tuning:** Replace dummy label mapping with actual phoneme-to-index alignment.
 
 ---
 
 ## 📷 Phase 5: Hardware & Optical Optimization
 
 - [x] **Lens Selection Logic:** Prioritize Telephoto lens (2x/3x) when using the rear camera.
-- [ ] **Optical Pacing & Locking:**
-    - [ ] Enforce deterministic 25 FPS stream.
-    - [ ] Implement Exposure/Focus lock during active inference.
+- [x] **Optical Pacing & Locking:**
+    - [x] Enforce deterministic 25 FPS stream.
+    - [x] Implement Exposure/Focus lock during active inference.
 
 ---
 
@@ -67,8 +67,8 @@ This document serves as the master source of truth for the Liperty project. It m
 - [x] **Visual Feedback:**
     - [x] **Direct Overlay:** Transcription rendered as tappable word blocks over camera view.
     - [x] **Pinch-to-Zoom:** Dynamic font scaling (12sp–120sp) via Compose gestures.
-- [ ] **Confidence Heatmap:**
-    - [ ] Implement word-level background shading based on model softmax confidence.
+- [x] **Confidence Heatmap:**
+    - [x] Implement word-level background shading based on model softmax confidence.
 
 ---
 
@@ -81,7 +81,7 @@ This document serves as the master source of truth for the Liperty project. It m
 - [/] **Laryngeal Sensing Pipeline:**
     - [x] **Dual-Stream Sync:** Synchronized capture of contact-mic and accelerometer.
     - [x] **Multimodal VAD:** Accelerometer-gated audio processing.
-    - [/] **DSP Reconstruction:** FFT and Equalization implemented; **Formant Extrapolation is currently a dummy spectral folding mockup.**
+    - [x] **DSP Reconstruction:** FFT, Equalization, and Formant Extrapolation via LPC vocoder implemented.
 
 ---
 

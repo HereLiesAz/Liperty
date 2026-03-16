@@ -7,74 +7,56 @@ class TranscriptionManager(private val context: Context) {
 
     private val homopheneCorrector = HomopheneCorrector(context)
 
-    // List of words in the current sentence
-    private val words = mutableListOf<String>()
-
-    // Index of the currently selected word (for editing/swapping)
+    // Each entry is (word, confidence) — confidence comes from the VSR model's softmax output.
+    private val wordEntries = mutableListOf<Pair<String, Float>>()
     private var selectedWordIndex = -1
 
-    fun appendText(text: String) {
+    /**
+     * Appends new words from an inference result.
+     * @param confidence Mean max-softmax probability for this inference window (0–1).
+     */
+    fun appendText(text: String, confidence: Float = 0f) {
         if (text.isEmpty()) return
-
-        // Simple splitting by space. In real VSR, we might get tokens.
         val newWords = text.trim().split("\\s+".toRegex())
-        words.addAll(newWords)
-
-        // Select the last word by default
-        if (words.isNotEmpty()) {
-            selectedWordIndex = words.size - 1
-        }
+        newWords.forEach { wordEntries.add(Pair(it, confidence)) }
+        if (wordEntries.isNotEmpty()) selectedWordIndex = wordEntries.size - 1
     }
 
-    fun getCurrentSentence(): String {
-        return words.joinToString(" ")
-    }
+    fun getCurrentSentence(): String = wordEntries.joinToString(" ") { it.first }
 
     fun clear() {
-        words.clear()
+        wordEntries.clear()
         selectedWordIndex = -1
     }
 
     fun cycleCurrentWord(direction: Int) {
-        if (selectedWordIndex == -1 || selectedWordIndex >= words.size) return
+        if (selectedWordIndex == -1 || selectedWordIndex >= wordEntries.size) return
 
-        val currentWord = words[selectedWordIndex]
+        val currentWord = wordEntries[selectedWordIndex].first
         val alternatives = homopheneCorrector.getAlternatives(currentWord).toMutableList()
 
-        // Add current word to list if not present, to allow cycling back
         if (!alternatives.contains(currentWord.lowercase()) && !alternatives.contains(currentWord)) {
             alternatives.add(0, currentWord)
         } else {
-            // Ensure current word is in the list for index finding
-             if (!alternatives.contains(currentWord)) {
-                 alternatives.add(currentWord)
-             }
+            if (!alternatives.contains(currentWord)) alternatives.add(currentWord)
         }
 
-        // Find current index in alternatives
-        // We use case-insensitive comparison for finding, but preserve case if possible?
-        // For simplicity, let's work with lowercase or whatever getAlternatives returns.
         val currentIndex = alternatives.indexOfFirst { it.equals(currentWord, ignoreCase = true) }
-
         if (currentIndex != -1 && alternatives.isNotEmpty()) {
             var newIndex = (currentIndex + direction) % alternatives.size
             if (newIndex < 0) newIndex += alternatives.size
-
-            words[selectedWordIndex] = alternatives[newIndex]
+            val conf = wordEntries[selectedWordIndex].second
+            wordEntries[selectedWordIndex] = Pair(alternatives[newIndex], conf)
         }
     }
 
     fun selectWord(index: Int) {
-        if (index in 0 until words.size) {
-            selectedWordIndex = index
-        }
+        if (index in 0 until wordEntries.size) selectedWordIndex = index
     }
 
-    fun getSelectedWordIndex(): Int {
-        return selectedWordIndex
-    }
+    fun getSelectedWordIndex(): Int = selectedWordIndex
 
-    fun getWords(): List<String> {
-        return words.toList()
-    }
+    fun getWords(): List<String> = wordEntries.map { it.first }
+
+    fun getWordConfidences(): List<Float> = wordEntries.map { it.second }
 }
