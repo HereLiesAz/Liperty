@@ -198,6 +198,32 @@ class VibraPhoneDSP {
         return output
     }
 
+    /**
+     * TRAMBA High-frequency bandwidth expansion model.
+     * Restores attenuated high-frequency components from BCMs using non-linear excitation
+     * and spectral shaping, acting as a lightweight DSP substitute for the full neural model.
+     */
+    fun trambaBandwidthExpansion(inputSignal: FloatArray): FloatArray {
+        // 1. Non-linear excitation to generate missing harmonics
+        val excitedSignal = inputSignal.map { it * kotlin.math.abs(it) }.toFloatArray()
+
+        val complexSpectrum = fft(inputSignal)
+        val excitedSpectrum = fft(excitedSignal)
+
+        val n = complexSpectrum.size / 2
+        // BCMs typically attenuate heavily above 3-4kHz. We'll reconstruct above 3kHz.
+        val cutoffIdx = (3000 * FRAME_SIZE / SAMPLE_RATE).toInt()
+
+        if (cutoffIdx < n) {
+            for (i in cutoffIdx until n) {
+                // Add excited high frequencies with a scaling factor
+                complexSpectrum[2 * i] += excitedSpectrum[2 * i] * 0.3f
+                complexSpectrum[2 * i + 1] += excitedSpectrum[2 * i + 1] * 0.3f
+            }
+        }
+        return ifft(complexSpectrum)
+    }
+
     // --- FFT Helpers (Radix-2 Cooley-Tukey) ---
     
     /**

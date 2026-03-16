@@ -8,40 +8,31 @@ import org.tensorflow.lite.gpu.GpuDelegate
 import org.tensorflow.lite.support.common.FileUtil
 import java.nio.ByteBuffer
 
-class TFLiteEngine(private val context: Context) : ModelEngine {
-
+/**
+ * Decodes non-auditory physiological signals (e.g., from BCMs) into text tokens.
+ */
+class SSREngine(private val context: Context) : ModelEngine {
     private var interpreter: Interpreter? = null
-    // Changed from GpuDelegate? to Delegate? to prevent class loading issues in Robolectric
-    // where native libs for GPU delegate might be missing.
     private var gpuDelegate: Delegate? = null
-    private val MODEL_NAME = "vsr_model.tflite"
+    private val MODEL_NAME = "ssr_model.tflite"
 
     override fun initialize(): Boolean {
         if (interpreter != null) return true
-
         try {
             val options = Interpreter.Options()
             try {
-                // Try to initialize GPU delegate. This might fail if native libs are missing.
                 gpuDelegate = GpuDelegate()
                 options.addDelegate(gpuDelegate)
-            } catch (e: NoClassDefFoundError) {
-                Log.e("TFLiteEngine", "GPU Delegate class not found, falling back to CPU", e)
-            } catch (e: UnsatisfiedLinkError) {
-                Log.e("TFLiteEngine", "GPU Delegate native lib not found, falling back to CPU", e)
             } catch (e: Exception) {
-                Log.e("TFLiteEngine", "GPU Delegate not supported, falling back to CPU", e)
+                Log.e("SSREngine", "GPU Delegate not supported, falling back to CPU", e)
             }
-
+            // Attempt to load. If it fails, it will throw. The caller should handle it.
             val modelFile = FileUtil.loadMappedFile(context, MODEL_NAME)
             interpreter = Interpreter(modelFile, options)
-            Log.i("TFLiteEngine", "TFLite Model loaded successfully")
+            Log.i("SSREngine", "SSR Model loaded successfully")
             return true
-        } catch (e: java.io.FileNotFoundException) {
-            Log.e("TFLiteEngine", "Model file not found: $MODEL_NAME")
-            return false
         } catch (e: Exception) {
-            Log.e("TFLiteEngine", "Error initializing TFLite", e)
+            Log.e("SSREngine", "Error initializing SSREngine", e)
             return false
         }
     }

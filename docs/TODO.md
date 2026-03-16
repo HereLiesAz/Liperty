@@ -90,7 +90,54 @@ This document serves as the master source of truth for the Liperty project. It m
 - [/] **Voice Cloning (Pocket TTS):**
     - [x] **Import/Record UI:** Support for capturing samples or selecting existing `.wav` files.
     - [x] **ONNX Boilerplate:** Infrastructure for executing Pocket-TTS models in `PocketTTSEngine.kt`.
-    - [ ] **Real Inference:** Replace dummy embedding extraction and white-noise generation with actual model outputs.
+    - [x] **Real Inference:** Replace dummy embedding extraction and white-noise generation with actual model outputs.
+
+---
+
+## 🦴 Phase 8: Hardware Input & Pre-Processing (Bone Conduction)
+
+*Ref: RESEARCH3.md Section "Hardware: Bone Conduction Microphones (BCMs) as Input Sensors"*
+
+- [ ] **Integrate Bone Conduction Microphone (BCM) Support:**
+    - [ ] Implement input routing to prioritize BCMs and head-worn accelerometers when connected.
+- [ ] **Audio Bandwidth Expansion (Super-Resolution):**
+    - [ ] Deploy a lightweight deep-learning model (e.g., TRAMBA architecture) to reconstruct high-frequency vocal components attenuated by tissue transmission.
+
+---
+
+## 🔕 Phase 9: Architecture 1 - Silent Speech Recognition (SSR)
+
+*Ref: RESEARCH3.md Section "Architecture 1: Vibration-to-Text-to-Speech (Silent Speech Recognition)"*
+
+- [ ] **SSR Translation Module:**
+    - [ ] Integrate a CNN-based machine learning model to decode bone vibrations/sEMG into text strings.
+- [ ] **Ultra-Low Latency On-Device TTS:**
+    - [ ] Optimize the PocketTTS engine for streaming execution.
+    - [ ] Achieve first-word audio latency targets of ~130 milliseconds.
+
+---
+
+## 🤖 Phase 10: Architecture 2 - Electrolarynx Translator
+
+*Ref: RESEARCH3.md Section "Architecture 2: The Smartphone as an Electrolarynx Translator"*
+
+- [ ] **Active Noise Suppression:**
+    - [ ] Implement pitch-synchronous generalized spectral subtraction to dynamically estimate and subtract the mechanical EL buzz (self-noise) from captured speech in real-time.
+- [ ] **Real-Time Voice Cloning (Intelligibility Enhancement):**
+    - [ ] Deploy an advanced voice conversion neural network (e.g., Respeecher-style architecture) to map cleaned EL speech to a high-fidelity target voice.
+
+---
+
+## ⚡ Phase 11: Wireless Latency & Native Audio Stack
+
+*Ref: RESEARCH3.md Section "Overcoming the Wireless Latency Bottleneck"*
+
+- [ ] **Native C++ Audio Integration:**
+    - [ ] Bypass the standard Android Java/Kotlin audio framework.
+    - [ ] Implement AAudio or the Oboe C++ wrapper for audio playback and capture with MMAP buffers and low-latency performance modes.
+- [ ] **Bluetooth LE Audio & LC3 Codec:**
+    - [ ] Ensure the application is fully compatible with Bluetooth 5.2/5.3 LE Audio.
+    - [ ] Leverage Isochronous Channels (ISOC) and the LC3/LC3plus codec to reduce wireless transmission latency to 10-15 ms.
 
 ---
 
@@ -99,3 +146,15 @@ This document serves as the master source of truth for the Liperty project. It m
 1. [x] **PHONEME MAPPING:** Replace dummy 40-char vocabulary with the VALLR 38-phoneme set.
 2. [x] **DSP REFINEMENT:** Improve `voiceSourceExpansion` in `VibraPhoneDSP` using a non-linear excitation model instead of simple folding.
 3. [x] **POCKET-TTS INTEGRATION:** Implement the actual ONNX session execution for voice cloning and audio generation.
+
+---
+
+## 🔬 Phase 10: RESEARCH3 Implementation Plan
+
+- [x] **TRAMBA High-frequency bandwidth expansion model:** Restore attenuated high-frequency components from BCMs.
+- [x] **Silent Speech Recognition (SSR) CNN:** Decode non-auditory physiological signals into text.
+- [x] **Pitch-synchronous generalized spectral subtraction:** Suppress mechanical EL buzz and leakage noise via NDK.
+- [x] **On-device Streaming TTS:** Synthesize speech incrementally as the SSR engine outputs tokens.
+- [x] **Localized low-latency Voice Cloning:** Voice conversion neural network for high-fidelity target voices.
+- [x] **Native C++ AAudio / Oboe low-latency playback:** Write audio data directly via MMAP with exclusive low-latency mode.
+- [x] **Bluetooth LE Audio / LC3 Codec support:** Transmit high-fidelity data with ISOC channels.

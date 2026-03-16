@@ -16,8 +16,9 @@ class VSRInferenceTest {
         var initialized = false
         var runCalled = false
 
-        override fun initialize() {
+        override fun initialize(): Boolean {
             initialized = true
+            return true
         }
 
         override fun run(inputBuffer: ByteBuffer, outputBuffer: ByteBuffer) {
@@ -64,7 +65,7 @@ class VSRInferenceTest {
     @Test
     fun testInferenceHandlesException() {
          val engine = object : ModelEngine {
-             override fun initialize() {}
+            override fun initialize(): Boolean = true
              override fun run(inputBuffer: ByteBuffer, outputBuffer: ByteBuffer) {
                  throw RuntimeException("Inference crashed")
              }

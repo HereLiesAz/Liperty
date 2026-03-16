@@ -29,8 +29,8 @@ class VSRInference(private val engine: ModelEngine) {
      * Initializes the inference engine.
      * Call this from a background thread.
      */
-    fun initialize() {
-        engine.initialize()
+    fun initialize(): Boolean {
+        return engine.initialize()
     }
 
     /**

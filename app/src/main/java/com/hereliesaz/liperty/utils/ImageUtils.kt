@@ -17,6 +17,12 @@ object ImageUtils {
     private var openCVLoaded = false
 
     /**
+     * Applies pitch-synchronous generalized spectral subtraction to suppress mechanical EL buzz via NDK.
+     */
+    @JvmStatic
+    external fun pitchSynchronousSpectralSubtractionNative(inputSignal: FloatArray): FloatArray
+
+    /**
      * Initializes OpenCV. Call this in Application.onCreate or Activity.onCreate.
      */
     fun initializeOpenCV(context: Context) {
@@ -37,6 +43,75 @@ object ImageUtils {
      */
     fun imageProxyToBitmap(image: ImageProxy): Bitmap {
         return image.toBitmap()
+    }
+
+    // Pre-allocated buffers for zero-allocation YUV to ARGB conversion
+    private var nv21Buffer: ByteArray? = null
+    private var argbBuffer: IntArray? = null
+
+    /**
+     * Extracts YUV data from ImageProxy and converts it to ARGB into a pre-allocated Bitmap.
+     * Reduces garbage collection overhead by reusing the bitmap and buffers.
+     */
+    fun imageProxyToBitmap(image: ImageProxy, destBitmap: Bitmap) {
+        val yPlane = image.planes[0].buffer
+        val uPlane = image.planes[1].buffer
+        val vPlane = image.planes[2].buffer
+
+        val ySize = yPlane.remaining()
+        val uSize = uPlane.remaining()
+        val vSize = vPlane.remaining()
+
+        val totalSize = ySize + uSize + vSize
+        val buffer = nv21Buffer
+        val nv21 = if (buffer == null || buffer.size < totalSize) {
+            ByteArray(totalSize).also { nv21Buffer = it }
+        } else {
+            buffer
+        }
+        val nv21Array = nv21 as ByteArray
+
+        yPlane.get(nv21Array, 0, ySize)
+        vPlane.get(nv21Array, ySize, vSize)
+        uPlane.get(nv21Array, ySize + vSize, uSize)
+
+        val width = image.width
+        val height = image.height
+        val totalPixels = width * height
+
+        if (argbBuffer == null || argbBuffer!!.size < totalPixels) {
+            argbBuffer = IntArray(totalPixels)
+        }
+        val argb = argbBuffer!!
+
+        val yRowStride = image.planes[0].rowStride
+        val uvRowStride = image.planes[1].rowStride
+        val uvPixelStride = image.planes[1].pixelStride
+
+        var yp = 0
+        for (j in 0 until height) {
+            val pY = yRowStride * j
+            val pUV = uvRowStride * (j shr 1)
+
+            for (i in 0 until width) {
+                val uvOffset = pUV + (i shr 1) * uvPixelStride
+
+                val y = nv21Array[pY + i].toInt() and 0xFF
+                val v = nv21Array[ySize + uvOffset].toInt() and 0xFF
+                val u = nv21Array[ySize + vSize + uvOffset].toInt() and 0xFF
+
+                var r = y + (1.370705 * (v - 128)).toInt()
+                var g = y - (0.698001 * (v - 128)).toInt() - (0.337633 * (u - 128)).toInt()
+                var b = y + (1.732446 * (u - 128)).toInt()
+
+                r = r.coerceIn(0, 255)
+                g = g.coerceIn(0, 255)
+                b = b.coerceIn(0, 255)
+
+                argb[yp++] = Color.argb(255, r, g, b)
+            }
+        }
+        destBitmap.setPixels(argb, 0, width, 0, 0, width, height)
     }
 
     fun rotateBitmap(bitmap: Bitmap, rotationDegrees: Float): Bitmap {

@@ -29,7 +29,8 @@ add_library( # Sets the name of the library.
              SHARED
 
              # Provides a relative path to your source file(s).
-             image_utils_jni.cpp )
+             image_utils_jni.cpp
+             audio_player.cpp )
 
 # Searches for prebuilt libraries.
 find_library(log-lib log)
@@ -43,4 +44,5 @@ target_link_libraries( # Specifies the target library.
                        # included in the NDK.
                        ${log-lib}
                        ${jnigraphics-lib}
+                       aaudio
                        ${OpenCV_LIBS} )

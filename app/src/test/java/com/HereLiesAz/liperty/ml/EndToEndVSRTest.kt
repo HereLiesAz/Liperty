@@ -16,7 +16,7 @@ class EndToEndVSRTest {
     fun testEndToEndPipeline() {
         // Mock Engine
         val mockEngine = object : ModelEngine {
-            override fun initialize() {}
+            override fun initialize(): Boolean = true
             override fun run(inputBuffer: ByteBuffer, outputBuffer: ByteBuffer) {
                 // Fill output with zeros or dummy probs
                 val outputSize = outputBuffer.capacity() / 4
