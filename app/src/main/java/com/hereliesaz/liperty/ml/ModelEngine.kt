@@ -6,5 +6,6 @@ interface ModelEngine {
     fun initialize(): Boolean
     fun run(inputBuffer: ByteBuffer, outputBuffer: ByteBuffer)
     fun getOutputShape(outputIndex: Int): IntArray
+    fun getInputShape(inputIndex: Int): IntArray
     fun close()
 }

@@ -1,10 +1,11 @@
 package com.hereliesaz.liperty
 
 import android.app.Application
+import com.hereliesaz.liperty.voicebox.BluetoothLEAudioManager
 
 class LipertyApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        // Initialize global dependencies if needed (e.g. logging)
+        BluetoothLEAudioManager.initialize(this)
     }
 }

@@ -23,6 +23,7 @@ class VoiceManager(private val context: Context, private val onInit: (Boolean) -
     private val voiceStore: VoiceStore = VoiceStore(context)
     
     private var activeVoice: VoiceState? = null
+    private var streamingAudioTrack: AudioTrack? = null
 
     init {
         systemTts = TextToSpeech(context, this)
@@ -90,7 +91,7 @@ class VoiceManager(private val context: Context, private val onInit: (Boolean) -
             // Use PocketTTS for cloned voice
             val audio = pocketTts.generateAudio(text, voice)
             if (audio != null) {
-                playAudio(audio)
+                playAudioStatic(audio)
             } else {
                 Log.e("VoiceManager", "Failed to generate audio with PocketTTS")
             }
@@ -104,7 +105,49 @@ class VoiceManager(private val context: Context, private val onInit: (Boolean) -
         }
     }
 
-    internal fun playAudio(samples: FloatArray) {
+    /**
+     * Streams TTS output for ultra-low latency.
+     * Tokens are synthesized and played as soon as they are ready.
+     */
+    fun speakStreaming(text: String) {
+        val voice = activeVoice ?: return
+        
+        // Ensure streaming track is ready
+        initStreamingTrack()
+        
+        // Sequence processing (should be called from a background thread)
+        pocketTts.generateAudioStreaming(text, voice).forEach { chunk ->
+            streamingAudioTrack?.write(chunk, 0, chunk.size, AudioTrack.WRITE_BLOCKING)
+            streamingAudioTrack?.play() // Ensure it's playing
+        }
+    }
+
+    private fun initStreamingTrack() {
+        if (streamingAudioTrack == null) {
+            val minBufSize = AudioTrack.getMinBufferSize(
+                16000,
+                AudioFormat.CHANNEL_OUT_MONO,
+                AudioFormat.ENCODING_PCM_FLOAT
+            )
+            streamingAudioTrack = AudioTrack.Builder()
+                .setAudioAttributes(AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build())
+                .setAudioFormat(AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                    .setSampleRate(16000)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build())
+                .setBufferSizeInBytes(Math.max(minBufSize, 8192))
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+        }
+    }
+
+    fun playAudio(samples: FloatArray) = playAudioStatic(samples)
+
+    private fun playAudioStatic(samples: FloatArray) {
         val audioTrack = AudioTrack.Builder()
             .setAudioAttributes(AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
@@ -138,6 +181,10 @@ class VoiceManager(private val context: Context, private val onInit: (Boolean) -
 
     fun shutdown() {
         systemTts?.shutdown()
-        // pocketTts?.shutdown()
+        streamingAudioTrack?.apply {
+            stop()
+            release()
+        }
+        streamingAudioTrack = null
     }
 }

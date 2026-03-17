@@ -8,13 +8,15 @@ import org.tensorflow.lite.gpu.GpuDelegate
 import org.tensorflow.lite.support.common.FileUtil
 import java.nio.ByteBuffer
 
-class TFLiteEngine(private val context: Context) : ModelEngine {
+class TFLiteEngine(
+    private val context: Context,
+    private val modelName: String = "vsr_model.tflite"
+) : ModelEngine {
 
     private var interpreter: Interpreter? = null
     // Changed from GpuDelegate? to Delegate? to prevent class loading issues in Robolectric
     // where native libs for GPU delegate might be missing.
     private var gpuDelegate: Delegate? = null
-    private val MODEL_NAME = "vsr_model.tflite"
 
     override fun initialize(): Boolean {
         if (interpreter != null) return true
@@ -33,12 +35,12 @@ class TFLiteEngine(private val context: Context) : ModelEngine {
                 Log.e("TFLiteEngine", "GPU Delegate not supported, falling back to CPU", e)
             }
 
-            val modelFile = FileUtil.loadMappedFile(context, MODEL_NAME)
+            val modelFile = FileUtil.loadMappedFile(context, modelName)
             interpreter = Interpreter(modelFile, options)
-            Log.i("TFLiteEngine", "TFLite Model loaded successfully")
+            Log.i("TFLiteEngine", "TFLite Model $modelName loaded successfully")
             return true
         } catch (e: java.io.FileNotFoundException) {
-            Log.e("TFLiteEngine", "Model file not found: $MODEL_NAME")
+            Log.e("TFLiteEngine", "Model file not found: $modelName")
             return false
         } catch (e: Exception) {
             Log.e("TFLiteEngine", "Error initializing TFLite", e)
@@ -52,6 +54,10 @@ class TFLiteEngine(private val context: Context) : ModelEngine {
 
     override fun getOutputShape(outputIndex: Int): IntArray {
         return interpreter?.getOutputTensor(outputIndex)?.shape() ?: IntArray(0)
+    }
+
+    override fun getInputShape(inputIndex: Int): IntArray {
+        return interpreter?.getInputTensor(inputIndex)?.shape() ?: IntArray(0)
     }
 
     override fun close() {

@@ -16,11 +16,6 @@ object ImageUtils {
 
     private var openCVLoaded = false
 
-    /**
-     * Applies pitch-synchronous generalized spectral subtraction to suppress mechanical EL buzz via NDK.
-     */
-    @JvmStatic
-    external fun pitchSynchronousSpectralSubtractionNative(inputSignal: FloatArray): FloatArray
 
     /**
      * Initializes OpenCV. Call this in Application.onCreate or Activity.onCreate.
@@ -189,13 +184,9 @@ object ImageUtils {
      */
     fun applyHistogramEqualization(bitmap: Bitmap): Bitmap {
         if (openCVLoaded) {
-            // Native modifies in-place, but the contract returns a bitmap.
-            // To be safe and consistent with previous behavior, we clone if we don't want to mutate.
-            // However, for performance in the VSR pipeline, we often want in-place.
-            // Let's create a copy to maintain compatibility with existing callers.
-            val result = bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, true)
-            applyHistogramEqualizationNative(result)
-            return result
+            // Modify in-place for zero-allocation performance
+            applyHistogramEqualizationNative(bitmap)
+            return bitmap
         }
 
         // Fallback Kotlin implementation
@@ -256,9 +247,9 @@ object ImageUtils {
      */
     fun normalizeForInference(bitmap: Bitmap): Bitmap {
         if (openCVLoaded) {
-            val result = bitmap.copy(bitmap.config ?: Bitmap.Config.ARGB_8888, true)
-            applyNormalizationNative(result)
-            return result
+            // Apply in-place for zero-allocation
+            applyNormalizationNative(bitmap)
+            return bitmap
         }
         // Fallback to sequential Kotlin steps
         var processed = applyBlur(bitmap, 1)

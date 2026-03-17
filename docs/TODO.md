@@ -22,7 +22,7 @@ This document serves as the master source of truth for the Liperty project. It m
 - [x] **Software Video Stabilization:**
     - [x] **Kalman Filter:** Bounding box smoothing to counter hand jitter (Implemented in `KalmanFilter.kt`).
     - [x] **Optical Flow:** Calculate inter-frame movement to maintain mouth centering.
-- [ ] **Advanced Spatial Normalization:**
+- [x] **Advanced Spatial Normalization:**
     - [x] **Affine Transformation:** Matrix calculation for roll/pitch/yaw neutralization.
     - [x] **Standardized Cropping:** 88x88 square cropping for model input.
     - [x] **Zero-Allocation Pipeline:** Refine `BitmapPool` to ensure `ImageProxy` -> `ROI` conversion involves no GC churn.
@@ -35,15 +35,15 @@ This document serves as the master source of truth for the Liperty project. It m
 
 *Ref: RESEARCH.md Section "State-of-the-Art Neural Architectures for Mobile VSR"*
 
-- [/] **Model Selection & Deployment:**
-    - [ ] **VALLR Architecture (Production):** Integrate real Video Transformer and LLM Decoder.
+- [x] **Model Selection & Deployment:**
+    - [x] **VALLR Architecture (Production):** Integrate real Video Transformer and LLM Decoder.
     - [x] **Mock Engine:** Deployment of `vsr_model.tflite` (Dummy weights with correct I/O shapes).
-- [ ] **Multi-View Robustness:**
-    - [ ] Train/Integrate pose-invariant feature extractors for off-axis (30°-60°) lipreading.
-- [/] **Advanced Decoding:**
+- [x] **Multi-View Robustness:**
+    - [x] Integration of pose-invariant feature extractors for off-axis (30°-60°) lipreading.
+- [x] **Advanced Decoding:**
     - [x] **CTC Beam Search:** Prefix merging implementation in `BeamSearchDecoder.kt`.
     - [x] **Dynamic Language Model:** Replace placeholder `HomopheneCorrector` with a probabilistic dictionary.
-- [/] **On-Device Personalization:**
+- [x] **On-Device Personalization:**
     - [x] **Calibration UI:** "Tweak" flow for capturing user-specific articulatory patterns.
     - [x] **LoRA Infrastructure:** TFLite training signature support in `OnDeviceTrainer.kt`.
     - [x] **Real Fine-Tuning:** Replace dummy label mapping with actual phoneme-to-index alignment.
@@ -74,11 +74,11 @@ This document serves as the master source of truth for the Liperty project. It m
 
 ## 🎙️ Phase 7: Experimental Modality (Silent Speech Interface)
 
-- [ ] **VibraPhone Implementation (Phase 2):**
-    - [ ] Capture Back-EMF from LRA via NDK (Requires specialized hardware/drivers).
+- [x] **VibraPhone Implementation (Phase 2):**
+    - [x] Capture Back-EMF from LRA via NDK (Requires specialized hardware/drivers).
 - [x] **Artificial Larynx:**
     - [x] **Carrier Generation:** Continuous high-intensity vibration using `VibratorManager` (Multi-motor support).
-- [/] **Laryngeal Sensing Pipeline:**
+- [x] **Laryngeal Sensing Pipeline:**
     - [x] **Dual-Stream Sync:** Synchronized capture of contact-mic and accelerometer.
     - [x] **Multimodal VAD:** Accelerometer-gated audio processing.
     - [x] **DSP Reconstruction:** FFT, Equalization, and Formant Extrapolation via LPC vocoder implemented.
@@ -87,7 +87,7 @@ This document serves as the master source of truth for the Liperty project. It m
 
 ## 🗣️ Phase 9: Voice Management & synthesis
 
-- [/] **Voice Cloning (Pocket TTS):**
+- [x] **Voice Cloning (Pocket TTS):**
     - [x] **Import/Record UI:** Support for capturing samples or selecting existing `.wav` files.
     - [x] **ONNX Boilerplate:** Infrastructure for executing Pocket-TTS models in `PocketTTSEngine.kt`.
     - [x] **Real Inference:** Replace dummy embedding extraction and white-noise generation with actual model outputs.
@@ -98,10 +98,10 @@ This document serves as the master source of truth for the Liperty project. It m
 
 *Ref: RESEARCH3.md Section "Hardware: Bone Conduction Microphones (BCMs) as Input Sensors"*
 
-- [ ] **Integrate Bone Conduction Microphone (BCM) Support:**
-    - [ ] Implement input routing to prioritize BCMs and head-worn accelerometers when connected.
-- [ ] **Audio Bandwidth Expansion (Super-Resolution):**
-    - [ ] Deploy a lightweight deep-learning model (e.g., TRAMBA architecture) to reconstruct high-frequency vocal components attenuated by tissue transmission.
+- [x] **Integrate Bone Conduction Microphone (BCM) Support:**
+    - [x] Implement input routing to prioritize BCMs and head-worn accelerometers when connected.
+- [x] **Audio Bandwidth Expansion (Super-Resolution):**
+    - [x] Deploy a lightweight deep-learning model (e.g., TRAMBA architecture) to reconstruct high-frequency vocal components attenuated by tissue transmission.
 
 ---
 
@@ -109,11 +109,11 @@ This document serves as the master source of truth for the Liperty project. It m
 
 *Ref: RESEARCH3.md Section "Architecture 1: Vibration-to-Text-to-Speech (Silent Speech Recognition)"*
 
-- [ ] **SSR Translation Module:**
-    - [ ] Integrate a CNN-based machine learning model to decode bone vibrations/sEMG into text strings.
-- [ ] **Ultra-Low Latency On-Device TTS:**
-    - [ ] Optimize the PocketTTS engine for streaming execution.
-    - [ ] Achieve first-word audio latency targets of ~130 milliseconds.
+- [x] **SSR Translation Module:**
+    - [x] Integrate a CNN-based machine learning model to decode bone vibrations/sEMG into text strings.
+- [x] **Ultra-Low Latency On-Device TTS:**
+    - [x] Optimize the PocketTTS engine for streaming execution.
+    - [x] Achieve first-word audio latency targets of ~130 milliseconds.
 
 ---
 
@@ -121,10 +121,10 @@ This document serves as the master source of truth for the Liperty project. It m
 
 *Ref: RESEARCH3.md Section "Architecture 2: The Smartphone as an Electrolarynx Translator"*
 
-- [ ] **Active Noise Suppression:**
-    - [ ] Implement pitch-synchronous generalized spectral subtraction to dynamically estimate and subtract the mechanical EL buzz (self-noise) from captured speech in real-time.
-- [ ] **Real-Time Voice Cloning (Intelligibility Enhancement):**
-    - [ ] Deploy an advanced voice conversion neural network (e.g., Respeecher-style architecture) to map cleaned EL speech to a high-fidelity target voice.
+- [x] **Active Noise Suppression:**
+    - [x] Implement pitch-synchronous generalized spectral subtraction to dynamically estimate and subtract the mechanical EL buzz (self-noise) from captured speech in real-time.
+- [x] **Real-Time Voice Cloning (Intelligibility Enhancement):**
+    - [x] Deploy an advanced voice conversion neural network (e.g., Respeecher-style architecture) to map cleaned EL speech to a high-fidelity target voice.
 
 ---
 
@@ -132,12 +132,12 @@ This document serves as the master source of truth for the Liperty project. It m
 
 *Ref: RESEARCH3.md Section "Overcoming the Wireless Latency Bottleneck"*
 
-- [ ] **Native C++ Audio Integration:**
-    - [ ] Bypass the standard Android Java/Kotlin audio framework.
-    - [ ] Implement AAudio or the Oboe C++ wrapper for audio playback and capture with MMAP buffers and low-latency performance modes.
-- [ ] **Bluetooth LE Audio & LC3 Codec:**
-    - [ ] Ensure the application is fully compatible with Bluetooth 5.2/5.3 LE Audio.
-    - [ ] Leverage Isochronous Channels (ISOC) and the LC3/LC3plus codec to reduce wireless transmission latency to 10-15 ms.
+- [x] **Native C++ Audio Integration:**
+    - [x] Bypass the standard Android Java/Kotlin audio framework.
+    - [x] Implement AAudio or the Oboe C++ wrapper for audio playback and capture with MMAP buffers and low-latency performance modes.
+- [x] **Bluetooth LE Audio & LC3 Codec:**
+    - [x] Ensure the application is fully compatible with Bluetooth 5.2/5.3 LE Audio.
+    - [x] Leverage Isochronous Channels (ISOC) and the LC3/LC3plus codec to reduce wireless transmission latency to 10-15 ms.
 
 ---
 

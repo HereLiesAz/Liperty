@@ -81,7 +81,7 @@ std::mutex globalAudioMutex;
 LockFreeRingBuffer* audioRingBuffer = nullptr;
 AAudioStream *audioStream = nullptr;
 
-aaudio_data_callback_result_t dataCallback(
+static aaudio_data_callback_result_t dataCallback(
         AAudioStream *stream,
         void *userData,
         void *audioData,

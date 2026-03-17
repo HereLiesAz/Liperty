@@ -22,6 +22,7 @@ class PocketTTSEngine(private val context: Context) {
     private var vocoderSession: OrtSession? = null
     private var speakerEncoderSession: OrtSession? = null
     private var voiceConversionSession: OrtSession? = null
+    private val converter = G2PConverter()
 
     companion object {
         private const val TAG = "PocketTTSEngine"
@@ -36,27 +37,45 @@ class PocketTTSEngine(private val context: Context) {
      */
     fun initialize() {
         try {
-            // Check if models exist in internal storage or assets
-            val acousticModelFile = File(context.filesDir, ACOUSTIC_MODEL)
-            val vocoderModelFile = File(context.filesDir, VOCODER_MODEL)
-            val speakerModelFile = File(context.filesDir, SPEAKER_ENCODER_MODEL)
-            val vcModelFile = File(context.filesDir, VC_MODEL)
+            // Deploy models from assets if not already in filesDir
+            val acousticModelFile = copyFromAssetsIfMissing(ACOUSTIC_MODEL)
+            val vocoderModelFile = copyFromAssetsIfMissing(VOCODER_MODEL)
+            val speakerModelFile = copyFromAssetsIfMissing(SPEAKER_ENCODER_MODEL)
+            val vcModelFile = copyFromAssetsIfMissing(VC_MODEL)
 
-            if (!acousticModelFile.exists() || !vocoderModelFile.exists()) {
-                Log.w(TAG, "PocketTTS models not found in filesDir. Checking assets.")
-                // Should eventually download or copy from assets
+            if (acousticModelFile == null || vocoderModelFile == null) {
+                Log.e(TAG, "Critical PocketTTS models (acoustic/vocoder) could not be deployed.")
                 return
             }
 
             acousticSession = ortEnv.createSession(acousticModelFile.absolutePath)
             vocoderSession = ortEnv.createSession(vocoderModelFile.absolutePath)
 
-            if (speakerModelFile.exists()) speakerEncoderSession = ortEnv.createSession(speakerModelFile.absolutePath)
-            if (vcModelFile.exists()) voiceConversionSession = ortEnv.createSession(vcModelFile.absolutePath)
+            if (speakerModelFile != null) speakerEncoderSession = ortEnv.createSession(speakerModelFile.absolutePath)
+            if (vcModelFile != null) voiceConversionSession = ortEnv.createSession(vcModelFile.absolutePath)
 
             Log.i(TAG, "PocketTTS Engine initialized successfully.")
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing PocketTTS Engine: ${e.message}")
+        }
+    }
+
+    private fun copyFromAssetsIfMissing(fileName: String): File? {
+        val file = File(context.filesDir, fileName)
+        if (file.exists()) return file
+
+        return try {
+            context.assets.open(fileName).use { inputStream ->
+                file.outputStream().use { outputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            }
+            Log.i(TAG, "Copied $fileName from assets to internal storage.")
+            file
+        } catch (e: Exception) {
+            Log.w(TAG, "Asset $fileName not found or could not be copied: ${e.message}")
+            if (file.exists()) file.delete()
+            null
         }
     }
 
@@ -129,11 +148,13 @@ class PocketTTSEngine(private val context: Context) {
      */
     fun generateAudioStreaming(text: String, voiceState: VoiceState, vocoderInputName: String = "mel"): Sequence<FloatArray> {
         return sequence {
-            // Split text into smaller chunks (e.g., words) for streaming synthesis
-            val chunks = text.split(" ")
-            for (chunk in chunks) {
-                if (chunk.isNotBlank()) {
-                    val audioChunk = generateAudio(chunk, voiceState, vocoderInputName)
+            // Split text into meaningful chunks (e.g., sentences or phrases)
+            // For SSR, words come in one by one, but VALL-E models benefit from context.
+            // Here we prioritize latency: synthesize word-by-word if needed, or buffer slightly.
+            val tokens = text.trim().split(Regex("\\s+"))
+            for (token in tokens) {
+                if (token.isNotBlank()) {
+                    val audioChunk = generateAudio(token, voiceState, vocoderInputName)
                     if (audioChunk != null) {
                         yield(audioChunk)
                     }
@@ -149,8 +170,7 @@ class PocketTTSEngine(private val context: Context) {
         val session = acousticSession ?: return null
         
         try {
-            // 1. Tokenize (Using real G2PConverter)
-            val converter = G2PConverter()
+            // 1. Tokenize (Using pre-initialized field)
             val phonemes = converter.sentenceToPhonemes(text)
             
             // Map phonemes to indices according to MLConstants.PHONEME_VOCAB

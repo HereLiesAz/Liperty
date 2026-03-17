@@ -31,6 +31,7 @@ import com.hereliesaz.liperty.voicebox.ArtificialLarynx
 import com.hereliesaz.liperty.ml.FrameBuffer
 import com.hereliesaz.liperty.ml.TFLiteEngine
 import com.hereliesaz.liperty.ml.VSRInference
+import com.hereliesaz.liperty.ml.SSRInference
 import com.hereliesaz.liperty.ui.LipertyApp
 import com.hereliesaz.liperty.ui.OverlayView
 import com.hereliesaz.liperty.ui.SettingsActivity
@@ -57,6 +58,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var previewView: PreviewView
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var vsrInference: VSRInference
+    private lateinit var ssrInference: SSRInference
     private lateinit var frameBuffer: FrameBuffer
     private val lipBoxFilter = RectKalmanFilter()
     private val opticalFlowTracker = com.hereliesaz.liperty.utils.OpticalFlowTracker()
@@ -72,6 +74,7 @@ class MainActivity : ComponentActivity() {
     private val isRecordingState = mutableStateOf(false)
     private val isSSIModeState = mutableStateOf(false)
     private val isLipReadModeState = mutableStateOf(true)
+    private val isELModeState = mutableStateOf(false)
 
     // Camera State
     private var currentLensFacing = CameraSelector.LENS_FACING_FRONT
@@ -115,13 +118,18 @@ class MainActivity : ComponentActivity() {
         faceLandmarkerHelper = FaceLandmarkerHelper(this)
         handGestureHelper = HandGestureHelper(this)
         laryngealSensor = LaryngealSensor(this)
-        vsrInference = VSRInference(TFLiteEngine(this))
+        vsrInference = VSRInference(TFLiteEngine(this, "vsr_model.tflite"))
+        ssrInference = SSRInference(TFLiteEngine(this, "ssr_model.tflite"))
+        // VoiceConverter is initialized lazily or in onCreate
+        // For simplicity, let's use the one in LaryngealSensor if EL mode is active.
+        // But MainActivity might need its own if it does other things.
         frameBuffer = FrameBuffer(capacity = 50) // 2 seconds at 25fps
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         // Initialize TFLite in background
         lifecycleScope.launch(Dispatchers.Default) {
             vsrInference.initialize()
+            ssrInference.initialize()
         }
 
         // Initialize VoiceManager
@@ -150,15 +158,17 @@ class MainActivity : ComponentActivity() {
                 onClearTranscript = {
                     transcriptionManager.clear()
                     updateTranscriptionUI()
-                    frameBuffer.clear()
+                    frameBuffer.clearAndRecycle()
                     Toast.makeText(this, "Transcript Cleared", Toast.LENGTH_SHORT).show()
                 },
                 onSpeak = { speakText() },
                 onToggleSSI = { toggleSSIMode() },
                 onToggleLipRead = { isLipReadModeState.value = !isLipReadModeState.value },
+                onToggleEL = { toggleELMode() },
                 isPaused = isPausedState.value,
                 isSSIActive = isSSIModeState.value,
                 isLipReadActive = isLipReadModeState.value,
+                isELActive = isELModeState.value,
                 currentLensFacing = if (currentLensFacing == CameraSelector.LENS_FACING_BACK) 1 else 0,
                 vsrSensitivity = vsrSensitivity.value,
                 onVsrSensitivityChange = { value ->
@@ -256,21 +266,57 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun toggleSSIMode() {
+        if (isELModeState.value) toggleELMode() // Mutually exclusive
         val newMode = !isSSIModeState.value
         isSSIModeState.value = newMode
         
         if (newMode) {
-            // SSI Mode: Phone vibrates, acts as sound source
+            isLipReadModeState.value = false // Focus on SSI
             laryngealSensor.start(
                 onProcessedAudio = { pcmSamples -> voiceManager.playAudio(pcmSamples) },
                 onVoicingState = { isVoicing ->
                     // Optionally show visual feedback for contact detection
+                },
+                onVibrationData = { vibrationSignal ->
+                    // Phase 9: SSR Inference
+                    if (!isInferencing) {
+                        lifecycleScope.launch(Dispatchers.Default) {
+                            val result = ssrInference.runInference(vibrationSignal)
+                            if (result.text.isNotEmpty()) {
+                                withContext(Dispatchers.Main) {
+                                    transcriptionManager.appendText(result.text, result.confidence)
+                                    updateTranscriptionUI()
+                                    // Ultra-low latency synthesis:
+                                    voiceManager.speakStreaming(result.text)
+                                }
+                            }
+                        }
+                    }
                 }
             )
             Toast.makeText(this, "Voice Box Mode Active: Press against throat.", Toast.LENGTH_LONG).show()
         } else {
             laryngealSensor.stop()
             Toast.makeText(this, "Voice Box Mode Inactive", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun toggleELMode() {
+        if (isSSIModeState.value) toggleSSIMode() // Mutually exclusive
+        val newMode = !isELModeState.value
+        isELModeState.value = newMode
+        
+        if (newMode) {
+            isLipReadModeState.value = false
+            laryngealSensor.start(
+                onProcessedAudio = { pcmSamples -> voiceManager.playAudio(pcmSamples) },
+                onVoicingState = { /* UI feedback */ },
+                onVibrationData = { /* Not used for text in EL mode */ }
+            )
+            Toast.makeText(this, "EL Translator Active", Toast.LENGTH_LONG).show()
+        } else {
+            laryngealSensor.stop()
+            Toast.makeText(this, "EL Translator Inactive", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -360,7 +406,7 @@ class MainActivity : ComponentActivity() {
                 processFrame(bitmap, result)
             } else {
                 runOnUiThread { overlayView.clear() }
-                frameBuffer.clear()
+                frameBuffer.clearAndRecycle()
                 lipBoxFilter.reset()
                 opticalFlowTracker.reset()
             }
@@ -411,10 +457,13 @@ class MainActivity : ComponentActivity() {
             // Optimized JNI Normalization (Blur + Histogram Equalization)
             val processedMouth = ImageUtils.normalizeForInference(alignedMouth)
 
-            // Pass to calibration if active
-            calibrationCallback?.invoke(processedMouth)
+            // Pass an explicitly copied bitmap to calibration to avoid lifecycle conflicts with FrameBuffer
+            calibrationCallback?.let { cb ->
+                val calibrationCopy = processedMouth.copy(processedMouth.config ?: Bitmap.Config.ARGB_8888, true)
+                cb.invoke(calibrationCopy)
+            }
 
-            BitmapPool.recycle(reusableBitmap)
+            // DO NOT RECYCLE reusableBitmap HERE. It is now owned by frameBuffer via processedMouth reference!
 
             // Add to Buffer
             frameBuffer.addFrame(processedMouth)
@@ -422,10 +471,15 @@ class MainActivity : ComponentActivity() {
             // Inference
             if (frameBuffer.isFull() && !isInferencing) {
                 isInferencing = true
-                val framesToProcess = frameBuffer.getFrames()
+                // Takes ownership of the frames
+                val framesToProcess = frameBuffer.clearAndGetFrames()
 
                 lifecycleScope.launch(Dispatchers.Default) {
                     val vsrResult = vsrInference.runInference(framesToProcess)
+                    // Once inference is complete, explicitly recycle the frames
+                    for (frame in framesToProcess) {
+                        BitmapPool.recycle(frame)
+                    }
 
                     withContext(Dispatchers.Main) {
                         val rawText = vsrResult.text.replace("Pred: ", "").replace(Regex("\\(.*\\)"), "")
@@ -434,13 +488,12 @@ class MainActivity : ComponentActivity() {
                             updateTranscriptionUI()
                         }
                         isInferencing = false
-                        frameBuffer.clear()
                     }
                 }
             }
         } else {
             runOnUiThread { overlayView.clear() }
-            frameBuffer.clear()
+            frameBuffer.clearAndRecycle()
         }
     }
 
@@ -454,6 +507,7 @@ class MainActivity : ComponentActivity() {
         cameraManager.shutdown()
         faceLandmarkerHelper.close()
         vsrInference.close()
+        ssrInference.close()
         voiceManager.stop()
         voiceManager.shutdown()
     }

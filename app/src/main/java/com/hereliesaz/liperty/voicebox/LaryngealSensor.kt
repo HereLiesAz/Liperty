@@ -10,6 +10,7 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.util.Log
 import com.hereliesaz.liperty.dsp.VibraPhoneDSP
+import com.hereliesaz.liperty.ml.VoiceConverter
 import kotlinx.coroutines.*
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
@@ -28,6 +29,28 @@ class LaryngealSensor(private val context: Context) {
     private val larynx = ArtificialLarynx(context)
     private val sensorManager = context.getSystemService(SensorManager::class.java)
     private val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+    private val audioRouter = AudioRouter(context)
+    private val trambaProcessor = TrambaProcessor(context)
+    private val voiceConverter = VoiceConverter(context)
+
+    /**
+     * Captures Back-EMF from the Linear Resonant Actuator (LRA).
+     * This is used for Phase 2 hardware-level vibration feedback sensing.
+     */
+    private external fun captureBackEmfAudio(audioBuffer: ShortArray): Int
+    private external fun startNativeAudio(): Boolean
+    private external fun stopNativeAudio()
+    
+    /**
+     * Applies native spectral subtraction using OpenCV.
+     */
+    private external fun nativeSpectralSubtraction(inputSignal: FloatArray, noiseProfile: FloatArray)
+
+    companion object {
+        init {
+            System.loadLibrary("liperty_cv")
+        }
+    }
 
     private val isRunning = AtomicBoolean(false)
     private var processingJob: Job? = null
@@ -62,12 +85,15 @@ class LaryngealSensor(private val context: Context) {
      */
     fun start(
         onProcessedAudio: (FloatArray) -> Unit,
-        onVoicingState: (Boolean) -> Unit
+        onVoicingState: (Boolean) -> Unit,
+        onVibrationData: (FloatArray) -> Unit
     ) {
         if (isRunning.getAndSet(true)) return
 
         // Start Artificial Larynx vibration
         larynx.start()
+        trambaProcessor.initialize()
+        startNativeAudio()
 
         sensorManager.registerListener(accelListener, accelerometer, SensorManager.SENSOR_DELAY_FASTEST)
 
@@ -90,6 +116,12 @@ class LaryngealSensor(private val context: Context) {
                 return@launch
             }
 
+            // Apply optimal input device routing
+            val preferredDevice = audioRouter.getOptimalInputDevice()
+            if (preferredDevice != null) {
+                recorder.setPreferredDevice(preferredDevice)
+            }
+
             recorder.startRecording()
             
             // Noise profile initialization (capture first 10 frames of 'silence')
@@ -109,8 +141,31 @@ class LaryngealSensor(private val context: Context) {
                 while (isActive && isRunning.get()) {
                     val read = recorder.read(audioBuffer, 0, audioBuffer.size)
                     if (read > 0) {
-                        // 1. Convert to Float [-1.0, 1.0]
-                        val floatBuffer = FloatArray(read) { audioBuffer[it] / 32768.0f }
+                        // Phase 2: Capture Back-EMF from LRA and mix it with contact-mic data
+                        val emfBuffer = ShortArray(read)
+                        captureBackEmfAudio(emfBuffer)
+
+                        // 1. Convert to Float [-1.0, 1.0] and mix
+                        val floatBuffer = FloatArray(read) { i ->
+                            val contactMic = audioBuffer[i] / 32768.0f
+                            val backEmf = emfBuffer[i] / 32768.0f
+                            // Simple fusion: weighted average (can be refined in DSP)
+                            (contactMic * 0.7f) + (backEmf * 0.3f)
+                        }
+
+                        // Apply TRAMBA Bandwidth Expansion if using BCM
+                        val processedPcm = if (audioRouter.isUsingBoneConduction()) {
+                            trambaProcessor.processAudio(audioBuffer)
+                        } else {
+                            audioBuffer
+                        }
+
+                        // Update floatBuffer with expanded audio if applicable
+                        if (audioRouter.isUsingBoneConduction()) {
+                            for (i in 0 until read) {
+                                floatBuffer[i] = processedPcm[i] / 32768.0f
+                            }
+                        }
                         
                         // 2. Multimodal VAD: Inversely proportional to sensitivity
                         // Higher sensitivity = lower threshold
@@ -124,7 +179,19 @@ class LaryngealSensor(private val context: Context) {
                             processed = dsp.frequencyDomainEqualization(processed)
                             processed = dsp.voiceSourceExpansion(processed)
                             
-                            onProcessedAudio(processed)
+                            // 4. Transform to Target Voice (Phase 10)
+                            // Real-time neural mapping requires Mel-spectrogram input
+                            val melSpec = dsp.computeMelSpectrogram(processed)
+                            
+                            // Target voice mapping (Mel-to-Mel)
+                            val decodedMel = voiceConverter.convert(melSpec, 1, melSpec.size)
+                            
+                            // 5. Synthesis (Vocoder / Inverse Mel)
+                            // Synthesize high-quality speech from the mapped spectrogram
+                            val humanized = dsp.inverseMelSpectrogram(decodedMel)
+                            
+                            onProcessedAudio(humanized)
+                            onVibrationData(floatBuffer)
                         } else {
                             // Output silence if not voicing to save downstream cycles
                             onProcessedAudio(FloatArray(read) { 0f })
@@ -142,6 +209,7 @@ class LaryngealSensor(private val context: Context) {
     fun stop() {
         if (!isRunning.getAndSet(false)) return
         larynx.stop()
+        stopNativeAudio()
         processingJob?.cancel()
     }
 }

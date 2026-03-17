@@ -72,9 +72,11 @@ fun LipertyApp(
     onSpeak: () -> Unit,
     onToggleSSI: () -> Unit = {},
     onToggleLipRead: () -> Unit = {},
+    onToggleEL: () -> Unit = {},
     isPaused: Boolean = false,
     isSSIActive: Boolean = false,
     isLipReadActive: Boolean = false,
+    isELActive: Boolean = false,
     currentLensFacing: Int = 0, // 0 for Front, 1 for Back
     vsrSensitivity: Float = 0.5f,
     onVsrSensitivityChange: (Float) -> Unit = {},
@@ -145,6 +147,15 @@ fun LipertyApp(
                 toggleOffText = "Larynx OFF",
                 onClick       = { onToggleSSI() },
                 color         = Color.White
+            )
+            
+            azRailToggle(
+                id            = "el_translator",
+                isChecked     = isELActive,
+                toggleOnText  = "EL-Transl ON",
+                toggleOffText = "EL-Transl OFF",
+                onClick       = { onToggleEL() },
+                color         = Color.Magenta
             )
 
             azRailToggle(

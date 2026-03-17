@@ -1,11 +1,6 @@
 package com.hereliesaz.liperty.dsp
 
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.max
-import kotlin.math.sin
-import kotlin.math.sqrt
-import kotlin.math.PI
+import kotlin.math.*
 
 /**
  * Implements Digital Signal Processing algorithms for Laryngeal Sensing via Back-EMF (VibraPhone).
@@ -19,44 +14,26 @@ import kotlin.math.PI
 class VibraPhoneDSP {
 
     companion object {
+        init {
+            System.loadLibrary("liperty_cv")
+        }
         const val SAMPLE_RATE = 16000
         const val FRAME_SIZE = 512
         const val HOP_SIZE = 256
         private const val EXCITED_HARMONICS_SCALE = 0.5f
     }
 
+    private external fun nativeSpectralSubtraction(input: FloatArray, noise: FloatArray)
+
     /**
      * Applies Spectral Subtraction to remove stationary noise (e.g., electrical hum).
+     * Now using native NDK implementation for better performance and pitch-synchronous processing.
      * @param inputSignal Raw float array of audio samples.
      * @param noiseProfile Pre-calculated magnitude spectrum of the noise (silence).
      */
     fun spectralSubtraction(inputSignal: FloatArray, noiseProfile: FloatArray): FloatArray {
-        // This is a simplified time-domain implementation wrapper.
-        // In a real scenario, we'd do STFT -> Subtract Magnitude -> ISTFT.
-        // For efficiency on mobile, we assume inputSignal is a single frame or small buffer.
-        
-        // 1. FFT
-        val complexSpectrum = fft(inputSignal)
-        val magnitudes = calculateMagnitudes(complexSpectrum)
-        val phases = calculatePhases(complexSpectrum)
-
-        // 2. Subtract Noise Spectrum
-        val cleanedMagnitudes = FloatArray(magnitudes.size)
-        for (i in magnitudes.indices) {
-            val noiseMag = if (i < noiseProfile.size) noiseProfile[i] else 0f
-            // Oversubtraction factor (alpha) typically 2.0 for aggressive reduction
-            val alpha = 2.0f
-            val beta = 0.01f // Spectral floor
-            
-            val subtracted = magnitudes[i] - (alpha * noiseMag)
-            cleanedMagnitudes[i] = max(subtracted, beta * magnitudes[i])
-        }
-
-        // 3. Reconstruct Complex Spectrum
-        val cleanedComplex = reconstructComplex(cleanedMagnitudes, phases)
-
-        // 4. Inverse FFT
-        return ifft(cleanedComplex)
+        nativeSpectralSubtraction(inputSignal, noiseProfile)
+        return inputSignal
     }
 
     /**
@@ -108,9 +85,16 @@ class VibraPhoneDSP {
         }
 
         // Match RMS energy of excitation to input so the synthesised output has the same loudness
-        val inputRms = sqrt(inputSignal.map { it * it }.average().toFloat().coerceAtLeast(1e-10f))
-        val excRms  = sqrt(excitation.map  { it * it }.average().toFloat().coerceAtLeast(1e-10f))
-        val scaled  = excitation.map { it * (inputRms / excRms) }.toFloatArray()
+        var inputEnergy = 0.0
+        for (v in inputSignal) inputEnergy += v * v
+        val inputRms = sqrt((inputEnergy / inputSignal.size).toFloat().coerceAtLeast(1e-10f))
+
+        var excEnergy = 0.0
+        for (v in excitation) excEnergy += v * v
+        val excRms = sqrt((excEnergy / excitation.size).toFloat().coerceAtLeast(1e-10f))
+
+        val gain = inputRms / excRms
+        val scaled = FloatArray(excitation.size) { i -> excitation[i] * gain }
 
         return allPoleFilter(scaled, lpcCoeffs)
     }
@@ -197,6 +181,87 @@ class VibraPhoneDSP {
         }
         return output
     }
+    /**
+     * Step 5: Mel-Filterbank conversion.
+     * Transforms re-synthesized PCM audio into a Mel-spectrogram that can be processed
+     * by the neural VoiceConverter or VSR/SSR engines.
+     *
+     * @param input PCM signal.
+     * @param numMelBins Typically 80 or 128 for speech models.
+     * @return Mel-spectrogram as a flattened float array.
+     */
+    fun computeMelSpectrogram(input: FloatArray, numMelBins: Int = 80): FloatArray {
+        val complex = fft(input)
+        val mags = calculateMagnitudes(complex)
+        
+        // Use only the first half of the spectrum (up to Nyquist)
+        val n = mags.size
+        val melFilters = getMelFilterBanks(numMelBins, n)
+        
+        val melSpec = FloatArray(numMelBins)
+        for (m in 0 until numMelBins) {
+            var energy = 0f
+            for (i in 0 until n) {
+                energy += mags[i] * melFilters[m][i]
+            }
+            // Apply log compression
+            melSpec[m] = ln(energy.coerceAtLeast(1e-10f))
+        }
+        return melSpec
+    }
+
+    /**
+     * Approximates a PCM signal from a Mel-spectrogram.
+     * Uses a pseudo-inverse filterbank mapping followed by IFFT with zero-phase.
+     */
+    fun inverseMelSpectrogram(melSpec: FloatArray): FloatArray {
+        val numMelBins = melSpec.size
+        val numFreqs = FRAME_SIZE / 2
+        val melFilters = getMelFilterBanks(numMelBins, numFreqs)
+        
+        val linearMags = FloatArray(numFreqs)
+        for (i in 0 until numFreqs) {
+            var sum = 0f
+            var weightSum = 0f
+            for (m in 0 until numMelBins) {
+                val valLinear = exp(melSpec[m])
+                sum += valLinear * melFilters[m][i]
+                weightSum += melFilters[m][i]
+            }
+            linearMags[i] = if (weightSum > 0f) sum / weightSum else 0f
+        }
+        
+        val phases = FloatArray(numFreqs) { 0f } 
+        val complex = reconstructComplex(linearMags, phases)
+        return ifft(complex)
+    }
+
+    private fun getMelFilterBanks(numBins: Int, numFreqs: Int): Array<FloatArray> {
+        val minMel = hzToMel(0f)
+        val maxMel = hzToMel(SAMPLE_RATE / 2f)
+        val melRange = maxMel - minMel
+        
+        val melPoints = FloatArray(numBins + 2) { i ->
+            minMel + melRange * i / (numBins + 1)
+        }
+        
+        val hzPoints = FloatArray(melPoints.size) { i -> melToHz(melPoints[i]) }
+        val binPoints = IntArray(hzPoints.size) { i -> (hzPoints[i] * FRAME_SIZE / SAMPLE_RATE).toInt().coerceIn(0, numFreqs - 1) }
+        
+        return Array(numBins) { m ->
+            val filter = FloatArray(numFreqs)
+            for (i in binPoints[m]..binPoints[m+1]) {
+                filter[i] = (i - binPoints[m]).toFloat() / (binPoints[m+1] - binPoints[m])
+            }
+            for (i in binPoints[m+1]..binPoints[m+2]) {
+                filter[i] = (binPoints[m+2] - i).toFloat() / (binPoints[m+2] - binPoints[m+1])
+            }
+            filter
+        }
+    }
+
+    private fun hzToMel(hz: Float) = 2595f * log10(1f + hz / 700f)
+    private fun melToHz(mel: Float) = 700f * (10f.pow(mel / 2595f) - 1f)
 
     /**
      * TRAMBA High-frequency bandwidth expansion model.
@@ -205,23 +270,49 @@ class VibraPhoneDSP {
      */
     fun trambaBandwidthExpansion(inputSignal: FloatArray): FloatArray {
         // 1. Non-linear excitation to generate missing harmonics
-        val excitedSignal = inputSignal.map { it * kotlin.math.abs(it) }.toFloatArray()
+        val excitedSignal = FloatArray(inputSignal.size) { i -> inputSignal[i] * abs(inputSignal[i]) }
 
         val complexSpectrum = fft(inputSignal)
         val excitedSpectrum = fft(excitedSignal)
 
         val n = complexSpectrum.size / 2
-        // BCMs typically attenuate heavily above 3-4kHz. We'll reconstruct above 3kHz.
+        
+        // 2. Spectral Shaping: Reconstruct components above 3kHz
         val cutoffIdx = (3000 * FRAME_SIZE / SAMPLE_RATE).toInt()
 
-        if (cutoffIdx < n) {
-            for (i in cutoffIdx until n) {
-                // Add excited high frequencies with a scaling factor
-                complexSpectrum[2 * i] += excitedSpectrum[2 * i] * 0.3f
-                complexSpectrum[2 * i + 1] += excitedSpectrum[2 * i + 1] * 0.3f
+        for (i in cutoffIdx until n) {
+            // Mix original with excited harmonics (scaled)
+            val re = complexSpectrum[2 * i] + excitedSpectrum[2 * i] * 0.4f
+            val im = complexSpectrum[2 * i + 1] + excitedSpectrum[2 * i + 1] * 0.4f
+            
+            complexSpectrum[2 * i] = re
+            complexSpectrum[2 * i + 1] = im
+            
+            // Mirror for conjugate symmetry (negative frequencies)
+            if (i > 0) {
+                val mirrorIdx = (n * 2 - i) % (n * 2)
+                complexSpectrum[2 * mirrorIdx] = re
+                complexSpectrum[2 * mirrorIdx + 1] = -im
             }
         }
+        
         return ifft(complexSpectrum)
+    }
+
+    private fun calculateMagnitudes(complex: FloatArray): FloatArray {
+        val n = complex.size / 2
+        return FloatArray(n) { i ->
+            val re = complex[2 * i]
+            val im = complex[2 * i + 1]
+            sqrt(re * re + im * im)
+        }
+    }
+
+    private fun calculatePhases(complex: FloatArray): FloatArray {
+        val n = complex.size / 2
+        return FloatArray(n) { i ->
+            atan2(complex[2 * i + 1], complex[2 * i])
+        }
     }
 
     // --- FFT Helpers (Radix-2 Cooley-Tukey) ---
@@ -287,7 +378,7 @@ class VibraPhoneDSP {
         // Butterfly stages
         var len = 2
         while (len <= n) {
-            val ang = 2.0 * Math.PI / len * (if (inverse) -1 else 1)
+            val ang = 2.0 * PI / len * (if (inverse) -1 else 1)
             val wlenRe = cos(ang).toFloat()
             val wlenIm = sin(ang).toFloat()
             
@@ -319,26 +410,6 @@ class VibraPhoneDSP {
         }
     }
 
-    private fun calculateMagnitudes(complex: FloatArray): FloatArray {
-        val n = complex.size / 2
-        val mags = FloatArray(n)
-        for (i in 0 until n) {
-            val re = complex[2 * i]
-            val im = complex[2 * i + 1]
-            mags[i] = sqrt(re * re + im * im)
-        }
-        return mags
-    }
-
-    private fun calculatePhases(complex: FloatArray): FloatArray {
-        val n = complex.size / 2
-        val phases = FloatArray(n)
-        for (i in 0 until n) {
-            phases[i] = atan2(complex[2 * i + 1], complex[2 * i])
-        }
-        return phases
-    }
-    
     private fun reconstructComplex(mags: FloatArray, phases: FloatArray): FloatArray {
         val n = mags.size
         val complex = FloatArray(n * 2)

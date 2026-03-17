@@ -45,6 +45,10 @@ class SSREngine(private val context: Context) : ModelEngine {
         return interpreter?.getOutputTensor(outputIndex)?.shape() ?: IntArray(0)
     }
 
+    override fun getInputShape(inputIndex: Int): IntArray {
+        return interpreter?.getInputTensor(inputIndex)?.shape() ?: IntArray(0)
+    }
+
     override fun close() {
         interpreter?.close()
         gpuDelegate?.close()

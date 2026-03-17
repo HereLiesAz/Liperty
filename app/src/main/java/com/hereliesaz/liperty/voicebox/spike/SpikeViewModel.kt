@@ -89,7 +89,8 @@ class SpikeViewModel(app: Application) : AndroidViewModel(app) {
                 },
                 onVoicingState = { voicing ->
                     rawVoicing = voicing
-                }
+                },
+                onVibrationData = { /* Not used in Spike view */ }
             )
         }
     }

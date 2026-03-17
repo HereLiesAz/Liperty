@@ -20,10 +20,11 @@ class VSRInference(private val engine: ModelEngine) {
     private val beamDecoder = BeamSearchDecoder()
     private var useBeamSearch = true
 
-    // Constants (Assuming typical VSR model)
-    private val INPUT_WIDTH = 88
-    private val INPUT_HEIGHT = 88
-    private val NUM_FRAMES = 50
+    // Default Constants (overridden dynamically by model shape)
+    private var inputWidth = 88
+    private var inputHeight = 88
+    private var numFrames = 50
+    private var numChannels = 1
 
     /**
      * Initializes the inference engine.
@@ -40,43 +41,60 @@ class VSRInference(private val engine: ModelEngine) {
         val startTime = SystemClock.uptimeMillis()
 
         try {
+            val inputShape = engine.getInputShape(0)
+            if (inputShape.isNotEmpty()) {
+                // Determine model type based on shape
+                if (inputShape.size >= 5) {
+                    numFrames = inputShape[1]
+                    inputHeight = inputShape[2] // Could be 224 or 88
+                    inputWidth = inputShape[3]
+                    numChannels = inputShape[4]
+                }
+            }
+            
             // 1. Prepare Input Buffer
-            // Shape: [1, T, H, W, C] -> [1, 50, 88, 88, 1]
             // Float32 (4 bytes)
-            val inputBuffer = ByteBuffer.allocateDirect(1 * NUM_FRAMES * INPUT_HEIGHT * INPUT_WIDTH * 1 * 4)
+            val inputBuffer = ByteBuffer.allocateDirect(1 * numFrames * inputHeight * inputWidth * numChannels * 4)
             inputBuffer.order(ByteOrder.nativeOrder())
 
             // Take last N frames if we have more, or all if fewer
-            val framesToProcess = if (frames.size > NUM_FRAMES) {
-                frames.takeLast(NUM_FRAMES)
+            val framesToProcess = if (frames.size > numFrames) {
+                frames.takeLast(numFrames)
             } else {
                 frames
             }
 
             for (bitmap in framesToProcess) {
                 // Resize if needed
-                val scaledBitmap = if (bitmap.width != INPUT_WIDTH || bitmap.height != INPUT_HEIGHT) {
-                    Bitmap.createScaledBitmap(bitmap, INPUT_WIDTH, INPUT_HEIGHT, true)
+                val scaledBitmap = if (bitmap.width != inputWidth || bitmap.height != inputHeight) {
+                    Bitmap.createScaledBitmap(bitmap, inputWidth, inputHeight, true)
                 } else {
                     bitmap
                 }
 
-                // Extract Grayscale values
-                val pixels = IntArray(INPUT_WIDTH * INPUT_HEIGHT)
-                scaledBitmap.getPixels(pixels, 0, INPUT_WIDTH, 0, 0, INPUT_WIDTH, INPUT_HEIGHT)
+                val pixels = IntArray(inputWidth * inputHeight)
+                scaledBitmap.getPixels(pixels, 0, inputWidth, 0, 0, inputWidth, inputHeight)
 
                 for (pixel in pixels) {
-                    // Extract Red channel (since grayscale)
-                    val r = (pixel shr 16) and 0xFF
-                    // Normalize to 0-1
-                    val normalized = r / 255.0f
-                    inputBuffer.putFloat(normalized)
+                    if (numChannels == 1) {
+                        // Extract Red channel for grayscale
+                        val r = (pixel shr 16) and 0xFF
+                        inputBuffer.putFloat(r / 255.0f)
+                    } else if (numChannels == 3) {
+                        // Extract RGB
+                        val r = (pixel shr 16) and 0xFF
+                        val g = (pixel shr 8) and 0xFF
+                        val b = pixel and 0xFF
+                        inputBuffer.putFloat(r / 255.0f)
+                        inputBuffer.putFloat(g / 255.0f)
+                        inputBuffer.putFloat(b / 255.0f)
+                    }
                 }
             }
 
             // Pad with zeros if fewer frames
-            val paddingFrames = NUM_FRAMES - framesToProcess.size
-            for (i in 0 until paddingFrames * INPUT_HEIGHT * INPUT_WIDTH) {
+            val paddingFrames = numFrames - framesToProcess.size
+            for (i in 0 until paddingFrames * inputHeight * inputWidth * numChannels) {
                 inputBuffer.putFloat(0f)
             }
 
@@ -87,7 +105,8 @@ class VSRInference(private val engine: ModelEngine) {
 
             if (outputShape.size < 3) {
                  Log.e("VSRInference", "Unexpected output shape: ${outputShape.contentToString()}")
-                 return getDummyResult(frames.size, startTime)
+                 val processingTime = SystemClock.uptimeMillis() - startTime
+                 return VSRResult("", 0f, emptyList(), processingTime)
             }
 
             val batchSize = outputShape[0]
@@ -135,13 +154,9 @@ class VSRInference(private val engine: ModelEngine) {
 
         } catch (e: Exception) {
             Log.e("VSRInference", "Inference Failed", e)
-            return getDummyResult(frames.size, startTime)
+            val processingTime = SystemClock.uptimeMillis() - startTime
+            return VSRResult("", 0f, emptyList(), processingTime)
         }
-    }
-
-    private fun getDummyResult(frameCount: Int, startTime: Long): VSRResult {
-        val processingTime = SystemClock.uptimeMillis() - startTime
-        return VSRResult("Model Missing", 0.0f, emptyList(), processingTime)
     }
 
     fun close() {

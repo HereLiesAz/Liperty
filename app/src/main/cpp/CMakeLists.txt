@@ -30,7 +30,10 @@ add_library( # Sets the name of the library.
 
              # Provides a relative path to your source file(s).
              image_utils_jni.cpp
-             audio_player.cpp )
+             audio_player.cpp
+             vibraphone_jni.cpp
+             AudioEngine.cpp
+             LC3Wrapper.cpp )
 
 # Searches for prebuilt libraries.
 find_library(log-lib log)
