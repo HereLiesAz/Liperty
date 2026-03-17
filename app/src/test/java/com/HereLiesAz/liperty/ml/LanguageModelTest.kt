@@ -9,17 +9,17 @@ class LanguageModelTest {
     fun testGetScore() {
         val lm = LanguageModel()
 
-        // H -> E should be 0.5
-        val score = lm.getScore("H", "E")
-        assertEquals(0.5, score, 0.001)
+        // "HH" -> "IH" according to bigramMap should be 0.13
+        val score = lm.getScore("HH", "IH")
+        assertEquals(0.13, score, 0.001)
     }
 
     @Test
     fun testGetScoreUnknown() {
         val lm = LanguageModel()
 
-        // H -> Z should be 0.0
-        val score = lm.getScore("H", "Z")
-        assertEquals(0.0, score, 0.001)
+        // "HH" -> "Z" is not in the map, so it should be UNIFORM_PROB (0.003)
+        val score = lm.getScore("HH", "Z")
+        assertEquals(0.003, score, 0.001)
     }
 }

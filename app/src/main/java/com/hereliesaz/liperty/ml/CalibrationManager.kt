@@ -74,24 +74,20 @@ class CalibrationManager(private val context: Context) {
         inputBuffer.rewind()
 
         // 2. Prepare Label Buffer [1, 50, 40]
-        // Mapping label characters to indices
         val labelBuffer = ByteBuffer.allocateDirect(1 * NUM_FRAMES * VOCAB_SIZE * 4)
         labelBuffer.order(ByteOrder.nativeOrder())
         
         // Vocab matching decoders
         val vocab = MLConstants.PHONEME_VOCAB
 
-        // Dummy mapping for calibration phrases (since we don't have a real G2P converter here,
-        // we'll just map characters to the closest looking phoneme index or blank for spaces)
-        val charToPhonemeMap = mapOf(
-            'A' to "AA", 'B' to "B", 'C' to "CH", 'D' to "D", 'E' to "EH", 'F' to "F",
-            'G' to "G", 'H' to "HH", 'I' to "IH", 'J' to "JH", 'K' to "K", 'L' to "L",
-            'M' to "M", 'N' to "N", 'O' to "OW", 'P' to "P", 'Q' to "K", 'R' to "R",
-            'S' to "S", 'T' to "T", 'U' to "UH", 'V' to "V", 'W' to "W", 'X' to "S", // Approximate
-            'Y' to "Y", 'Z' to "Z"
-        )
-        val targetIndices = label.uppercase().map { char ->
-            charToPhonemeMap[char]?.let { vocab.indexOf(it) } ?: 0 // Blank for space and punctuation
+        // Use G2PConverter to translate text to phonemes
+        val converter = G2PConverter()
+        val targetPhonemes = converter.sentenceToPhonemes(label)
+        
+        // Convert phonemes to their respective vocab indices
+        val targetIndices = targetPhonemes.mapNotNull { phoneme ->
+            val idx = vocab.indexOf(phoneme)
+            if (idx >= 0) idx else null
         }
 
         for (t in 0 until NUM_FRAMES) {

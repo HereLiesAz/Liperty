@@ -8,6 +8,8 @@ import android.util.Log
 import java.io.File
 import java.io.Serializable
 import java.nio.FloatBuffer
+import com.hereliesaz.liperty.ml.G2PConverter
+import com.hereliesaz.liperty.ml.MLConstants
 
 /**
  * PocketTTS Engine for on-device voice cloning and TTS.
@@ -147,8 +149,20 @@ class PocketTTSEngine(private val context: Context) {
         val session = acousticSession ?: return null
         
         try {
-            // 1. Tokenize (Placeholder for real phonemizer)
-            val tokens = text.uppercase().map { it.code.toLong() }.toLongArray()
+            // 1. Tokenize (Using real G2PConverter)
+            val converter = G2PConverter()
+            val phonemes = converter.sentenceToPhonemes(text)
+            
+            // Map phonemes to indices according to MLConstants.PHONEME_VOCAB
+            // Since tokens are longs in ONNX, we convert to LongArray
+            val vocab = MLConstants.PHONEME_VOCAB
+            val tokens = phonemes.map { phoneme ->
+                val idx = vocab.indexOf(phoneme)
+                if (idx >= 0) idx.toLong() else 0L // 0 usually for blank/unknown in VALLR
+            }.toLongArray()
+            
+            // Handle edge case where no phonemes could be generated
+            if (tokens.isEmpty()) return null
             
             return OnnxTensor.createTensor(ortEnv, java.nio.LongBuffer.wrap(tokens), longArrayOf(1, tokens.size.toLong())).use { tokenTensor ->
                 OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(voiceState.embedding), longArrayOf(1, voiceState.embedding.size.toLong())).use { voiceTensor ->
