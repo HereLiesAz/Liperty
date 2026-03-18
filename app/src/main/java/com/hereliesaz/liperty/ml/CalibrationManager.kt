@@ -1,3 +1,5 @@
+package com.hereliesaz.liperty.ml
+
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
