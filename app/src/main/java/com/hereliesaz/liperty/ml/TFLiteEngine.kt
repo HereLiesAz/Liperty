@@ -14,9 +14,12 @@ class TFLiteEngine(
 ) : ModelEngine {
 
     private var interpreter: Interpreter? = null
-    // Changed from GpuDelegate? to Delegate? to prevent class loading issues in Robolectric
-    // where native libs for GPU delegate might be missing.
     private var gpuDelegate: Delegate? = null
+    private var useInternalStorage = false
+
+    fun setUseInternalStorage(use: Boolean) {
+        this.useInternalStorage = use
+    }
 
     override fun initialize(): Boolean {
         if (interpreter != null) return true
@@ -27,17 +30,26 @@ class TFLiteEngine(
                 // Try to initialize GPU delegate. This might fail if native libs are missing.
                 gpuDelegate = GpuDelegate()
                 options.addDelegate(gpuDelegate)
-            } catch (e: NoClassDefFoundError) {
-                Log.e("TFLiteEngine", "GPU Delegate class not found, falling back to CPU", e)
-            } catch (e: UnsatisfiedLinkError) {
-                Log.e("TFLiteEngine", "GPU Delegate native lib not found, falling back to CPU", e)
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e("TFLiteEngine", "GPU Delegate not supported, falling back to CPU", e)
             }
 
-            val modelFile = FileUtil.loadMappedFile(context, modelName)
+            val modelFile = if (useInternalStorage) {
+                val file = java.io.File(context.filesDir, modelName)
+                if (file.exists()) {
+                    java.nio.channels.FileChannel.open(file.toPath(), java.nio.file.StandardOpenOption.READ).use { channel ->
+                        channel.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0, channel.size())
+                    }
+                } else {
+                    Log.w("TFLiteEngine", "Personalized model not found in internal storage, falling back to assets: $modelName")
+                    FileUtil.loadMappedFile(context, modelName)
+                }
+            } else {
+                FileUtil.loadMappedFile(context, modelName)
+            }
+
             interpreter = Interpreter(modelFile, options)
-            Log.i("TFLiteEngine", "TFLite Model $modelName loaded successfully")
+            Log.i("TFLiteEngine", "TFLite Model $modelName loaded successfully (Internal: $useInternalStorage)")
             return true
         } catch (e: java.io.FileNotFoundException) {
             Log.e("TFLiteEngine", "Model file not found: $modelName")

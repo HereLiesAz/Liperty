@@ -27,21 +27,21 @@ class VSRInferenceTest {
             // Shape [1, 5, 40] (Batch=1, Time=5, Vocab=40)
             // Let's output "AA", "AE", "AH", "AO", "AW"
             // AA=1, AE=2, AH=3, AO=4, AW=5
-            val vocabSize = 40
-            val timeSteps = 5
+            val vocabSize = 39
+            val timeSteps = 16
 
             // For each time step, set prob of corresponding index to 1.0
             for (t in 0 until timeSteps) {
                 for (v in 0 until vocabSize) {
-                    val prob = if (v == t + 1) 1.0f else 0.0f
+                    val prob = if (v == (t % vocabSize) + 1) 1.0f else 0.0f
                     outputBuffer.putFloat(prob)
                 }
             }
         }
 
-        override fun getOutputShape(outputIndex: Int): IntArray {
-            return intArrayOf(1, 5, 40)
-        }
+        override fun getOutputShape(index: Int): IntArray = intArrayOf(1, 16, 39)
+
+        override fun getInputShape(index: Int): IntArray = intArrayOf(1, 16, 224, 224, 3)
 
         override fun close() {}
     }
@@ -58,8 +58,8 @@ class VSRInferenceTest {
         val result = vsr.runInference(frames)
 
         assert(engine.runCalled)
-        // 1=AA, 2=AE, 3=AH, 4=AO, 5=AW
-        assertEquals("AAAEAHAOAW", result.text)
+        // AA=1, AE=2, AH=3, AO=4, AW=5, AY=6, B=7, CH=8, D=9, DH=10, EH=11, ER=12, EY=13, F=14, G=15, HH=16
+        assertEquals("AAAEAHAOAWAYBCHDDHEHEREYFGHH", result.text)
     }
 
     @Test
@@ -70,7 +70,10 @@ class VSRInferenceTest {
                  throw RuntimeException("Inference crashed")
              }
              override fun getOutputShape(outputIndex: Int): IntArray {
-                 return intArrayOf(1, 5, 40)
+                 return intArrayOf(1, 16, 39)
+             }
+             override fun getInputShape(inputIndex: Int): IntArray {
+                 return intArrayOf(1, 16, 224, 224, 3)
              }
              override fun close() {}
          }
@@ -79,6 +82,6 @@ class VSRInferenceTest {
          val frames = listOf(Bitmap.createBitmap(88, 88, Bitmap.Config.ARGB_8888))
          val result = vsr.runInference(frames)
 
-         assertEquals("Model Missing", result.text)
+         assertEquals("", result.text)
     }
 }

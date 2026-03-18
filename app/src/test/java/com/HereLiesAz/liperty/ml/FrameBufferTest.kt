@@ -38,7 +38,7 @@ class FrameBufferTest {
     fun testClear() {
         val buffer = FrameBuffer(5)
         buffer.addFrame(Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888))
-        buffer.clear()
+        buffer.clearAndRecycle()
         assertEquals(0, buffer.getFrames().size)
         assertFalse(buffer.isFull())
     }

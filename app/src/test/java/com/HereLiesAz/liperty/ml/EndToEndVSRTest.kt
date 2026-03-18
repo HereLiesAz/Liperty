@@ -25,7 +25,8 @@ class EndToEndVSRTest {
                 }
             }
             // Batch=1, Time=5, Vocab=28
-            override fun getOutputShape(outputIndex: Int) = intArrayOf(1, 5, 28)
+            override fun getOutputShape(outputIndex: Int) = intArrayOf(1, 16, 39)
+            override fun getInputShape(inputIndex: Int) = intArrayOf(1, 16, 224, 224, 3)
             override fun close() {}
         }
 

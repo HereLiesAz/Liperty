@@ -30,10 +30,11 @@ class CalibrationManager(private val context: Context) {
     private val collectedFrames = mutableListOf<Bitmap>()
     
     // Constants matching vsr_lora_model.tflite
-    private val INPUT_WIDTH = 88
-    private val INPUT_HEIGHT = 88
-    private val NUM_FRAMES = 50
-    private val VOCAB_SIZE = 40
+    private val INPUT_WIDTH = 224
+    private val INPUT_HEIGHT = 224
+    private val NUM_FRAMES = 16
+    private val NUM_CHANNELS = 3
+    private val VOCAB_SIZE = 39
 
     fun initialize() {
         trainer.initialize()
@@ -60,15 +61,18 @@ class CalibrationManager(private val context: Context) {
             return@withContext -1f
         }
 
-        // 1. Prepare Input Buffer [1, 50, 88, 88, 1]
-        val inputBuffer = ByteBuffer.allocateDirect(1 * NUM_FRAMES * INPUT_HEIGHT * INPUT_WIDTH * 1 * 4)
+        // 1. Prepare Input Buffer [1, 16, 224, 224, 3]
+        val inputBuffer = ByteBuffer.allocateDirect(1 * NUM_FRAMES * INPUT_HEIGHT * INPUT_WIDTH * NUM_CHANNELS * 4)
         inputBuffer.order(ByteOrder.nativeOrder())
         
         for (bitmap in collectedFrames) {
             val pixels = IntArray(INPUT_WIDTH * INPUT_HEIGHT)
             bitmap.getPixels(pixels, 0, INPUT_WIDTH, 0, 0, INPUT_WIDTH, INPUT_HEIGHT)
             for (pixel in pixels) {
+                // RGB [0.0 - 1.0]
                 inputBuffer.putFloat(((pixel shr 16) and 0xFF) / 255.0f)
+                inputBuffer.putFloat(((pixel shr 8) and 0xFF) / 255.0f)
+                inputBuffer.putFloat((pixel and 0xFF) / 255.0f)
             }
         }
         inputBuffer.rewind()

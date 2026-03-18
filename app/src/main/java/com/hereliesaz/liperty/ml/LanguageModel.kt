@@ -43,7 +43,6 @@ class LanguageModel {
         "S" to mapOf("T" to 0.16, "AH" to 0.10, "IH" to 0.09, "K" to 0.08, "P" to 0.07, "L" to 0.06),
         "Z" to mapOf("AH" to 0.12, "IH" to 0.10, "D" to 0.08, "OW" to 0.07, "EH" to 0.06),
         "SH" to mapOf("AH" to 0.13, "IH" to 0.11, "UH" to 0.09, "OW" to 0.07, "AE" to 0.06),
-        "ZH" to mapOf("AH" to 0.14, "IH" to 0.11, "ER" to 0.09, "AE" to 0.07),
         "TH" to mapOf("AH" to 0.16, "IH" to 0.11, "ER" to 0.09, "AE" to 0.08, "EH" to 0.07),
         "DH" to mapOf("AH" to 0.20, "IH" to 0.13, "ER" to 0.09, "AE" to 0.08, "EH" to 0.07),
         "HH" to mapOf("AH" to 0.16, "IH" to 0.13, "AE" to 0.10, "EH" to 0.09, "AY" to 0.07),

@@ -72,7 +72,7 @@ class TFLiteEngineTest {
             val clazz = TFLiteEngine::class.java
             println("TFLiteEngine class found: $clazz")
 
-            val engine = TFLiteEngine(context)
+            val engine = TFLiteEngine(context, "vallr_model.tflite")
 
             engine.initialize()
 
@@ -81,16 +81,15 @@ class TFLiteEngineTest {
 
             if (outputShape.isNotEmpty()) {
                 println("Model loaded. Output shape: ${outputShape.joinToString()}")
-                assertTrue(outputShape.contentEquals(intArrayOf(1, 50, 40)))
+                assertTrue(outputShape.contentEquals(intArrayOf(1, 16, 39)))
 
-                // Run inference
-                // Input shape: [1, 50, 88, 88, 1] -> 50 * 88 * 88 * 1 * 4 bytes (float32)
-                val inputSize = 50 * 88 * 88 * 1 * 4
+                // Input shape: [1, 16, 224, 224, 3] -> 16 * 224 * 224 * 3 * 4 bytes (float32)
+                val inputSize = 16 * 224 * 224 * 3 * 4
                 val inputBuffer = ByteBuffer.allocateDirect(inputSize)
                 inputBuffer.order(ByteOrder.nativeOrder())
 
-                // Output shape: [1, 50, 40] -> 50 * 40 * 4 bytes
-                val outputSize = 50 * 40 * 4
+                // Output shape: [1, 16, 39] -> 16 * 39 * 4 bytes
+                val outputSize = 16 * 39 * 4
                 val outputBuffer = ByteBuffer.allocateDirect(outputSize)
                 outputBuffer.order(ByteOrder.nativeOrder())
 
@@ -100,10 +99,10 @@ class TFLiteEngineTest {
             } else {
                  println("Engine initialization failed or model not loaded.")
                  // Fail the test if model didn't load, unless assets are missing
-                 if (assets?.contains("vsr_model.tflite") == true) {
+                 if (assets?.contains("vallr_model.tflite") == true) {
                      org.junit.Assert.fail("Model found in assets but failed to load.")
                  } else {
-                     println("WARNING: vsr_model.tflite not found in assets. Skipping test verification.")
+                     println("WARNING: vallr_model.tflite not found in assets. Skipping test verification.")
                  }
             }
         } catch (t: Throwable) {

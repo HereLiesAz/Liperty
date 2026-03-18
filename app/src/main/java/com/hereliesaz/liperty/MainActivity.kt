@@ -118,12 +118,20 @@ class MainActivity : ComponentActivity() {
         faceLandmarkerHelper = FaceLandmarkerHelper(this)
         handGestureHelper = HandGestureHelper(this)
         laryngealSensor = LaryngealSensor(this)
-        vsrInference = VSRInference(TFLiteEngine(this, "vsr_model.tflite"))
+        val personalizedModelFile = java.io.File(filesDir, "vsr_lora_model.tflite")
+        val vsrModelName = if (personalizedModelFile.exists()) "vsr_lora_model.tflite" else "vallr_model.tflite"
+        val vsrEngine = TFLiteEngine(this, vsrModelName)
+        if (personalizedModelFile.exists()) {
+            vsrEngine.setUseInternalStorage(true)
+            Log.i("MainActivity", "Personalized LoRA model found, using for VSR.")
+        }
+        
+        vsrInference = VSRInference(vsrEngine)
         ssrInference = SSRInference(TFLiteEngine(this, "ssr_model.tflite"))
         // VoiceConverter is initialized lazily or in onCreate
         // For simplicity, let's use the one in LaryngealSensor if EL mode is active.
         // But MainActivity might need its own if it does other things.
-        frameBuffer = FrameBuffer(capacity = 50) // 2 seconds at 25fps
+        frameBuffer = FrameBuffer(capacity = 16) // VALLR uses 16 frames
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         // Initialize TFLite in background
@@ -451,8 +459,8 @@ class MainActivity : ComponentActivity() {
 
             // Crop & Align
             val rotation = FaceLandmarkerHelper.calculateLipRotation(result)
-            val reusableBitmap = BitmapPool.get(88, 88)
-            val alignedMouth = ImageUtils.alignAndCropMouth(bitmap, lipBox, rotation, 88, reusableBitmap)
+            val reusableBitmap = BitmapPool.get(224, 224)
+            val alignedMouth = ImageUtils.alignAndCropMouth(bitmap, lipBox, rotation, 224, reusableBitmap)
             
             // Optimized JNI Normalization (Blur + Histogram Equalization)
             val processedMouth = ImageUtils.normalizeForInference(alignedMouth)
