@@ -1,10 +1,9 @@
 package com.hereliesaz.liperty.ml
 
 import android.content.Context
-import android.graphics.Bitmap
-import com.google.ai.edge.litert.Interpreter
-import com.google.ai.edge.litert.gpu.CompatibilityList
-import com.google.ai.edge.litert.gpu.GpuDelegate
+import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.gpu.CompatibilityList
+import org.tensorflow.lite.gpu.GpuDelegate
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -15,7 +14,7 @@ import java.nio.channels.FileChannel
  * to a natural 'target' human voice.
  *
  * Uses a GAN-based architecture (StarGAN-v2-VC or modified MelGAN) optimized for
- * on-device TFLite inference.
+ * on-device LiteRT inference.
  */
 class VoiceConverter(context: Context) {
 
@@ -23,18 +22,18 @@ class VoiceConverter(context: Context) {
     private var gpuDelegate: GpuDelegate? = null
 
     init {
-        val options = com.google.ai.edge.litert.Interpreter.Options()
-        val compatList = com.google.ai.edge.litert.gpu.CompatibilityList()
+        val options = Interpreter.Options()
+        val compatList = CompatibilityList()
 
         if (compatList.isDelegateSupportedOnThisDevice) {
-            gpuDelegate = com.google.ai.edge.litert.gpu.GpuDelegate()
+            gpuDelegate = GpuDelegate()
             options.addDelegate(gpuDelegate)
         } else {
             options.setNumThreads(4)
         }
 
         val modelBuffer = loadModelFile(context, "voice_converter.tflite")
-        interpreter = com.google.ai.edge.litert.Interpreter(modelBuffer, options)
+        interpreter = Interpreter(modelBuffer, options)
     }
 
     /**

@@ -114,15 +114,17 @@ dependencies {
     // MediaPipe (Face Mesh)
     implementation(libs.mediapipe.tasks.vision)
 
-    // TensorFlow Lite (LiteRT)
+    // LiteRT (formerly TensorFlow Lite)
     implementation(libs.tflite)
-    implementation(libs.tfliteGpu)
-    implementation(libs.tfliteGpuApi)
-    implementation(libs.tfliteSupport)
+    implementation(libs.tfliteGpu) {
+        exclude(group = "com.google.ai.edge.litert", module = "litert-api")
+    }
+    implementation(libs.tfliteSupport) {
+        exclude(group = "com.google.ai.edge.litert", module = "litert-api")
+    }
     implementation(libs.tfliteSelectTfOps)
     testImplementation(libs.tflite)
     testImplementation(libs.tfliteGpu)
-    testImplementation(libs.tfliteGpuApi)
     testImplementation(libs.tfliteSupport)
     testImplementation(libs.tfliteSelectTfOps)
 

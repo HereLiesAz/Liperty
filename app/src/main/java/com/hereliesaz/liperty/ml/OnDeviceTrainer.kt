@@ -2,13 +2,13 @@ package com.hereliesaz.liperty.ml
 
 import android.content.Context
 import android.util.Log
-import com.google.ai.edge.litert.Interpreter
+import org.tensorflow.lite.Interpreter
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * Handles On-Device Personalization (LoRA) using TFLite Training Signatures.
+ * Handles On-Device Personalization (LoRA) using LiteRT Training Signatures.
  * This allows the model to adapt to the specific user's lip movements.
  */
 class OnDeviceTrainer(private val context: Context) {
@@ -73,19 +73,8 @@ class OnDeviceTrainer(private val context: Context) {
     }
 
     /**
-     * Saves the updated model weights to internal storage so they persist across app restarts.
-     * Note: TFLite Checkpoints are complex; often easier to save the specific weight buffers 
-     * if the model architecture supports exporting them, or rely on OS file persistence if 
-     * the interpreter was initialized from a writable file.
-     * 
-     * Since we loaded from Assets (read-only), we can't save *over* it.
-     * In a real implementation, we would copy the asset to context.filesDir first,
-     * load it from there, and then the updates are persisted in that file.
-     */
-    /**
      * Converts a list of phoneme strings into a ByteBuffer of float indices
      * using the canonical [MLConstants.PHONEME_VOCAB] ordering.
-     * This replaces the previous dummy label approach where index mappings were arbitrary.
      *
      * @param phonemes List of phoneme tokens (e.g. ["HH", "AH", "L", "OW"])
      * @return ByteBuffer ready to pass as `target_labels` to [trainStep]
@@ -102,10 +91,6 @@ class OnDeviceTrainer(private val context: Context) {
     }
 
     fun saveModelCheckpoint() {
-        // TFLite doesn't automatically "save" the file back to disk just by running inference/training.
-        // The interpreter holds the state in RAM.
-        // Exporting weights requires a specific "save" signature in the model or 
-        // using the experimental variables export.
         Log.w("OnDeviceTrainer", "Model weight persistence requires 'save' signature implementation.")
     }
 
