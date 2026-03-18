@@ -139,14 +139,25 @@ else
     echo "[*] Assets (Models) already exist."
 fi
 
-# Fallback/Utility: Face Landmarker (if still missing after assets.zip)
+# Fallback/Utility: Face and Hand Landmarkers (if still missing after assets.zip)
 FACE_TASK_URL="https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+HAND_TASK_URL="https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+
 if [ ! -f "${TARGET_ASSETS}/face_landmarker.task" ]; then
     echo "[+] Downloading face_landmarker.task (Fallback)..."
     if command -v wget &> /dev/null; then
         wget -O "${TARGET_ASSETS}/face_landmarker.task" "$FACE_TASK_URL"
     elif command -v curl &> /dev/null; then
         curl -L -o "${TARGET_ASSETS}/face_landmarker.task" "$FACE_TASK_URL"
+    fi
+fi
+
+if [ ! -f "${TARGET_ASSETS}/hand_landmarker.task" ]; then
+    echo "[+] Downloading hand_landmarker.task (Fallback)..."
+    if command -v wget &> /dev/null; then
+        wget -O "${TARGET_ASSETS}/hand_landmarker.task" "$HAND_TASK_URL"
+    elif command -v curl &> /dev/null; then
+        curl -L -o "${TARGET_ASSETS}/hand_landmarker.task" "$HAND_TASK_URL"
     fi
 fi
 

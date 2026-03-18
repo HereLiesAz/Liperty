@@ -26,7 +26,7 @@ class HandGestureHelper(val context: Context) {
     private fun setupHandLandmarker() {
         try {
             val baseOptions = BaseOptions.builder()
-                .setModelAssetPath("hand_landmarker.task") // This file must be in assets/
+                .setModelAssetPath("./hand_landmarker.task")
                 .build()
 
             val options = HandLandmarker.HandLandmarkerOptions.builder()

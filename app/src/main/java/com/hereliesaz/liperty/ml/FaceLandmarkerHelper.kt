@@ -40,7 +40,7 @@ class FaceLandmarkerHelper(
     private fun setupFaceLandmarker() {
         try {
             val baseOptions = BaseOptions.builder()
-                .setModelAssetPath("face_landmarker.task") // Uses BlazeFace (Short/Full Range)
+                .setModelAssetPath("./face_landmarker.task") // Uses BlazeFace (Short/Full Range)
                 .build()
 
             val options = FaceLandmarker.FaceLandmarkerOptions.builder()

@@ -115,12 +115,14 @@ dependencies {
     implementation(libs.mediapipe.tasks.vision)
 
     // TensorFlow Lite (LiteRT)
-    implementation(libs.tensorflow.lite)
-    implementation(libs.tensorflow.lite.gpu)
-    implementation(libs.tensorflow.lite.support)
-    testImplementation(libs.tensorflow.lite)
-    testImplementation(libs.tensorflow.lite.gpu)
-    testImplementation(libs.tensorflow.lite.support)
+    implementation(libs.tflite)
+    implementation(libs.tfliteGpu)
+    implementation(libs.tfliteGpuApi)
+    implementation(libs.tfliteSupport)
+    testImplementation(libs.tflite)
+    testImplementation(libs.tfliteGpu)
+    testImplementation(libs.tfliteGpuApi)
+    testImplementation(libs.tfliteSupport)
 
     // OpenCV - Only include if the project is available (handled in settings.gradle.kts)
     if (findProject(":opencv") != null) {
