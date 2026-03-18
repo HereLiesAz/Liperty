@@ -12,6 +12,8 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
@@ -49,8 +51,16 @@ class CameraManager(private val context: Context) {
                 CameraSelector.DEFAULT_FRONT_CAMERA
             }
 
+            // Shared aspect-ratio policy: force both Preview and Analysis to 16:9 so
+            // the FILL_CENTER coordinate transform in MainActivity produces a correct mapping
+            // (mismatched crops between the two use-cases would shift / shrink the mesh).
+            val ratio16x9 = ResolutionSelector.Builder()
+                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
+                .build()
+
             // Preview Use Case
             val preview = Preview.Builder()
+                .setResolutionSelector(ratio16x9)
                 .build()
                 .also {
                     it.setSurfaceProvider(previewView.surfaceProvider)
@@ -58,6 +68,7 @@ class CameraManager(private val context: Context) {
 
             // Image Analysis Use Case — locked to 25 FPS for deterministic inference timing
             val imageAnalysisBuilder = ImageAnalysis.Builder()
+                .setResolutionSelector(ratio16x9)
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
 
             val extender = Camera2Interop.Extender(imageAnalysisBuilder)

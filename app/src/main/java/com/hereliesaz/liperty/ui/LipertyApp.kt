@@ -4,12 +4,6 @@ import android.graphics.Bitmap
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.camera.view.PreviewView
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -224,30 +218,98 @@ fun LipertyApp(
 
                     composable("home") {
                         val anyModeActive = isLipReadActive || isSSIActive || isELActive
+                        val activeColor = when {
+                            isELActive  -> MaterialTheme.colorScheme.tertiary
+                            isSSIActive -> MaterialTheme.colorScheme.secondary
+                            else        -> MaterialTheme.colorScheme.primary
+                        }
 
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .transformable(state = transformState)
                         ) {
-                            // ── Status badge ──────────────────────────────
-                            Row(
+                            // ── Top: animated scanning line ────────────────
+                            if (anyModeActive) {
+                                LinearProgressIndicator(
+                                    modifier   = Modifier.fillMaxWidth(),
+                                    color      = activeColor,
+                                    trackColor = activeColor.copy(alpha = 0.15f)
+                                )
+                            }
+
+                            // ── Middle: transcription overlaid on camera ───
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.End,
-                                verticalAlignment = Alignment.CenterVertically
+                                    .weight(1f)
                             ) {
+                                // Words — shown for any active mode once text arrives
+                                if (transcriptionWords.isNotEmpty()) {
+                                    FlowRow(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .align(Alignment.Center)
+                                            .background(Color.Black.copy(alpha = 0.45f))
+                                            .padding(horizontal = 24.dp, vertical = 16.dp),
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        transcriptionWords.forEachIndexed { index, word ->
+                                            val isSelected = index == selectedWordIndex
+                                            val confidence = wordConfidences.getOrElse(index) { 0.5f }
+                                            val heatColor = lerp(
+                                                lerp(Color(0xFFB71C1C), Color(0xFFF57F17), confidence * 2f),
+                                                lerp(Color(0xFFF57F17), Color(0xFF1B5E20), (confidence - 0.5f) * 2f),
+                                                if (confidence < 0.5f) 0f else 1f
+                                            ).copy(alpha = 0.25f)
+                                            Text(
+                                                text = word,
+                                                color = if (isSelected)
+                                                    activeColor
+                                                else
+                                                    Color.White,
+                                                fontSize = fontSize.sp,
+                                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Normal,
+                                                modifier = Modifier
+                                                    .padding(4.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(
+                                                        if (isSelected)
+                                                            activeColor.copy(alpha = 0.28f)
+                                                        else
+                                                            heatColor
+                                                    )
+                                                    .clickable { onWordClick(index) }
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                } else if (!anyModeActive) {
+                                    // Nothing active — show subtle hint in center
+                                    Text(
+                                        text = "Enable a mode from the\nnavigation rail to start",
+                                        color = MaterialTheme.colorScheme.outlineVariant,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.align(Alignment.Center)
+                                    )
+                                }
+                                // Mode active but no words yet — silent, line at top indicates state
+
+                                // Status badge — top-right corner
                                 if (isRecording) {
                                     val (badgeText, badgeColor) = when {
-                                        isPaused    -> "PAUSED"  to Color(0xFFFFD600)
-                                        isELActive  -> "EL"      to MaterialTheme.colorScheme.tertiary
-                                        isSSIActive -> "SSI"     to MaterialTheme.colorScheme.primary
+                                        isPaused        -> "PAUSED"  to Color(0xFFFFD600)
+                                        isELActive      -> "EL"      to MaterialTheme.colorScheme.tertiary
+                                        isSSIActive     -> "SSI"     to MaterialTheme.colorScheme.primary
                                         isLipReadActive -> "READING" to Color(0xFFFF5252)
-                                        else        -> "REC"     to Color(0xFFFF5252)
+                                        else            -> "REC"     to Color(0xFFFF5252)
                                     }
                                     Box(
                                         modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(12.dp)
                                             .clip(RoundedCornerShape(50))
                                             .background(badgeColor.copy(alpha = 0.18f))
                                             .padding(horizontal = 12.dp, vertical = 4.dp)
@@ -262,105 +324,7 @@ fun LipertyApp(
                                 }
                             }
 
-                            // ── Transcription area ────────────────────────
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                when {
-                                    isLipReadActive && transcriptionWords.isNotEmpty() -> {
-                                        FlowRow(
-                                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
-                                            horizontalArrangement = Arrangement.Center,
-                                            verticalArrangement = Arrangement.Center
-                                        ) {
-                                            transcriptionWords.forEachIndexed { index, word ->
-                                                val isSelected = index == selectedWordIndex
-                                                val confidence = wordConfidences.getOrElse(index) { 0.5f }
-                                                val heatColor = lerp(
-                                                    lerp(Color(0xFFB71C1C), Color(0xFFF57F17), confidence * 2f),
-                                                    lerp(Color(0xFFF57F17), Color(0xFF1B5E20), (confidence - 0.5f) * 2f),
-                                                    if (confidence < 0.5f) 0f else 1f
-                                                ).copy(alpha = 0.25f)
-                                                Text(
-                                                    text = word,
-                                                    color = if (isSelected)
-                                                        MaterialTheme.colorScheme.primary
-                                                    else
-                                                        MaterialTheme.colorScheme.onBackground,
-                                                    fontSize = fontSize.sp,
-                                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Normal,
-                                                    modifier = Modifier
-                                                        .padding(4.dp)
-                                                        .clip(RoundedCornerShape(8.dp))
-                                                        .background(
-                                                            if (isSelected)
-                                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-                                                            else
-                                                                heatColor
-                                                        )
-                                                        .clickable { onWordClick(index) }
-                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    // A mode is active but no text has arrived yet
-                                    anyModeActive -> {
-                                        val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-                                        val alpha by infiniteTransition.animateFloat(
-                                            initialValue = 0.3f,
-                                            targetValue  = 1f,
-                                            animationSpec = infiniteRepeatable(
-                                                animation  = tween(900, easing = LinearEasing),
-                                                repeatMode = RepeatMode.Reverse
-                                            ),
-                                            label = "pulseAlpha"
-                                        )
-                                        Column(
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                                        ) {
-                                            LinearProgressIndicator(
-                                                modifier = Modifier
-                                                    .fillMaxWidth(0.55f)
-                                                    .clip(RoundedCornerShape(50)),
-                                                color = when {
-                                                    isELActive  -> MaterialTheme.colorScheme.tertiary
-                                                    isSSIActive -> MaterialTheme.colorScheme.primary
-                                                    else        -> MaterialTheme.colorScheme.primary
-                                                },
-                                                trackColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                                            )
-                                            Text(
-                                                text = when {
-                                                    isELActive  -> "Listening for electrolarynx…"
-                                                    isSSIActive -> "Listening for throat vibrations…"
-                                                    else        -> "Watching for lip movements…"
-                                                },
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha),
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                textAlign = TextAlign.Center
-                                            )
-                                        }
-                                    }
-
-                                    // Nothing is active
-                                    else -> {
-                                        Text(
-                                            text = "Enable a mode from the\nnavigation rail to start",
-                                            color = MaterialTheme.colorScheme.outlineVariant,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            textAlign = TextAlign.Center
-                                        )
-                                    }
-                                }
-                            }
-
-                            // ── Sensitivity slider(s) docked to bottom ────
+                            // ── Bottom: sensitivity slider(s) ──────────────
                             if (anyModeActive) {
                                 Surface(
                                     modifier = Modifier.fillMaxWidth(),
@@ -398,8 +362,8 @@ fun LipertyApp(
                                                 onValueChange = onVsrSensitivityChange,
                                                 modifier = Modifier.fillMaxWidth(),
                                                 colors = SliderDefaults.colors(
-                                                    thumbColor       = MaterialTheme.colorScheme.primary,
-                                                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                                                    thumbColor         = MaterialTheme.colorScheme.primary,
+                                                    activeTrackColor   = MaterialTheme.colorScheme.primary,
                                                     inactiveTrackColor = MaterialTheme.colorScheme.outline
                                                 )
                                             )

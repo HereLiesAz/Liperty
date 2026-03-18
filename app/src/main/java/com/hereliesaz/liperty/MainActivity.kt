@@ -120,13 +120,9 @@ class MainActivity : ComponentActivity() {
         faceLandmarkerHelper = FaceLandmarkerHelper(this)
         handGestureHelper = HandGestureHelper(this)
         laryngealSensor = LaryngealSensor(this)
-        val personalizedModelFile = java.io.File(filesDir, "vsr_lora_model.tflite")
-        val vsrModelName = if (personalizedModelFile.exists()) "vsr_lora_model.tflite" else "vallr_model.tflite"
-        val vsrEngine = TFLiteEngine(this, vsrModelName)
-        if (personalizedModelFile.exists()) {
-            vsrEngine.setUseInternalStorage(true)
-            Log.i("MainActivity", "Personalized LoRA model found, using for VSR.")
-        }
+        // vsr_lora_model.tflite uses ops incompatible with LiteRT 2.x CompiledModel.
+        // Always load the base model until LoRA export is fixed.
+        val vsrEngine = TFLiteEngine(this, "vallr_model.tflite")
         
         vsrInference = VSRInference(vsrEngine)
         ssrInference = SSRInference(TFLiteEngine(this, "ssr_model.tflite"))
@@ -467,6 +463,12 @@ class MainActivity : ComponentActivity() {
                     val scale = maxOf(vw / imgW, vh / imgH)
                     val offsetX = (vw - imgW * scale) / 2f
                     val offsetY = (vh - imgH * scale) / 2f
+                    if (frameCount % 90 == 0) {
+                        Log.d("OverlayScale", "img=${imgW.toInt()}x${imgH.toInt()} " +
+                            "overlay=${vw.toInt()}x${vh.toInt()} " +
+                            "scale=${"%.3f".format(scale)} " +
+                            "offset=(${offsetX.toInt()},${offsetY.toInt()})")
+                    }
 
                     val points = rawLandmarks?.map { lm ->
                         PointF(lm.x() * imgW * scale + offsetX,
