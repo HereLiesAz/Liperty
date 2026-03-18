@@ -28,32 +28,32 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
 
     // ── Paints ───────────────────────────────────────────────────────────────
 
-    /** Tiny dots for the full 468-point mesh */
+    /** Very faint dots for the full 468-point mesh — just enough to show tracking */
     private val meshDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(140, 180, 220, 255)
+        color = Color.argb(45, 180, 220, 255)
         style = Paint.Style.FILL
     }
 
-    /** Slightly larger dots specifically on lip landmarks */
+    /** Subtle dots on lip landmarks */
     private val lipDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(255, 0, 220, 255)
+        color = Color.argb(120, 0, 220, 255)
         style = Paint.Style.FILL
     }
 
-    /** Lines connecting lip contour landmarks */
+    /** Lines connecting lip contour landmarks — semi-transparent */
     private val lipLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(230, 0, 220, 255)
+        color = Color.argb(110, 0, 220, 255)
         style = Paint.Style.STROKE
-        strokeWidth = 2.5f
+        strokeWidth = 1.8f
         strokeJoin = Paint.Join.ROUND
         strokeCap = Paint.Cap.ROUND
     }
 
-    /** Dashed bounding box around the full lip region */
+    /** Faint bounding box around the lip region */
     private val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(180, 0, 200, 255)
+        color = Color.argb(55, 0, 200, 255)
         style = Paint.Style.STROKE
-        strokeWidth = 3f
+        strokeWidth = 2f
     }
 
     // ── Lip topology ─────────────────────────────────────────────────────────

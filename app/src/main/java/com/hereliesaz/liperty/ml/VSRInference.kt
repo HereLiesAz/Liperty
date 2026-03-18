@@ -6,6 +6,7 @@ import android.util.Log
 import com.hereliesaz.liperty.utils.PerformanceMonitor
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.exp
 
 data class VSRResult(
     val text: String,
@@ -126,12 +127,14 @@ class VSRInference(private val engine: ModelEngine) {
             outputBuffer.rewind()
 
             // 4. Decode
+            // CTC models output raw logits. Apply softmax per timestep so the
+            // BeamSearchDecoder receives proper probabilities in [0,1].
             val probabilities = Array(timeSteps) {
-                val probs = FloatArray(vocabSize)
-                for (v in 0 until vocabSize) {
-                    probs[v] = outputBuffer.float
+                val logits = FloatArray(vocabSize) { outputBuffer.float }
+                if (it == 0) {
+                    Log.d("VSRInference", "logits[0] sample (first 5): ${logits.take(5)}")
                 }
-                probs
+                softmax(logits)
             }
 
             val decodedText = if (useBeamSearch) {
@@ -166,5 +169,12 @@ class VSRInference(private val engine: ModelEngine) {
 
     fun close() {
         engine.close()
+    }
+
+    private fun softmax(logits: FloatArray): FloatArray {
+        val max = logits.max()
+        val exps = FloatArray(logits.size) { exp((logits[it] - max).toDouble()).toFloat() }
+        val sum = exps.sum()
+        return FloatArray(exps.size) { exps[it] / sum }
     }
 }
