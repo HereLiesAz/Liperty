@@ -131,7 +131,7 @@ class MainActivity : ComponentActivity() {
         // VoiceConverter is initialized lazily or in onCreate
         // For simplicity, let's use the one in LaryngealSensor if EL mode is active.
         // But MainActivity might need its own if it does other things.
-        frameBuffer = FrameBuffer(capacity = 16) // VALLR uses 16 frames
+        frameBuffer = FrameBuffer(capacity = 50) // VSR model input: [1, 50, 88, 88, 1]
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         // Initialize TFLite in background
@@ -427,6 +427,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun processFrame(bitmap: Bitmap, result: FaceLandmarkerResult) {
+        if (!isLipReadModeState.value) {
+            // Landmark overlay still useful but skip expensive crop + inference
+            runOnUiThread { overlayView.clear() }
+            frameBuffer.clearAndRecycle()
+            return
+        }
+
         val rawLipBox = faceLandmarkerHelper.extractLipBoundingBox(result, bitmap.width, bitmap.height)
 
         if (rawLipBox != null) {

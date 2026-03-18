@@ -73,12 +73,14 @@ class TFLiteEngine(
     }
 
     override fun getOutputShape(outputIndex: Int): IntArray {
-        // Return a mock shape for now as the new API makes it hard to query by index without names
-        return intArrayOf(1, 16, 39)
+        // Model output: [batch=1, timeSteps=50, vocabSize=40]
+        // Matches PHONEME_VOCAB (40 entries: 1 blank + 39 phonemes)
+        return intArrayOf(1, 50, 40)
     }
 
     override fun getInputShape(inputIndex: Int): IntArray {
-        return intArrayOf(1, 16, 128)
+        // Model input: [batch=1, frames=50, height=88, width=88, channels=1]
+        return intArrayOf(1, 50, 88, 88, 1)
     }
 
     override fun close() {
