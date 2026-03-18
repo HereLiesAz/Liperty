@@ -48,7 +48,7 @@ class TFLiteEngine(
             Log.i("TFLiteEngine", "LiteRT Model $modelName loaded successfully (Internal: $useInternalStorage)")
             return true
         } catch (e: Exception) {
-            Log.e("TFLiteEngine", "Error initializing LiteRT", e)
+            Log.e("TFLiteEngine", "FAILED to load model '$modelName': ${e.message}")
             return false
         }
     }

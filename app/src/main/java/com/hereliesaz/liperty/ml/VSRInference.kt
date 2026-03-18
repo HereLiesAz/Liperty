@@ -42,15 +42,17 @@ class VSRInference(private val engine: ModelEngine) {
 
         try {
             val inputShape = engine.getInputShape(0)
+            Log.d("VSRInference", "inputShape=${inputShape.contentToString()} frames=${frames.size}")
             if (inputShape.isNotEmpty()) {
                 // Determine model type based on shape
                 if (inputShape.size >= 5) {
                     numFrames = inputShape[1]
-                    inputHeight = inputShape[2] // Could be 224 or 88
+                    inputHeight = inputShape[2]
                     inputWidth = inputShape[3]
                     numChannels = inputShape[4]
                 }
             }
+            Log.d("VSRInference", "using numFrames=$numFrames ${inputWidth}x${inputHeight} ch=$numChannels")
             
             // 1. Prepare Input Buffer
             // Float32 (4 bytes)
@@ -103,15 +105,17 @@ class VSRInference(private val engine: ModelEngine) {
             // 2. Prepare Output Buffer
             val outputShape = engine.getOutputShape(0)
 
+            Log.d("VSRInference", "outputShape=${outputShape.contentToString()}")
             if (outputShape.size < 3) {
-                 Log.e("VSRInference", "Unexpected output shape: ${outputShape.contentToString()}")
-                 val processingTime = SystemClock.uptimeMillis() - startTime
-                 return VSRResult("", 0f, emptyList(), processingTime)
+                Log.e("VSRInference", "Unexpected output shape: ${outputShape.contentToString()}")
+                val processingTime = SystemClock.uptimeMillis() - startTime
+                return VSRResult("", 0f, emptyList(), processingTime)
             }
 
             val batchSize = outputShape[0]
             val timeSteps = outputShape[1]
             val vocabSize = outputShape[2]
+            Log.d("VSRInference", "decoding: timeSteps=$timeSteps vocabSize=$vocabSize")
 
             val outputBuffer = ByteBuffer.allocateDirect(batchSize * timeSteps * vocabSize * 4)
             outputBuffer.order(ByteOrder.nativeOrder())
@@ -150,6 +154,7 @@ class VSRInference(private val engine: ModelEngine) {
             val processingTime = SystemClock.uptimeMillis() - startTime
             PerformanceMonitor.logInferenceTime(processingTime)
 
+            Log.d("VSRInference", "decoded='$decodedText' conf=%.2f time=${processingTime}ms".format(confidence))
             return VSRResult(decodedText, confidence, wordConfidences, processingTime)
 
         } catch (e: Exception) {

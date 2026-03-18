@@ -406,6 +406,12 @@ class MainActivity : ComponentActivity() {
 
             imageProxy.close()
 
+            if (frameCount % 30 == 0) {
+                val faceCount = result?.faceLandmarks()?.size ?: 0
+                Log.d("VSRPipeline", "frame=$frameCount lipRead=${isLipReadModeState.value} " +
+                    "faces=$faceCount bufSize=${frameBuffer.size()} paused=${isPausedState.value}")
+            }
+
             if (result != null) {
                 processFrame(bitmap, result)
             } else {
@@ -435,6 +441,9 @@ class MainActivity : ComponentActivity() {
         }
 
         val rawLipBox = faceLandmarkerHelper.extractLipBoundingBox(result, bitmap.width, bitmap.height)
+        if (rawLipBox == null) {
+            Log.d("VSRPipeline", "lip box null — face detected but no lips found")
+        }
 
         if (rawLipBox != null) {
             // Apply Optical Flow first, then Kalman Filter for smooth trajectory tracking
@@ -482,6 +491,7 @@ class MainActivity : ComponentActivity() {
             // Inference
             if (frameBuffer.isFull() && !isInferencing) {
                 isInferencing = true
+                Log.d("VSRPipeline", "buffer full — launching inference")
                 // Takes ownership of the frames
                 val framesToProcess = frameBuffer.clearAndGetFrames()
 
@@ -494,6 +504,7 @@ class MainActivity : ComponentActivity() {
 
                     withContext(Dispatchers.Main) {
                         val rawText = vsrResult.text.replace("Pred: ", "").replace(Regex("\\(.*\\)"), "")
+                        Log.d("VSRPipeline", "inference done: raw='${vsrResult.text.take(80)}' filtered='$rawText' conf=${"%.2f".format(vsrResult.confidence)}")
                         if (rawText.isNotBlank()) {
                             transcriptionManager.appendText(rawText, vsrResult.confidence)
                             updateTranscriptionUI()

@@ -38,6 +38,9 @@ class FrameBuffer(private val capacity: Int) {
     }
 
     @Synchronized
+    fun size(): Int = buffer.size
+
+    @Synchronized
     fun isFull(): Boolean {
         return buffer.size == capacity
     }
