@@ -28,15 +28,17 @@ class FaceLandmarkerHelper(
      * Higher confidence = fewer false positives but might miss faces in bad lighting.
      * BlazeFace (the underlying model) works best with defaults, but adjustment helps in VSR.
      */
+    @Synchronized
     fun updateConfidence(detectionConfidence: Float, trackingConfidence: Float) {
         if (detectionConfidence != minFaceDetectionConfidence || trackingConfidence != minFaceTrackingConfidence) {
             minFaceDetectionConfidence = detectionConfidence
             minFaceTrackingConfidence = trackingConfidence
-            close()
+            closeInternal()
             setupFaceLandmarker()
         }
     }
 
+    @Synchronized
     private fun setupFaceLandmarker() {
         try {
             val baseOptions = BaseOptions.builder()
@@ -57,6 +59,7 @@ class FaceLandmarkerHelper(
         }
     }
 
+    @Synchronized
     fun detectSynchronously(imageBitmap: Bitmap): FaceLandmarkerResult? {
         if (faceLandmarker == null) return null
 
@@ -70,7 +73,12 @@ class FaceLandmarkerHelper(
         }
     }
 
+    @Synchronized
     fun close() {
+        closeInternal()
+    }
+
+    private fun closeInternal() {
         faceLandmarker?.close()
         faceLandmarker = null
     }

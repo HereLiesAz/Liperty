@@ -2,7 +2,8 @@ package com.hereliesaz.liperty.ml
 
 import android.content.Context
 import android.util.Log
-import org.tensorflow.lite.Interpreter
+import com.google.ai.edge.litert.Accelerator
+import com.google.ai.edge.litert.CompiledModel
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -10,10 +11,14 @@ import java.nio.ByteOrder
 /**
  * Handles On-Device Personalization (LoRA) using LiteRT Training Signatures.
  * This allows the model to adapt to the specific user's lip movements.
+ *
+ * NOTE: LiteRT 2.x CompiledModel does not yet expose runSignature() for training.
+ * The model is loaded for weight persistence and inference; the training step is
+ * a no-op until the LiteRT training API stabilises.
  */
 class OnDeviceTrainer(private val context: Context) {
 
-    private var interpreter: Interpreter? = null
+    private var compiledModel: CompiledModel? = null
     private val MODEL_NAME = "vsr_lora_model.tflite"
     private val modelFileInFilesDir: File by lazy { File(context.filesDir, MODEL_NAME) }
 
@@ -29,11 +34,17 @@ class OnDeviceTrainer(private val context: Context) {
                 Log.i("OnDeviceTrainer", "Copied base model to internal storage for personalization.")
             }
 
-            val options = Interpreter.Options()
-            // Training usually requires CPU as GPU delegates rarely support training ops
-            
-            interpreter = Interpreter(modelFileInFilesDir, options)
-            Log.i("OnDeviceTrainer", "Trainable LoRA Model loaded from ${modelFileInFilesDir.absolutePath}")
+            // Training graphs require CPU; GPU delegates don't support training ops.
+            compiledModel = try {
+                CompiledModel.create(modelFileInFilesDir.absolutePath, CompiledModel.Options(Accelerator.CPU))
+            } catch (e: Exception) {
+                Log.w("OnDeviceTrainer", "CPU model load failed: ${e.message}")
+                null
+            }
+
+            if (compiledModel != null) {
+                Log.i("OnDeviceTrainer", "Trainable LoRA model loaded from ${modelFileInFilesDir.absolutePath}")
+            }
         } catch (e: Exception) {
             Log.e("OnDeviceTrainer", "Failed to load trainable model", e)
         }
@@ -41,35 +52,15 @@ class OnDeviceTrainer(private val context: Context) {
 
     /**
      * Runs a single training step (batch) to update model weights.
-     * @param inputBuffer ByteBuffer containing video frames [Batch, Time, Height, Width, Channels]
-     * @param labelBuffer ByteBuffer containing one-hot encoded labels [Batch, Time, Classes]
-     * @return The loss value for this step.
+     *
+     * TODO: LiteRT 2.x CompiledModel does not expose runSignature("train").
+     * Restore when the LiteRT training API is available.
+     *
+     * @return -1 until training is re-enabled.
      */
     fun trainStep(inputBuffer: ByteBuffer, labelBuffer: ByteBuffer): Float {
-        val interpreter = interpreter ?: return -1f
-
-        // Inputs map matching the signature defined in create_trainable_model.py
-        val inputs = mapOf(
-            "video_input" to inputBuffer,
-            "target_labels" to labelBuffer
-        )
-
-        // Outputs map
-        val lossBuffer = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder())
-        val outputs = mapOf(
-            "loss" to lossBuffer
-        )
-
-        try {
-            // Run the 'train' signature
-            interpreter.runSignature(inputs, outputs, "train")
-            
-            lossBuffer.rewind()
-            return lossBuffer.float
-        } catch (e: Exception) {
-            Log.e("OnDeviceTrainer", "Training step failed", e)
-            return -1f
-        }
+        Log.w("OnDeviceTrainer", "trainStep: on-device training requires LiteRT training API (not yet available in 2.x)")
+        return -1f
     }
 
     /**
@@ -95,6 +86,6 @@ class OnDeviceTrainer(private val context: Context) {
     }
 
     fun close() {
-        interpreter?.close()
+        compiledModel?.close()
     }
 }
