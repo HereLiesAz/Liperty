@@ -17,7 +17,7 @@ class TFLiteEngineTest {
     @Test
     fun testInterpreterClassExists() {
         try {
-            val clazz = Class.forName("org.tensorflow.lite.Interpreter")
+            val clazz = Class.forName("com.google.ai.edge.litert.Interpreter")
             assertNotNull(clazz)
         } catch (e: ClassNotFoundException) {
             org.junit.Assert.fail("Interpreter class not found")
@@ -27,7 +27,7 @@ class TFLiteEngineTest {
     @Test
     fun testGpuDelegateClassExists() {
         try {
-            val clazz = Class.forName("org.tensorflow.lite.gpu.GpuDelegate")
+            val clazz = Class.forName("com.google.ai.edge.litert.gpu.GpuDelegate")
             assertNotNull(clazz)
         } catch (e: ClassNotFoundException) {
             org.junit.Assert.fail("GpuDelegate class not found")
@@ -37,7 +37,7 @@ class TFLiteEngineTest {
     @Test
     fun testFileUtilClassExists() {
         try {
-            val clazz = Class.forName("org.tensorflow.lite.support.common.FileUtil")
+            val clazz = Class.forName("com.google.ai.edge.litert.support.common.FileUtil")
             assertNotNull(clazz)
         } catch (e: ClassNotFoundException) {
             org.junit.Assert.fail("FileUtil class not found")
@@ -48,7 +48,7 @@ class TFLiteEngineTest {
     fun testGpuDelegateInstantiation() {
         try {
             // detailed check
-            val delegate = org.tensorflow.lite.gpu.GpuDelegate()
+            val delegate = com.google.ai.edge.litert.gpu.GpuDelegate()
             assertNotNull(delegate)
             delegate.close()
         } catch (t: Throwable) {

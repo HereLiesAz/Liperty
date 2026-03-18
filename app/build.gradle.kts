@@ -29,7 +29,7 @@ android {
 
         ndk {
             // Filter relevant ABIs
-            abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a"))
+            abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86_64"))
         }
     }
 
@@ -119,10 +119,12 @@ dependencies {
     implementation(libs.tfliteGpu)
     implementation(libs.tfliteGpuApi)
     implementation(libs.tfliteSupport)
+    implementation(libs.tfliteSelectTfOps)
     testImplementation(libs.tflite)
     testImplementation(libs.tfliteGpu)
     testImplementation(libs.tfliteGpuApi)
     testImplementation(libs.tfliteSupport)
+    testImplementation(libs.tfliteSelectTfOps)
 
     // OpenCV - Only include if the project is available (handled in settings.gradle.kts)
     if (findProject(":opencv") != null) {
@@ -143,6 +145,7 @@ dependencies {
     testImplementation(libs.robolectric)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.tfliteSelectTfOps)
 }
 
 tasks.withType<Test> {

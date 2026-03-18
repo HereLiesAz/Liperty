@@ -2,10 +2,10 @@ package com.hereliesaz.liperty.ml
 
 import android.content.Context
 import android.util.Log
-import org.tensorflow.lite.Delegate
-import org.tensorflow.lite.Interpreter
-import org.tensorflow.lite.gpu.GpuDelegate
-import org.tensorflow.lite.support.common.FileUtil
+import com.google.ai.edge.litert.Delegate
+import com.google.ai.edge.litert.Interpreter
+import com.google.ai.edge.litert.gpu.GpuDelegate
+import com.google.ai.edge.litert.support.common.FileUtil
 import java.nio.ByteBuffer
 
 class TFLiteEngine(

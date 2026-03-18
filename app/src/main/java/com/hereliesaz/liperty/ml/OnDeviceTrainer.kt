@@ -2,7 +2,7 @@ package com.hereliesaz.liperty.ml
 
 import android.content.Context
 import android.util.Log
-import org.tensorflow.lite.Interpreter
+import com.google.ai.edge.litert.Interpreter
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder

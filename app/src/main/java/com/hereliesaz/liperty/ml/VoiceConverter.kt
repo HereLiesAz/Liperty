@@ -2,9 +2,9 @@ package com.hereliesaz.liperty.ml
 
 import android.content.Context
 import android.graphics.Bitmap
-import org.tensorflow.lite.Interpreter
-import org.tensorflow.lite.gpu.CompatibilityList
-import org.tensorflow.lite.gpu.GpuDelegate
+import com.google.ai.edge.litert.Interpreter
+import com.google.ai.edge.litert.gpu.CompatibilityList
+import com.google.ai.edge.litert.gpu.GpuDelegate
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -23,18 +23,18 @@ class VoiceConverter(context: Context) {
     private var gpuDelegate: GpuDelegate? = null
 
     init {
-        val options = org.tensorflow.lite.Interpreter.Options()
-        val compatList = org.tensorflow.lite.gpu.CompatibilityList()
+        val options = com.google.ai.edge.litert.Interpreter.Options()
+        val compatList = com.google.ai.edge.litert.gpu.CompatibilityList()
 
         if (compatList.isDelegateSupportedOnThisDevice) {
-            gpuDelegate = org.tensorflow.lite.gpu.GpuDelegate()
+            gpuDelegate = com.google.ai.edge.litert.gpu.GpuDelegate()
             options.addDelegate(gpuDelegate)
         } else {
             options.setNumThreads(4)
         }
 
         val modelBuffer = loadModelFile(context, "voice_converter.tflite")
-        interpreter = org.tensorflow.lite.Interpreter(modelBuffer, options)
+        interpreter = com.google.ai.edge.litert.Interpreter(modelBuffer, options)
     }
 
     /**
