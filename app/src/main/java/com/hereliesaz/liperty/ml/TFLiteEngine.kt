@@ -23,23 +23,26 @@ class TFLiteEngine(
         if (compiledModel != null) return true
 
         try {
-            val options = try {
-                CompiledModel.Options(Accelerator.GPU)
-            } catch (e: Exception) {
-                Log.e("TFLiteEngine", "GPU Accelerator not supported, falling back to CPU", e)
-                CompiledModel.Options(Accelerator.CPU)
-            }
-
-            compiledModel = if (useInternalStorage) {
-                val file = java.io.File(context.filesDir, modelName)
-                if (file.exists()) {
-                    CompiledModel.create(file.absolutePath, options)
+            fun createModel(accelerator: Accelerator): CompiledModel {
+                val options = CompiledModel.Options(accelerator)
+                return if (useInternalStorage) {
+                    val file = java.io.File(context.filesDir, modelName)
+                    if (file.exists()) {
+                        CompiledModel.create(file.absolutePath, options)
+                    } else {
+                        Log.w("TFLiteEngine", "Personalized model not found, falling back to assets: $modelName")
+                        CompiledModel.create(context.assets, modelName, options)
+                    }
                 } else {
-                    Log.w("TFLiteEngine", "Personalized model not found in internal storage, falling back to assets: $modelName")
                     CompiledModel.create(context.assets, modelName, options)
                 }
-            } else {
-                CompiledModel.create(context.assets, modelName, options)
+            }
+
+            compiledModel = try {
+                createModel(Accelerator.GPU)
+            } catch (e: Exception) {
+                Log.w("TFLiteEngine", "GPU compilation failed, falling back to CPU", e)
+                createModel(Accelerator.CPU)
             }
 
             Log.i("TFLiteEngine", "LiteRT Model $modelName loaded successfully (Internal: $useInternalStorage)")

@@ -17,13 +17,17 @@ class VoiceConverter(context: Context) {
     private var compiledModel: CompiledModel? = null
 
     init {
-        val options = try {
-            CompiledModel.Options(Accelerator.GPU)
+        compiledModel = try {
+            CompiledModel.create(context.assets, "voice_converter.tflite", CompiledModel.Options(Accelerator.GPU))
         } catch (e: Exception) {
-            Log.e("VoiceConverter", "GPU not supported, falling back to CPU", e)
-            CompiledModel.Options(Accelerator.CPU)
+            Log.w("VoiceConverter", "GPU compilation failed, falling back to CPU", e)
+            try {
+                CompiledModel.create(context.assets, "voice_converter.tflite", CompiledModel.Options(Accelerator.CPU))
+            } catch (e2: Exception) {
+                Log.e("VoiceConverter", "Failed to load voice_converter.tflite", e2)
+                null
+            }
         }
-        compiledModel = CompiledModel.create(context.assets, "voice_converter.tflite", options)
     }
 
     /**
