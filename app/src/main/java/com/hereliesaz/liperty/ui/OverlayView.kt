@@ -4,51 +4,134 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Rect
+import android.graphics.PointF
+import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
 
+/**
+ * Full-face mesh overlay.
+ *
+ * Draws all 468 MediaPipe face landmarks as small dots, then overlays
+ * the lip contour connections (outer + inner) in bright cyan, and
+ * optionally a bounding box around the lip region.
+ *
+ * All coordinates are passed pre-scaled to the view's pixel space
+ * so this class has no dependency on MediaPipe types.
+ */
 class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
 
-    private var faceResults: List<Rect> = emptyList()
-    private var lipResults: List<Rect> = emptyList()
-    private val facePaint = Paint()
-    private val lipPaint = Paint()
+    // ── Data ─────────────────────────────────────────────────────────────────
 
-    init {
-        initPaints()
+    @Volatile private var allLandmarks: List<PointF> = emptyList()
+    @Volatile private var lipBox: RectF? = null
+
+    // ── Paints ───────────────────────────────────────────────────────────────
+
+    /** Tiny dots for the full 468-point mesh */
+    private val meshDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(140, 180, 220, 255)
+        style = Paint.Style.FILL
     }
 
-    private fun initPaints() {
-        facePaint.color = Color.GREEN
-        facePaint.style = Paint.Style.STROKE
-        facePaint.strokeWidth = 8f
-
-        lipPaint.color = Color.BLUE
-        lipPaint.style = Paint.Style.STROKE
-        lipPaint.strokeWidth = 8f
+    /** Slightly larger dots specifically on lip landmarks */
+    private val lipDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(255, 0, 220, 255)
+        style = Paint.Style.FILL
     }
+
+    /** Lines connecting lip contour landmarks */
+    private val lipLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(230, 0, 220, 255)
+        style = Paint.Style.STROKE
+        strokeWidth = 2.5f
+        strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.ROUND
+    }
+
+    /** Dashed bounding box around the full lip region */
+    private val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(180, 0, 200, 255)
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+    }
+
+    // ── Lip topology ─────────────────────────────────────────────────────────
+
+    /**
+     * MediaPipe face mesh lip contour index groups.
+     * Source: mediapipe/python/solutions/face_mesh_connections.py
+     */
+    private val outerUpperLip = intArrayOf(61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291)
+    private val outerLowerLip = intArrayOf(291, 375, 321, 405, 314, 17, 84, 181, 91, 146, 61)
+    private val innerUpperLip = intArrayOf(78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308)
+    private val innerLowerLip = intArrayOf(308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78)
+
+    private val allLipIndices: Set<Int> = (
+        outerUpperLip.toList() + outerLowerLip.toList() +
+        innerUpperLip.toList() + innerLowerLip.toList()
+    ).toSet()
+
+    // ── Public API ────────────────────────────────────────────────────────────
+
+    /**
+     * Update the overlay with new landmark data.
+     *
+     * @param landmarks All 468 face landmarks, each already scaled to the
+     *                  view's pixel coordinate space (multiply normalized
+     *                  x/y by [View.getWidth]/[View.getHeight] before calling).
+     * @param lip       Optional bounding box around the lip region, same space.
+     */
+    fun setLandmarks(landmarks: List<PointF>, lip: RectF?) {
+        allLandmarks = landmarks
+        lipBox = lip
+        postInvalidate()
+    }
+
+    /** Backwards-compatible no-op that simply clears the overlay. */
+    fun setResults(faces: List<Any>, lips: List<Any>) = clear()
+
+    fun clear() {
+        allLandmarks = emptyList()
+        lipBox = null
+        postInvalidate()
+    }
+
+    // ── Drawing ───────────────────────────────────────────────────────────────
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        for (rect in faceResults) {
-            canvas.drawRect(rect, facePaint)
-        }
-        for (rect in lipResults) {
-            canvas.drawRect(rect, lipPaint)
-        }
-    }
+        val landmarks = allLandmarks
+        if (landmarks.isEmpty()) return
 
-    fun setResults(faces: List<Rect>, lips: List<Rect>) {
-        faceResults = faces
-        lipResults = lips
-        invalidate()
-    }
+        // 1. Full mesh — all 468 points as tiny dots
+        for (pt in landmarks) {
+            canvas.drawCircle(pt.x, pt.y, 2f, meshDotPaint)
+        }
 
-    fun clear() {
-        faceResults = emptyList()
-        lipResults = emptyList()
-        invalidate()
+        // 2. Lip contour connections
+        fun drawContour(indices: IntArray) {
+            if (indices.any { it >= landmarks.size }) return
+            for (i in 0 until indices.size - 1) {
+                val a = landmarks[indices[i]]
+                val b = landmarks[indices[i + 1]]
+                canvas.drawLine(a.x, a.y, b.x, b.y, lipLinePaint)
+            }
+        }
+        drawContour(outerUpperLip)
+        drawContour(outerLowerLip)
+        drawContour(innerUpperLip)
+        drawContour(innerLowerLip)
+
+        // 3. Lip landmark dots (on top of lines)
+        for (idx in allLipIndices) {
+            if (idx < landmarks.size) {
+                canvas.drawCircle(landmarks[idx].x, landmarks[idx].y, 4f, lipDotPaint)
+            }
+        }
+
+        // 4. Bounding box
+        lipBox?.let { canvas.drawRect(it, boxPaint) }
     }
 }

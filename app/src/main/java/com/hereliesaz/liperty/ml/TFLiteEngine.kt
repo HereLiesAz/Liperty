@@ -54,7 +54,11 @@ class TFLiteEngine(
     }
 
     override fun run(inputBuffer: ByteBuffer, outputBuffer: ByteBuffer) {
-        val model = compiledModel ?: return
+        val model = compiledModel
+        if (model == null) {
+            Log.e("TFLiteEngine", "run() called but '$modelName' is not loaded — inference skipped")
+            return
+        }
         val inputBuffers = model.createInputBuffers()
         val outputBuffers = model.createOutputBuffers()
 

@@ -5,7 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.PointF
 import android.graphics.Rect
+import android.graphics.RectF
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.util.Log
@@ -450,17 +452,24 @@ class MainActivity : ComponentActivity() {
             val flowStabilizedBox = opticalFlowTracker.stabilizeBox(bitmap, rawLipBox)
             val lipBox = lipBoxFilter.update(flowStabilizedBox)
 
+            // Build overlay data on the camera thread, post to UI thread
+            val rawLandmarks = result.faceLandmarks().firstOrNull()
             runOnUiThread {
-                val scaleX = overlayView.width.toFloat() / bitmap.width
-                val scaleY = overlayView.height.toFloat() / bitmap.height
-
-                val scaledRect = Rect(
-                    (lipBox.left * scaleX).toInt(),
-                    (lipBox.top * scaleY).toInt(),
-                    (lipBox.right * scaleX).toInt(),
-                    (lipBox.bottom * scaleY).toInt()
-                )
-                overlayView.setResults(emptyList(), listOf(scaledRect))
+                val vw = overlayView.width.toFloat()
+                val vh = overlayView.height.toFloat()
+                if (vw > 0 && vh > 0) {
+                    val scaleX = vw / bitmap.width
+                    val scaleY = vh / bitmap.height
+                    // All 468 landmarks scaled to overlay pixel space
+                    val points = rawLandmarks?.map { lm ->
+                        PointF(lm.x() * vw, lm.y() * vh)
+                    } ?: emptyList()
+                    val scaledBox = RectF(
+                        lipBox.left  * scaleX, lipBox.top    * scaleY,
+                        lipBox.right * scaleX, lipBox.bottom * scaleY
+                    )
+                    overlayView.setLandmarks(points, scaledBox)
+                }
             }
 
             // Head Pose
