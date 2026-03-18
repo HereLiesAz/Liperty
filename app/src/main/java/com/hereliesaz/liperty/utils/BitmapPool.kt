@@ -15,7 +15,11 @@ object BitmapPool {
     fun get(width: Int, height: Int, config: Bitmap.Config = Bitmap.Config.ARGB_8888): Bitmap {
         val key = key(width, height, config)
         synchronized(pools) {
-            pools[key]?.pollFirst()?.let { return it }
+            val deque = pools[key]
+            while (deque != null && deque.isNotEmpty()) {
+                val candidate = deque.pollFirst()!!
+                if (!candidate.isRecycled) return candidate
+            }
         }
         return Bitmap.createBitmap(width, height, config)
     }
