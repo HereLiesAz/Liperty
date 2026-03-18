@@ -80,58 +80,74 @@ else
     echo "[+] OpenCV installed."
 fi
 
-# --- Model Setup ---
+# --- Model & Data Setup ---
 
-echo "[+] Setting up Models & Data..."
+echo "[+] Setting up Models, Tools, and VALLR Data..."
 
-# VALLR & Tools Zip (from Google Drive)
-GD_FILE_ID="1VBSOMX-SCgbFmMP3NhbwwY_FrNTPj_RN"
-DATA_ZIP="avsr_vallr_others.zip"
+# Google Drive IDs provided by user
+VALLR_GD_ID="1TdthJ9ibfruV5BQ_LWP2go2RWJoXlTrh"
+TOOLS_GD_ID="1YjGOWbhIqBN626vCqZAuSok5uzCiFHyt"
+ASSETS_GD_ID="11ajiCy4skJo5B8K2OrFAipmBGc2Eus_m"
 
-if [ ! -f "VALLR/VALLR.path" ]; then
-    echo "[+] Downloading project bundle (VALLR, tools, data)..."
-    # Using curl/wget to fetch from Google Drive (handles virus scan warning for large files)
+download_from_gdrive() {
+    local file_id=$1
+    local output_file=$2
+    echo "[+] Downloading ID: ${file_id} to ${output_file}..."
     if command -v curl &> /dev/null; then
-        CONFIRM=$(curl -sc /tmp/gdrive_cookie.txt "https://drive.google.com/uc?export=download&id=${GD_FILE_ID}" | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/\1/p')
-        curl -Lb /tmp/gdrive_cookie.txt "https://drive.google.com/uc?export=download&confirm=${CONFIRM}&id=${GD_FILE_ID}" -o "$DATA_ZIP"
+        CONFIRM=$(curl -sc /tmp/gdrive_cookie.txt "https://drive.google.com/uc?export=download&id=${file_id}" | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/\1/p')
+        curl -Lb /tmp/gdrive_cookie.txt "https://drive.google.com/uc?export=download&confirm=${CONFIRM}&id=${file_id}" -o "$output_file"
     elif command -v wget &> /dev/null; then
-        wget --load-cookies /tmp/gdrive_cookie.txt "https://docs.google.com/uc?export=download&confirm=$(wget --quiet --save-cookies /tmp/gdrive_cookie.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id='${GD_FILE_ID} -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/\1/p')" -O "$DATA_ZIP" && rm -rf /tmp/gdrive_cookie.txt
+        wget --load-cookies /tmp/gdrive_cookie.txt "https://docs.google.com/uc?export=download&confirm=$(wget --quiet --save-cookies /tmp/gdrive_cookie.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id='${file_id} -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/\1/p')" -O "$output_file" && rm -rf /tmp/gdrive_cookie.txt
     fi
+}
 
-    if [ -f "$DATA_ZIP" ]; then
-        echo "[+] Extracting ${DATA_ZIP}..."
-        unzip -o "$DATA_ZIP"
-        rm "$DATA_ZIP"
-    else
-        echo "[!] Warning: Could not download project bundle."
-    fi
-else
-    echo "[*] Project bundle already installed."
-fi
-
-# VSR Model (Dummy Generation if missing)
-if [ ! -f "${TARGET_ASSETS}/vsr_model.tflite" ]; then
-    echo "[+] Generating dummy VSR model (vsr_model.tflite)..."
-    if command -v python3 &> /dev/null; then
-        python3 tools/create_dummy_model.py
-    else
-        echo "[!] Warning: python3 not found. Skipping dummy model generation."
+# 1. Vallr Bundle
+if [ ! -f "VALLR/VALLR.path" ]; then
+    mkdir -p "VALLR"
+    download_from_gdrive "$VALLR_GD_ID" "Vallr.zip"
+    if [ -f "Vallr.zip" ]; then
+        echo "[+] Extracting Vallr.zip..."
+        unzip -o "Vallr.zip" -d "VALLR/"
+        rm "Vallr.zip"
     fi
 else
-    echo "[*] VSR model already exists."
+    echo "[*] VALLR data already exists."
 fi
 
-# Face Landmarker (Download from MediaPipe if missing)
+# 2. Tools Bundle
+if [ ! -d "tools/external" ]; then
+    mkdir -p "tools"
+    download_from_gdrive "$TOOLS_GD_ID" "tools.zip"
+    if [ -f "tools.zip" ]; then
+        echo "[+] Extracting tools.zip..."
+        unzip -o "tools.zip" -d "tools/"
+        rm "tools.zip"
+    fi
+else
+    echo "[*] Tools already exist."
+fi
+
+# 3. Assets Bundle (Models)
+if [ ! -f "${TARGET_ASSETS}/vallr_model.tflite" ]; then
+    download_from_gdrive "$ASSETS_GD_ID" "assets.zip"
+    if [ -f "assets.zip" ]; then
+        echo "[+] Extracting assets.zip..."
+        unzip -o "assets.zip" -d "$TARGET_ASSETS"
+        rm "assets.zip"
+    fi
+else
+    echo "[*] Assets (Models) already exist."
+fi
+
+# Fallback/Utility: Face Landmarker (if still missing after assets.zip)
 FACE_TASK_URL="https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
 if [ ! -f "${TARGET_ASSETS}/face_landmarker.task" ]; then
-    echo "[+] Downloading face_landmarker.task..."
+    echo "[+] Downloading face_landmarker.task (Fallback)..."
     if command -v wget &> /dev/null; then
         wget -O "${TARGET_ASSETS}/face_landmarker.task" "$FACE_TASK_URL"
     elif command -v curl &> /dev/null; then
         curl -L -o "${TARGET_ASSETS}/face_landmarker.task" "$FACE_TASK_URL"
     fi
-else
-    echo "[*] Face Landmarker task already exists."
 fi
 
 echo "========================================"

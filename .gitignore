@@ -40,3 +40,7 @@ data/
 tools/external/
 avsr_vallr_others.zip
 /.kotlin/sessions/kotlin-*.salive
+tools.zip
+VALLR.zip
+app/src/main/assets.zip
+app/src/main/assets/vallr_model.tflite
