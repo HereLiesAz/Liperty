@@ -316,11 +316,7 @@ class MainActivity : ComponentActivity() {
         
         if (newMode) {
             isLipReadModeState.value = false
-            laryngealSensor.start(
-                onProcessedAudio = { pcmSamples -> voiceManager.playAudio(pcmSamples) },
-                onVoicingState = { /* UI feedback */ },
-                onVibrationData = { /* Not used for text in EL mode */ }
-            )
+            laryngealSensor.startELMode { pcmSamples -> voiceManager.playAudio(pcmSamples) }
             Toast.makeText(this, "EL Translator Active", Toast.LENGTH_LONG).show()
         } else {
             laryngealSensor.stop()

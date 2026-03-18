@@ -54,7 +54,8 @@ class LaryngealSensor(private val context: Context) {
 
     private val isRunning = AtomicBoolean(false)
     private var processingJob: Job? = null
-    
+    @Volatile private var usesHardwarePipeline = false
+
     @Volatile private var accelMagnitude = 0f
     @Volatile private var sensitivity = 0.5f
     
@@ -89,6 +90,7 @@ class LaryngealSensor(private val context: Context) {
         onVibrationData: (FloatArray) -> Unit
     ) {
         if (isRunning.getAndSet(true)) return
+        usesHardwarePipeline = true
 
         // Start Artificial Larynx vibration
         larynx.start()
@@ -206,10 +208,98 @@ class LaryngealSensor(private val context: Context) {
         }
     }
 
+    /**
+     * EL Translator capture path.
+     *
+     * Differences from [start]:
+     * - Uses the built-in mic only (no contact-mic routing, no back-EMF, no TRAMBA).
+     * - VAD is RMS-based; the accelerometer is not used (user holds EL to throat, not phone).
+     * - [dsp.voiceSourceExpansion] is skipped — the EL already provides the buzz excitation.
+     * - [larynx] (phone vibration) and native audio are not started.
+     *
+     * Pipeline: spectral subtraction → frequency equalization → Mel spectrogram →
+     *           VoiceConverter → inverse Mel → [onProcessedAudio]
+     */
+    fun startELMode(onProcessedAudio: (FloatArray) -> Unit) {
+        if (isRunning.getAndSet(true)) return
+        usesHardwarePipeline = false
+
+        processingJob = CoroutineScope(Dispatchers.IO).launch {
+            val sampleRate = VibraPhoneDSP.SAMPLE_RATE
+            val minBufSize = AudioRecord.getMinBufferSize(
+                sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
+            )
+
+            val recorder = AudioRecord(
+                MediaRecorder.AudioSource.MIC, // Standard mic; EL buzz picked up acoustically
+                sampleRate,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                minBufSize * 4
+            )
+
+            if (recorder.state != AudioRecord.STATE_INITIALIZED) {
+                Log.e("LaryngealSensor", "EL mode: AudioRecord failed to initialize")
+                isRunning.set(false)
+                return@launch
+            }
+
+            val preferredDevice = audioRouter.getOptimalInputDevice()
+            if (preferredDevice != null) recorder.setPreferredDevice(preferredDevice)
+
+            recorder.startRecording()
+
+            val noiseProfile = FloatArray(VibraPhoneDSP.FRAME_SIZE / 2)
+            val audioBuffer = ShortArray(VibraPhoneDSP.FRAME_SIZE)
+
+            Log.i("LaryngealSensor", "EL mode: estimating noise profile...")
+            var framesCaptured = 0
+            while (framesCaptured < 10 && isActive && isRunning.get()) {
+                val read = recorder.read(audioBuffer, 0, audioBuffer.size)
+                if (read > 0) framesCaptured++
+            }
+            for (i in noiseProfile.indices) noiseProfile[i] = 0.002f
+
+            // EL buzz is quiet; use a lower base threshold than accelerometer VAD
+            val BASE_RMS_THRESHOLD = 0.010f
+
+            try {
+                while (isActive && isRunning.get()) {
+                    val read = recorder.read(audioBuffer, 0, audioBuffer.size)
+                    if (read > 0) {
+                        val floatBuffer = FloatArray(read) { i -> audioBuffer[i] / 32768.0f }
+
+                        // RMS-based VAD — sensitivity adjusts threshold proportionally
+                        val threshold = BASE_RMS_THRESHOLD * (1.0f - sensitivity).coerceAtLeast(0.1f)
+                        val rms = sqrt(floatBuffer.fold(0f) { acc, v -> acc + v * v } / read)
+
+                        if (rms > threshold) {
+                            var processed = dsp.spectralSubtraction(floatBuffer, noiseProfile)
+                            processed = dsp.frequencyDomainEqualization(processed)
+                            // voiceSourceExpansion intentionally omitted — EL supplies its own excitation
+
+                            val melSpec = dsp.computeMelSpectrogram(processed)
+                            val decodedMel = voiceConverter.convert(melSpec, 1, melSpec.size)
+                            val humanized = dsp.inverseMelSpectrogram(decodedMel)
+                            onProcessedAudio(humanized)
+                        } else {
+                            onProcessedAudio(FloatArray(read) { 0f })
+                        }
+                    }
+                }
+            } finally {
+                recorder.stop()
+                recorder.release()
+            }
+        }
+    }
+
     fun stop() {
         if (!isRunning.getAndSet(false)) return
-        larynx.stop()
-        stopNativeAudio()
+        if (usesHardwarePipeline) {
+            larynx.stop()
+            stopNativeAudio()
+        }
         processingJob?.cancel()
     }
 }
