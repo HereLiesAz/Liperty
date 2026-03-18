@@ -444,9 +444,9 @@ class MainActivity : ComponentActivity() {
         }
 
         if (rawLipBox != null) {
-            // Apply Optical Flow first, then Kalman Filter for smooth trajectory tracking
-            val flowStabilizedBox = opticalFlowTracker.stabilizeBox(bitmap, rawLipBox)
-            val lipBox = lipBoxFilter.update(flowStabilizedBox)
+            // OpticalFlowTracker bypassed: accumulated drift over 50 frames was causing
+            // the crop box to wander off-face by inference time. Kalman-only smoothing.
+            val lipBox = lipBoxFilter.update(rawLipBox)
 
             // Build overlay data on the camera thread, post to UI thread.
             // PreviewView uses FILL_CENTER (scale to fill, crop one axis).
@@ -490,13 +490,25 @@ class MainActivity : ComponentActivity() {
                  FaceLandmarkerHelper.calculateHeadPose(matrix)
             }
 
-            // Crop & Align
+            // Crop & Align — crop to 88×88 to match the model's native input size directly,
+            // avoiding a second redundant scale step inside VSRInference.
             val rotation = FaceLandmarkerHelper.calculateLipRotation(result)
-            val reusableBitmap = BitmapPool.get(224, 224)
-            val alignedMouth = ImageUtils.alignAndCropMouth(bitmap, lipBox, rotation, 224, reusableBitmap)
-            
-            // Optimized JNI Normalization (Blur + Histogram Equalization)
-            val processedMouth = ImageUtils.normalizeForInference(alignedMouth)
+            val cropSize = 88
+            val reusableBitmap = BitmapPool.get(cropSize, cropSize)
+            val alignedMouth = ImageUtils.alignAndCropMouth(bitmap, lipBox, rotation, cropSize, reusableBitmap)
+
+            // Normalization bypassed: applyNormalizationNative (JNI) was modifying frames
+            // in-place in a way that may make all frames identical (histogram equalization
+            // collapses per-frame contrast; native implementation is opaque). Pass raw crop.
+            val processedMouth = alignedMouth
+
+            // Diagnostic: log mean pixel brightness of first frame in each batch to confirm input varies
+            if (frameBuffer.size() == 0) {
+                val pixels = IntArray(cropSize * cropSize)
+                processedMouth.getPixels(pixels, 0, cropSize, 0, 0, cropSize, cropSize)
+                val mean = pixels.map { android.graphics.Color.red(it) }.average()
+                Log.d("VSRInput", "frame0 mean_brightness=%.1f lipBox=$rawLipBox".format(mean))
+            }
 
             // Pass an explicitly copied bitmap to calibration to avoid lifecycle conflicts with FrameBuffer
             calibrationCallback?.let { cb ->

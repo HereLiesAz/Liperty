@@ -103,6 +103,15 @@ class VSRInference(private val engine: ModelEngine) {
 
             inputBuffer.rewind()
 
+            // Diagnostic: log mean pixel value of frame 0 to confirm input varies across batches
+            run {
+                val slice = FloatArray(inputHeight * inputWidth * numChannels)
+                inputBuffer.asFloatBuffer().get(slice)
+                inputBuffer.rewind()
+                val mean = slice.average()
+                Log.d("VSRInput", "input buffer frame0 mean=%.4f (%.1f/255)".format(mean, mean * 255))
+            }
+
             // 2. Prepare Output Buffer
             val outputShape = engine.getOutputShape(0)
 
