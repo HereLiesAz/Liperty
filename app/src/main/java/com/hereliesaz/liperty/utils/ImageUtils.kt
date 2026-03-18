@@ -10,6 +10,7 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.util.Log
 import androidx.camera.core.ImageProxy
+import org.opencv.android.OpenCVLoader
 import kotlin.math.max
 
 object ImageUtils {
@@ -23,11 +24,15 @@ object ImageUtils {
     fun initializeOpenCV(context: Context) {
         if (!openCVLoaded) {
             try {
+                if (!OpenCVLoader.initLocal()) {
+                    Log.e("ImageUtils", "OpenCV initialization failed — native library not bundled")
+                    return
+                }
                 System.loadLibrary("liperty_cv")
                 openCVLoaded = true
-                Log.i("ImageUtils", "Native library 'liperty_cv' loaded successfully.")
+                Log.i("ImageUtils", "OpenCV and 'liperty_cv' loaded successfully.")
             } catch (e: UnsatisfiedLinkError) {
-                Log.e("ImageUtils", "Failed to load native library 'liperty_cv': ${e.message}")
+                Log.e("ImageUtils", "Failed to load native library: ${e.message}")
             }
         }
     }
