@@ -2,100 +2,120 @@ package com.hereliesaz.liperty.ml
 
 import android.content.Context
 import android.util.Log
-import com.google.ai.edge.litert.CompiledModel
-import com.google.ai.edge.litert.Accelerator
-import com.google.ai.edge.litert.TensorBuffer
+import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.gpu.CompatibilityList
+import org.tensorflow.lite.gpu.GpuDelegate
 import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
+import java.nio.file.StandardOpenOption
 
+/**
+ * ModelEngine backed by the TFLite/LiteRT Interpreter API.
+ *
+ * Using Interpreter (not CompiledModel) because the VSR model contains FlexErf
+ * (a TF Select op).  CompiledModel has no Flex-delegate support; Interpreter
+ * auto-links the Flex delegate when litert-select-tf-ops is on the classpath.
+ *
+ * Delegate priority: GPU → CPU (4 threads).
+ */
 class TFLiteEngine(
     private val context: Context,
     private val modelName: String = "vallr_model.tflite"
 ) : ModelEngine {
 
-    private var compiledModel: CompiledModel? = null
+    private var interpreter: Interpreter? = null
+    private var gpuDelegate: GpuDelegate? = null
     private var useInternalStorage = false
 
     fun setUseInternalStorage(use: Boolean) {
-        this.useInternalStorage = use
+        useInternalStorage = use
     }
 
     override fun initialize(): Boolean {
-        if (compiledModel != null) return true
+        if (interpreter != null) return true
 
-        try {
-            /** Try one accelerator. Throws on any failure. */
-            fun tryLoad(accelerator: Accelerator, fromAssets: Boolean): CompiledModel {
-                val options = CompiledModel.Options(accelerator)
-                return if (!fromAssets && useInternalStorage) {
-                    val file = java.io.File(context.filesDir, modelName)
-                    if (file.exists()) CompiledModel.create(file.absolutePath, options)
-                    else CompiledModel.create(context.assets, modelName, options)
-                } else {
-                    CompiledModel.create(context.assets, modelName, options)
-                }
-            }
-
-            compiledModel = try {
-                tryLoad(Accelerator.GPU, fromAssets = false)
-            } catch (gpuEx: Exception) {
-                Log.w("TFLiteEngine", "GPU failed, trying CPU from ${if (useInternalStorage) "filesDir" else "assets"}: ${gpuEx.message}")
-                try {
-                    tryLoad(Accelerator.CPU, fromAssets = false)
-                } catch (cpuEx: Exception) {
-                    // filesDir copy may be corrupt / incompatible — fall back to assets
-                    Log.w("TFLiteEngine", "filesDir load failed, falling back to assets model: ${cpuEx.message}")
-                    try {
-                        tryLoad(Accelerator.GPU, fromAssets = true)
-                    } catch (gpuAssets: Exception) {
-                        Log.w("TFLiteEngine", "Assets GPU failed, trying assets CPU: ${gpuAssets.message}")
-                        tryLoad(Accelerator.CPU, fromAssets = true)
-                    }
-                }
-            }
-
-            Log.i("TFLiteEngine", "Model '$modelName' loaded (internal=$useInternalStorage)")
-            return true
+        return try {
+            val buf = loadModelBuffer()
+            interpreter = tryGpu(buf) ?: tryCpu(buf)
+            Log.i("TFLiteEngine", "Model '$modelName' loaded successfully")
+            true
         } catch (e: Exception) {
             Log.e("TFLiteEngine", "FAILED to load model '$modelName': ${e.message}")
-            return false
+            false
         }
     }
+
+    // ── Buffer loading ────────────────────────────────────────────────────────
+
+    private fun loadModelBuffer(): ByteBuffer {
+        if (useInternalStorage) {
+            val file = java.io.File(context.filesDir, modelName)
+            if (file.exists()) {
+                return FileChannel.open(file.toPath(), StandardOpenOption.READ)
+                    .use { it.map(FileChannel.MapMode.READ_ONLY, 0, file.length()) }
+            }
+            Log.w("TFLiteEngine", "Internal file not found, falling back to assets")
+        }
+        return context.assets.openFd(modelName).use { fd ->
+            fd.createInputStream().channel
+                .map(FileChannel.MapMode.READ_ONLY, fd.startOffset, fd.length)
+        }
+    }
+
+    // ── Interpreter creation ──────────────────────────────────────────────────
+
+    private fun tryGpu(buf: ByteBuffer): Interpreter? {
+        return try {
+            val compat = CompatibilityList()
+            if (!compat.isDelegateSupportedOnThisDevice) return null
+            val delegate = GpuDelegate(compat.bestOptionsForThisDevice)
+            val opts = Interpreter.Options().addDelegate(delegate)
+            Interpreter(buf.duplicate(), opts).also {
+                gpuDelegate = delegate
+                Log.i("TFLiteEngine", "GPU delegate active for '$modelName'")
+            }
+        } catch (e: Exception) {
+            Log.w("TFLiteEngine", "GPU delegate unavailable, falling back to CPU: ${e.message}")
+            gpuDelegate?.close()
+            gpuDelegate = null
+            null
+        }
+    }
+
+    private fun tryCpu(buf: ByteBuffer): Interpreter {
+        val opts = Interpreter.Options().setNumThreads(4)
+        return Interpreter(buf.duplicate(), opts).also {
+            Log.i("TFLiteEngine", "CPU interpreter active for '$modelName'")
+        }
+    }
+
+    // ── Inference ─────────────────────────────────────────────────────────────
 
     override fun run(inputBuffer: ByteBuffer, outputBuffer: ByteBuffer) {
-        val model = compiledModel
-        if (model == null) {
-            Log.e("TFLiteEngine", "run() called but '$modelName' is not loaded — inference skipped")
+        val interp = interpreter
+        if (interp == null) {
+            Log.e("TFLiteEngine", "run() called but '$modelName' is not loaded — skipped")
             return
         }
-        val inputBuffers = model.createInputBuffers()
-        val outputBuffers = model.createOutputBuffers()
-
-        // LiteRT 2.x TensorBuffer doesn't have loadBuffer(ByteBuffer) directly in some versions
-        // Copy data from inputBuffer to FloatArray
-        val inputSize = inputBuffer.remaining() / 4
-        val inputArray = FloatArray(inputSize)
-        inputBuffer.asFloatBuffer().get(inputArray)
-        inputBuffers[0].writeFloat(inputArray)
-
-        model.run(inputBuffers, outputBuffers)
-
-        // Copy output back to outputBuffer
-        val outputArray = outputBuffers[0].readFloat()
-        outputBuffer.asFloatBuffer().put(outputArray)
+        interp.run(inputBuffer, outputBuffer)
     }
 
-    override fun getOutputShape(outputIndex: Int): IntArray {
-        // Model output: [batch=1, timeSteps=50, vocabSize=40]
-        // Matches PHONEME_VOCAB (40 entries: 1 blank + 39 phonemes)
-        return intArrayOf(1, 50, 40)
-    }
+    // ── Shape queries ─────────────────────────────────────────────────────────
 
-    override fun getInputShape(inputIndex: Int): IntArray {
-        // Model input: [batch=1, frames=50, height=88, width=88, channels=1]
-        return intArrayOf(1, 50, 88, 88, 1)
-    }
+    override fun getOutputShape(outputIndex: Int): IntArray =
+        interpreter?.getOutputTensor(outputIndex)?.shape()
+            ?: intArrayOf(1, 50, 40)
+
+    override fun getInputShape(inputIndex: Int): IntArray =
+        interpreter?.getInputTensor(inputIndex)?.shape()
+            ?: intArrayOf(1, 50, 88, 88, 1)
+
+    // ── Cleanup ───────────────────────────────────────────────────────────────
 
     override fun close() {
-        compiledModel?.close()
+        interpreter?.close()
+        interpreter = null
+        gpuDelegate?.close()
+        gpuDelegate = null
     }
 }
