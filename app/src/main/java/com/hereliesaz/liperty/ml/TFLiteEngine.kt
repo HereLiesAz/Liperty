@@ -10,7 +10,7 @@ import java.nio.ByteBuffer
 
 class TFLiteEngine(
     private val context: Context,
-    private val modelName: String = "vsr_model.tflite"
+    private val modelName: String = "vallr_model.tflite"
 ) : ModelEngine {
 
     private var interpreter: Interpreter? = null

@@ -1,5 +1,3 @@
-package com.hereliesaz.liperty.ml
-
 import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
@@ -29,12 +27,12 @@ class CalibrationManager(private val context: Context) {
     private var currentPhraseIndex = 0
     private val collectedFrames = mutableListOf<Bitmap>()
     
-    // Constants matching vsr_lora_model.tflite
+    // Constants matching vsr_lora_model.tflite (VALLR Production)
     private val INPUT_WIDTH = 224
     private val INPUT_HEIGHT = 224
     private val NUM_FRAMES = 16
     private val NUM_CHANNELS = 3
-    private val VOCAB_SIZE = 39
+    private val VOCAB_SIZE = 40 // Matching MLConstants.PHONEME_VOCAB (0-39)
 
     fun initialize() {
         trainer.initialize()

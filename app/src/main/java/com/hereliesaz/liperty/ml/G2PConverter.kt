@@ -98,6 +98,7 @@ class G2PConverter {
                     "PH" -> { phonemes.add("F"); i += 2; continue }
                     "QU" -> { phonemes.add("K"); phonemes.add("W"); i += 2; continue }
                     "NG" -> { phonemes.add("NG"); i += 2; continue }
+                    "ZH" -> { phonemes.add("ZH"); i += 2; continue }
                     "EE" -> { phonemes.add("IY"); i += 2; continue }
                     "OO" -> { phonemes.add("UW"); i += 2; continue }
                 }
