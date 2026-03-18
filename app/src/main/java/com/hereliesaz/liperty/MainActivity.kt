@@ -452,21 +452,31 @@ class MainActivity : ComponentActivity() {
             val flowStabilizedBox = opticalFlowTracker.stabilizeBox(bitmap, rawLipBox)
             val lipBox = lipBoxFilter.update(flowStabilizedBox)
 
-            // Build overlay data on the camera thread, post to UI thread
+            // Build overlay data on the camera thread, post to UI thread.
+            // PreviewView uses FILL_CENTER (scale to fill, crop one axis).
+            // We must apply the same transform so landmarks land on the
+            // correct pixels of the displayed image.
             val rawLandmarks = result.faceLandmarks().firstOrNull()
+            val imgW = bitmap.width.toFloat()
+            val imgH = bitmap.height.toFloat()
             runOnUiThread {
                 val vw = overlayView.width.toFloat()
                 val vh = overlayView.height.toFloat()
-                if (vw > 0 && vh > 0) {
-                    val scaleX = vw / bitmap.width
-                    val scaleY = vh / bitmap.height
-                    // All 468 landmarks scaled to overlay pixel space
+                if (vw > 0 && vh > 0 && imgW > 0 && imgH > 0) {
+                    // FILL_CENTER: scale so the image covers the whole view
+                    val scale = maxOf(vw / imgW, vh / imgH)
+                    val offsetX = (vw - imgW * scale) / 2f
+                    val offsetY = (vh - imgH * scale) / 2f
+
                     val points = rawLandmarks?.map { lm ->
-                        PointF(lm.x() * vw, lm.y() * vh)
+                        PointF(lm.x() * imgW * scale + offsetX,
+                               lm.y() * imgH * scale + offsetY)
                     } ?: emptyList()
                     val scaledBox = RectF(
-                        lipBox.left  * scaleX, lipBox.top    * scaleY,
-                        lipBox.right * scaleX, lipBox.bottom * scaleY
+                        lipBox.left   * scale + offsetX,
+                        lipBox.top    * scale + offsetY,
+                        lipBox.right  * scale + offsetX,
+                        lipBox.bottom * scale + offsetY
                     )
                     overlayView.setLandmarks(points, scaledBox)
                 }

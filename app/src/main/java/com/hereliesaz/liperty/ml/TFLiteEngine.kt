@@ -23,29 +23,37 @@ class TFLiteEngine(
         if (compiledModel != null) return true
 
         try {
-            fun createModel(accelerator: Accelerator): CompiledModel {
+            /** Try one accelerator. Throws on any failure. */
+            fun tryLoad(accelerator: Accelerator, fromAssets: Boolean): CompiledModel {
                 val options = CompiledModel.Options(accelerator)
-                return if (useInternalStorage) {
+                return if (!fromAssets && useInternalStorage) {
                     val file = java.io.File(context.filesDir, modelName)
-                    if (file.exists()) {
-                        CompiledModel.create(file.absolutePath, options)
-                    } else {
-                        Log.w("TFLiteEngine", "Personalized model not found, falling back to assets: $modelName")
-                        CompiledModel.create(context.assets, modelName, options)
-                    }
+                    if (file.exists()) CompiledModel.create(file.absolutePath, options)
+                    else CompiledModel.create(context.assets, modelName, options)
                 } else {
                     CompiledModel.create(context.assets, modelName, options)
                 }
             }
 
             compiledModel = try {
-                createModel(Accelerator.GPU)
-            } catch (e: Exception) {
-                Log.w("TFLiteEngine", "GPU compilation failed, falling back to CPU", e)
-                createModel(Accelerator.CPU)
+                tryLoad(Accelerator.GPU, fromAssets = false)
+            } catch (gpuEx: Exception) {
+                Log.w("TFLiteEngine", "GPU failed, trying CPU from ${if (useInternalStorage) "filesDir" else "assets"}: ${gpuEx.message}")
+                try {
+                    tryLoad(Accelerator.CPU, fromAssets = false)
+                } catch (cpuEx: Exception) {
+                    // filesDir copy may be corrupt / incompatible — fall back to assets
+                    Log.w("TFLiteEngine", "filesDir load failed, falling back to assets model: ${cpuEx.message}")
+                    try {
+                        tryLoad(Accelerator.GPU, fromAssets = true)
+                    } catch (gpuAssets: Exception) {
+                        Log.w("TFLiteEngine", "Assets GPU failed, trying assets CPU: ${gpuAssets.message}")
+                        tryLoad(Accelerator.CPU, fromAssets = true)
+                    }
+                }
             }
 
-            Log.i("TFLiteEngine", "LiteRT Model $modelName loaded successfully (Internal: $useInternalStorage)")
+            Log.i("TFLiteEngine", "Model '$modelName' loaded (internal=$useInternalStorage)")
             return true
         } catch (e: Exception) {
             Log.e("TFLiteEngine", "FAILED to load model '$modelName': ${e.message}")
