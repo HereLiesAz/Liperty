@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(python3 -c \":*)",
+      "Bash(python3:*)",
+      "Bash(ls -la app/src/main/assets/*.tflite)",
+      "Bash(ls tools/*.py)"
+    ]
+  }
+}
