@@ -78,7 +78,7 @@ class TFLiteEngine(
 
     override fun getInputShape(inputIndex: Int): IntArray =
         interpreter?.getInputTensor(inputIndex)?.shape()
-            ?: intArrayOf(1, 50, 88, 88, 1)
+            ?: intArrayOf(1, 50, 96, 96, 1)
 
     override fun close() {
         interpreter?.close()

@@ -2,9 +2,9 @@ import tensorflow as tf
 import os
 
 def create_dummy_model():
-    # Define input shape: (Batch=1, Time=50, Height=88, Width=88, Channel=1)
+    # Define input shape: (Batch=1, Time=50, Height=96, Width=96, Channel=1)
     # This shape is based on common VSR model inputs like LipNet/VALLR (as per RESEARCH.md)
-    input_layer = tf.keras.layers.Input(shape=(50, 88, 88, 1), batch_size=1, name="input_video")
+    input_layer = tf.keras.layers.Input(shape=(50, 96, 96, 1), batch_size=1, name="input_video")
 
     # Simple transformation to reach output shape (1, 50, 40)
     # 1. TimeDistributed Conv2D to process frames
