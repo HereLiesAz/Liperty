@@ -129,7 +129,7 @@ class MainActivity : ComponentActivity() {
         // VoiceConverter is initialized lazily or in onCreate
         // For simplicity, let's use the one in LaryngealSensor if EL mode is active.
         // But MainActivity might need its own if it does other things.
-        frameBuffer = FrameBuffer(capacity = 50) // VSR model input: [1, 50, 88, 88, 1]
+        frameBuffer = FrameBuffer(capacity = 50) // VSR model input: [1, 50, 96, 96, 1]
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         // Initialize TFLite in background
@@ -493,7 +493,7 @@ class MainActivity : ComponentActivity() {
             // Crop & Align — crop to 88×88 to match the model's native input size directly,
             // avoiding a second redundant scale step inside VSRInference.
             val rotation = FaceLandmarkerHelper.calculateLipRotation(result)
-            val cropSize = 88
+            val cropSize = 96
             val reusableBitmap = BitmapPool.get(cropSize, cropSize)
             val alignedMouth = ImageUtils.alignAndCropMouth(bitmap, lipBox, rotation, cropSize, reusableBitmap)
 
