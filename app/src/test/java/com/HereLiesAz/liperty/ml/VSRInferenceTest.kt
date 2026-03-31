@@ -54,7 +54,7 @@ class VSRInferenceTest {
         vsr.initialize()
         assert(engine.initialized)
 
-        val frames = List(5) { Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888) }
+        val frames = List(5) { Bitmap.createBitmap(128, 64, Bitmap.Config.ARGB_8888) }
         val result = vsr.runInference(frames)
 
         assert(engine.runCalled)
