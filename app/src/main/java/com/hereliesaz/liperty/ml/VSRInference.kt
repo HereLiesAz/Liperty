@@ -22,8 +22,8 @@ class VSRInference(private val engine: ModelEngine) {
     private var useBeamSearch = true
 
     // Default Constants (overridden dynamically by model shape)
-    private var inputWidth = 88
-    private var inputHeight = 88
+    private var inputWidth = 96
+    private var inputHeight = 96
     private var numFrames = 50
     private var numChannels = 1
 
