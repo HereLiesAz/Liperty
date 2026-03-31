@@ -79,7 +79,7 @@ class VSRInferenceTest {
          }
 
          val vsr = VSRInference(engine)
-         val frames = listOf(Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888))
+         val frames = listOf(Bitmap.createBitmap(128, 64, Bitmap.Config.ARGB_8888))
          val result = vsr.runInference(frames)
 
          assertEquals("", result.text)
