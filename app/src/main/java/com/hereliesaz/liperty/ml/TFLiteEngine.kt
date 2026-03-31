@@ -72,13 +72,23 @@ class TFLiteEngine(
         interp.run(inputBuffer, outputBuffer)
     }
 
+    override fun run(inputBuffers: Array<Any>, outputBuffer: ByteBuffer) {
+        val interp = interpreter
+        if (interp == null) {
+            Log.e("TFLiteEngine", "run() called but '$modelName' is not loaded — skipped")
+            return
+        }
+        val outputs = mapOf(0 to outputBuffer)
+        interp.runForMultipleInputsOutputs(inputBuffers, outputs)
+    }
+
     override fun getOutputShape(outputIndex: Int): IntArray =
         interpreter?.getOutputTensor(outputIndex)?.shape()
             ?: intArrayOf(1, 50, 40)
 
     override fun getInputShape(inputIndex: Int): IntArray =
         interpreter?.getInputTensor(inputIndex)?.shape()
-            ?: intArrayOf(1, 50, 88, 88, 1)
+            ?: if (inputIndex == 0) intArrayOf(1, 50, 64, 128, 1) else intArrayOf(1, 50, 40) // Dummy landmark array shape
 
     override fun close() {
         interpreter?.close()

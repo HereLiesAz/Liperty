@@ -68,4 +68,13 @@ class LanguageModel {
         val nextMap = bigramMap[prevToken] ?: return UNIFORM_PROB
         return nextMap[currentToken] ?: UNIFORM_PROB
     }
+
+    /**
+     * Returns P(currentWord | prevWord).
+     * Used for disambiguating homophenes based on preceding word context.
+     */
+    fun getWordScore(prevWord: String, currentWord: String): Double {
+        val nextMap = WordBigramProvider.map[prevWord.lowercase()] ?: return UNIFORM_PROB
+        return nextMap[currentWord.lowercase()] ?: UNIFORM_PROB
+    }
 }

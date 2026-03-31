@@ -27,12 +27,13 @@ class ImageUtilsTest {
     fun testAlignAndCropMouth() {
         val bitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
         val rect = Rect(40, 40, 60, 60)
-        val targetSize = 88
+        val targetWidth = 128
+        val targetHeight = 64
 
-        val aligned = ImageUtils.alignAndCropMouth(bitmap, rect, 0f, targetSize)
+        val aligned = ImageUtils.alignAndCropMouth(bitmap, rect, 0f, targetWidth, targetHeight)
 
-        assertEquals(targetSize, aligned.width)
-        assertEquals(targetSize, aligned.height)
+        assertEquals(targetWidth, aligned.width)
+        assertEquals(targetHeight, aligned.height)
     }
 
     @Test

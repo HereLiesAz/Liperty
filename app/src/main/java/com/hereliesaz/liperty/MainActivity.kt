@@ -129,7 +129,7 @@ class MainActivity : ComponentActivity() {
         // VoiceConverter is initialized lazily or in onCreate
         // For simplicity, let's use the one in LaryngealSensor if EL mode is active.
         // But MainActivity might need its own if it does other things.
-        frameBuffer = FrameBuffer(capacity = 50) // VSR model input: [1, 50, 88, 88, 1]
+        frameBuffer = FrameBuffer(capacity = 50) // VSR model input: [1, 50, 96, 96, 1]
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         // Initialize TFLite in background
@@ -490,12 +490,13 @@ class MainActivity : ComponentActivity() {
                  FaceLandmarkerHelper.calculateHeadPose(matrix)
             }
 
-            // Crop & Align — crop to 88×88 to match the model's native input size directly,
+            // Crop & Align — crop to 128x64 to match the model's native input size directly,
             // avoiding a second redundant scale step inside VSRInference.
             val rotation = FaceLandmarkerHelper.calculateLipRotation(result)
-            val cropSize = 88
-            val reusableBitmap = BitmapPool.get(cropSize, cropSize)
-            val alignedMouth = ImageUtils.alignAndCropMouth(bitmap, lipBox, rotation, cropSize, reusableBitmap)
+            val cropWidth = 128
+            val cropHeight = 64
+            val reusableBitmap = BitmapPool.get(cropWidth, cropHeight)
+            val alignedMouth = ImageUtils.alignAndCropMouth(bitmap, lipBox, rotation, cropWidth, cropHeight, reusableBitmap)
 
             // Normalization bypassed: applyNormalizationNative (JNI) was modifying frames
             // in-place in a way that may make all frames identical (histogram equalization
@@ -504,8 +505,8 @@ class MainActivity : ComponentActivity() {
 
             // Diagnostic: log mean pixel brightness of first frame in each batch to confirm input varies
             if (frameBuffer.size() == 0) {
-                val pixels = IntArray(cropSize * cropSize)
-                processedMouth.getPixels(pixels, 0, cropSize, 0, 0, cropSize, cropSize)
+                val pixels = IntArray(cropWidth * cropHeight)
+                processedMouth.getPixels(pixels, 0, cropWidth, 0, 0, cropWidth, cropHeight)
                 val mean = pixels.map { android.graphics.Color.red(it) }.average()
                 Log.d("VSRInput", "frame0 mean_brightness=%.1f lipBox=$rawLipBox".format(mean))
             }
@@ -519,17 +520,31 @@ class MainActivity : ComponentActivity() {
             // DO NOT RECYCLE reusableBitmap HERE. It is now owned by frameBuffer via processedMouth reference!
 
             // Add to Buffer
-            frameBuffer.addFrame(processedMouth)
+            // Extract landmarks for LipCoordNet input: 40 coordinates (20 inner lip points x 2)
+            val landmarkArray = FloatArray(40)
+            rawLandmarks?.let { lms ->
+                // MediaPipe Face Mesh lip indices (inner lip specifically, approx 20 points)
+                val innerLipIndices = intArrayOf(78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95)
+                for (i in innerLipIndices.indices) {
+                    if (innerLipIndices[i] < lms.size) {
+                        landmarkArray[i * 2] = lms[innerLipIndices[i]].x()
+                        landmarkArray[i * 2 + 1] = lms[innerLipIndices[i]].y()
+                    }
+                }
+            }
+            frameBuffer.addFrame(processedMouth, landmarkArray)
 
             // Inference
             if (frameBuffer.isFull() && !isInferencing) {
                 isInferencing = true
                 Log.d("VSRPipeline", "buffer full — launching inference")
                 // Takes ownership of the frames
-                val framesToProcess = frameBuffer.clearAndGetFrames()
+                val bufferEntries = frameBuffer.clearAndGetFrames()
+                val framesToProcess = bufferEntries.map { it.first }
+                val landmarksToProcess = bufferEntries.flatMap { it.second?.toList() ?: List(40) { 0f } }.toFloatArray()
 
                 lifecycleScope.launch(Dispatchers.Default) {
-                    val vsrResult = vsrInference.runInference(framesToProcess)
+                    val vsrResult = vsrInference.runInference(framesToProcess, landmarksToProcess)
                     // Once inference is complete, explicitly recycle the frames
                     for (frame in framesToProcess) {
                         BitmapPool.recycle(frame)

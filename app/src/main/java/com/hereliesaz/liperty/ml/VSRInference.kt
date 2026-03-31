@@ -22,8 +22,8 @@ class VSRInference(private val engine: ModelEngine) {
     private var useBeamSearch = true
 
     // Default Constants (overridden dynamically by model shape)
-    private var inputWidth = 88
-    private var inputHeight = 88
+    private var inputWidth = 128
+    private var inputHeight = 64
     private var numFrames = 50
     private var numChannels = 1
 
@@ -36,9 +36,9 @@ class VSRInference(private val engine: ModelEngine) {
     }
 
     /**
-     * Runs inference on the provided frames.
+     * Runs inference on the provided frames and (optionally) lip landmarks.
      */
-    fun runInference(frames: List<Bitmap>): VSRResult {
+    fun runInference(frames: List<Bitmap>, landmarks: FloatArray? = null): VSRResult {
         val startTime = SystemClock.uptimeMillis()
 
         try {
@@ -131,7 +131,26 @@ class VSRInference(private val engine: ModelEngine) {
             outputBuffer.order(ByteOrder.nativeOrder())
 
             // 3. Run Inference
-            engine.run(inputBuffer, outputBuffer)
+            if (landmarks != null) {
+                // Secondary input buffer for LipCoordNet landmarks
+                val landmarkShape = engine.getInputShape(1)
+                val landmarkElements = if (landmarkShape.isNotEmpty()) landmarkShape.reduce { acc, i -> acc * i } else landmarks.size
+                val landmarkBuffer = ByteBuffer.allocateDirect(landmarkElements * 4).order(ByteOrder.nativeOrder())
+
+                // Copy landmarks or pad/truncate to match expected shape
+                for (i in 0 until landmarkElements) {
+                    if (i < landmarks.size) {
+                        landmarkBuffer.putFloat(landmarks[i])
+                    } else {
+                        landmarkBuffer.putFloat(0f)
+                    }
+                }
+                landmarkBuffer.rewind()
+
+                engine.run(arrayOf(inputBuffer, landmarkBuffer), outputBuffer)
+            } else {
+                engine.run(inputBuffer, outputBuffer)
+            }
 
             outputBuffer.rewind()
 
