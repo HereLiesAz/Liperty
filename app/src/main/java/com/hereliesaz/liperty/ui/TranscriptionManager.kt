@@ -27,13 +27,7 @@ class TranscriptionManager(private val context: Context) {
             val prevWord = wordEntries.lastOrNull()?.first
 
             if (prevWord != null) {
-                // Get homophenes
-                val alternatives = homopheneCorrector.getAlternatives(word).toMutableList()
-                if (!alternatives.contains(word.lowercase()) && !alternatives.contains(word)) {
-                    alternatives.add(0, word)
-                } else if (!alternatives.contains(word)) {
-                    alternatives.add(word)
-                }
+                val alternatives = buildAlternatives(word)
 
                 // Score them with the language model if there are alternatives
                 if (alternatives.size > 1) {
@@ -48,17 +42,39 @@ class TranscriptionManager(private val context: Context) {
                 }
             }
 
-            // Try to match original casing if we changed it, assuming the model output is lower case or capitalized
-            val formattedWord = if (word.firstOrNull()?.isUpperCase() == true) {
-                bestWord.replaceFirstChar { it.uppercase() }
-            } else {
-                bestWord
-            }
-
+            val formattedWord = applyOriginalCasing(word, bestWord)
             wordEntries.add(Pair(formattedWord, confidence))
         }
 
         if (wordEntries.isNotEmpty()) selectedWordIndex = wordEntries.size - 1
+    }
+
+    private fun buildAlternatives(word: String): List<String> {
+        val alternatives = homopheneCorrector.getAlternatives(word).toMutableList()
+        if (!alternatives.contains(word.lowercase()) && !alternatives.contains(word)) {
+            alternatives.add(0, word)
+        } else if (!alternatives.contains(word)) {
+            alternatives.add(word)
+        }
+        return alternatives
+    }
+
+    private fun applyOriginalCasing(original: String, corrected: String): String {
+        if (original.isEmpty()) return corrected
+
+        return when {
+            // Preserve acronyms / all-uppercase tokens, e.g. "USA" -> "USE"
+            original.all { it.isUpperCase() } -> corrected.uppercase()
+
+            // Preserve leading capital for capitalized words, e.g. "London" -> "Paris"
+            original.first().isUpperCase() ->
+                corrected.replaceFirstChar { ch ->
+                    if (ch.isLowerCase()) ch.titlecase() else ch.toString()
+                }
+
+            // Default: keep corrected as-is
+            else -> corrected
+        }
     }
 
     fun getCurrentSentence(): String = wordEntries.joinToString(" ") { it.first }
