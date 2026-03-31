@@ -60,10 +60,20 @@ class TranscriptionManager(private val context: Context) {
     }
 
     private fun applyOriginalCasing(original: String, corrected: String): String {
-        return if (original.firstOrNull()?.isUpperCase() == true) {
-            corrected.replaceFirstChar { it.uppercase() }
-        } else {
-            corrected
+        if (original.isEmpty()) return corrected
+
+        return when {
+            // Preserve acronyms / all-uppercase tokens, e.g. "USA" -> "USE"
+            original.all { it.isUpperCase() } -> corrected.uppercase()
+
+            // Preserve leading capital for capitalized words, e.g. "London" -> "Paris"
+            original.first().isUpperCase() ->
+                corrected.replaceFirstChar { ch ->
+                    if (ch.isLowerCase()) ch.titlecase() else ch.toString()
+                }
+
+            // Default: keep corrected as-is
+            else -> corrected
         }
     }
 
