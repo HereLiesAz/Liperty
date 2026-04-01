@@ -74,7 +74,9 @@ class LanguageModel {
      * Used for disambiguating homophenes based on preceding word context.
      */
     fun getWordScore(prevWord: String, currentWord: String): Double {
-        val nextMap = WordBigramProvider.map[prevWord.lowercase()] ?: return UNIFORM_PROB
-        return nextMap[currentWord.lowercase()] ?: UNIFORM_PROB
+        val normalizedPrev = prevWord.lowercase().replace(Regex("[^a-z']"), "")
+        val normalizedCurr = currentWord.lowercase().replace(Regex("[^a-z']"), "")
+        val nextMap = WordBigramProvider.map[normalizedPrev] ?: return UNIFORM_PROB
+        return nextMap[normalizedCurr] ?: UNIFORM_PROB
     }
 }

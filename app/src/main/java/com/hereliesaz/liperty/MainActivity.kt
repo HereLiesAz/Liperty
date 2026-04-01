@@ -129,7 +129,7 @@ class MainActivity : ComponentActivity() {
         // VoiceConverter is initialized lazily or in onCreate
         // For simplicity, let's use the one in LaryngealSensor if EL mode is active.
         // But MainActivity might need its own if it does other things.
-        frameBuffer = FrameBuffer(capacity = 50) // VSR model input: [1, 50, 96, 96, 1]
+        frameBuffer = FrameBuffer(capacity = 50) // VSR model input: [1, 50, 64, 128, 3] and landmarks: [1, 50, 40]
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         // Initialize TFLite in background
@@ -541,7 +541,14 @@ class MainActivity : ComponentActivity() {
                 // Takes ownership of the frames
                 val bufferEntries = frameBuffer.clearAndGetFrames()
                 val framesToProcess = bufferEntries.map { it.first }
-                val landmarksToProcess = bufferEntries.flatMap { it.second?.toList() ?: List(40) { 0f } }.toFloatArray()
+                val landmarksToProcess = FloatArray(bufferEntries.size * 40)
+                bufferEntries.forEachIndexed { index, entry ->
+                    entry.second?.let { lms ->
+                        if (lms.size == 40) {
+                            System.arraycopy(lms, 0, landmarksToProcess, index * 40, 40)
+                        }
+                    }
+                }
 
                 lifecycleScope.launch(Dispatchers.Default) {
                     val vsrResult = vsrInference.runInference(framesToProcess, landmarksToProcess)
