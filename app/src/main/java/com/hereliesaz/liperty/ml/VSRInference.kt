@@ -133,11 +133,11 @@ class VSRInference(private val engine: ModelEngine) {
             // 3. Run Inference
             if (landmarks != null) {
                 // Secondary input buffer for LipCoordNet landmarks
+                // Target shape: [1, 50, 40]
                 val landmarkShape = engine.getInputShape(1)
                 val landmarkElements = if (landmarkShape.isNotEmpty()) landmarkShape.reduce { acc, i -> acc * i } else landmarks.size
                 val landmarkBuffer = ByteBuffer.allocateDirect(landmarkElements * 4).order(ByteOrder.nativeOrder())
 
-                // Copy landmarks or pad/truncate to match expected shape
                 for (i in 0 until landmarkElements) {
                     if (i < landmarks.size) {
                         landmarkBuffer.putFloat(landmarks[i])

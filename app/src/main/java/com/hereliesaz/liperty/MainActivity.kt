@@ -129,7 +129,7 @@ class MainActivity : ComponentActivity() {
         // VoiceConverter is initialized lazily or in onCreate
         // For simplicity, let's use the one in LaryngealSensor if EL mode is active.
         // But MainActivity might need its own if it does other things.
-        frameBuffer = FrameBuffer(capacity = 50) // VSR model input: [1, 50, 64, 128, 1]
+        frameBuffer = FrameBuffer(capacity = 50) // VSR model input: [1, 50, 96, 96, 1]
         cameraExecutor = Executors.newSingleThreadExecutor()
 
         // Initialize TFLite in background

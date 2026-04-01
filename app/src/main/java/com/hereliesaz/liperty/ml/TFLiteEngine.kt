@@ -88,7 +88,7 @@ class TFLiteEngine(
 
     override fun getInputShape(inputIndex: Int): IntArray =
         interpreter?.getInputTensor(inputIndex)?.shape()
-            ?: if (inputIndex == 0) intArrayOf(1, 50, 64, 128, 1) else intArrayOf(1, 50, 40) // Dummy landmark array shape
+            ?: if (inputIndex == 0) intArrayOf(1, 50, 64, 128, 3) else intArrayOf(1, 50, 40) // Dummy landmark array shape
 
     override fun close() {
         interpreter?.close()
