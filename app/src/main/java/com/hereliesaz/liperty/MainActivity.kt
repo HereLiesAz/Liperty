@@ -524,7 +524,7 @@ class MainActivity : ComponentActivity() {
             val landmarkArray = FloatArray(40)
             rawLandmarks?.let { lms ->
                 // MediaPipe Face Mesh lip indices (inner lip specifically, approx 20 points)
-                val innerLipIndices = intArrayOf(78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95)
+                val innerLipIndices = INNER_LIP_INDICES
                 for (i in innerLipIndices.indices) {
                     if (innerLipIndices[i] < lms.size) {
                         landmarkArray[i * 2] = lms[innerLipIndices[i]].x()
