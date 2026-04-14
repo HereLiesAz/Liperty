@@ -31,9 +31,18 @@ fun VoiceManagementScreen(
     val state by vm.uiState.collectAsState()
 
     val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        uri?.let { vm.cloneFromUri(it) }
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            vm.startCloningProcess(uris)
+        }
+    }
+
+    if (state.isNamingVoice) {
+        NamingDialog(
+            onConfirm = { name -> vm.confirmVoiceName(name) },
+            onCancel = { vm.cancelCloning() }
+        )
     }
 
     Column(
@@ -54,7 +63,8 @@ fun VoiceManagementScreen(
         Text(
             "Clone your own voice or select a profile for speech synthesis.",
             color = Color(0xFFB0B0CC),
-            fontSize = 14.sp
+            fontSize = 14.sp,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
 
         // Recording Card
@@ -85,29 +95,35 @@ fun VoiceManagementScreen(
                     onClick = {
                         if (state.isRecording) vm.stopRecording() else vm.startRecording()
                     },
+                    modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (state.isRecording) Color(0xFFB71C1C) else Color(0xFF1565C0)
                     )
                 ) {
-                    Text(if (state.isRecording) "STOP" else "START CLONING")
+                    Text(if (state.isRecording) "STOP" else "RECORD NEW SAMPLE")
                 }
                 
                 if (state.isCloning) {
-                    CircularProgressIndicator(color = Color.Cyan, modifier = Modifier.size(24.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        CircularProgressIndicator(color = Color.Cyan, modifier = Modifier.size(24.dp))
+                        Text(state.statusMessage, color = Color.Cyan, fontSize = 12.sp)
+                    }
+                } else {
+                    Text(state.statusMessage, color = Color.Gray, fontSize = 12.sp)
                 }
             }
         }
 
         // Import WAV Button
-        Row(
+        Button(
+            onClick = { filePickerLauncher.launch("audio/*") },
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A1A2E)),
+            shape = RoundedCornerShape(12.dp)
         ) {
-            IconButton(onClick = { filePickerLauncher.launch("audio/*") }) {
-                Icon(Icons.Default.FileUpload, contentDescription = "Import WAV", tint = Color.Cyan)
-            }
-            Text("Import WAV", color = Color.White, fontSize = 16.sp)
+            Icon(Icons.Default.FileUpload, contentDescription = null, tint = Color.Cyan)
+            Spacer(Modifier.width(8.dp))
+            Text("Import Recordings (WAV)", color = Color.White)
         }
 
         // Voice List
@@ -166,4 +182,49 @@ fun VoiceManagementScreen(
             }
         }
     }
+}
+
+@Composable
+fun NamingDialog(
+    onConfirm: (String) -> Unit,
+    onCancel: () -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Name your Voice Profile") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                placeholder = { Text("e.g. My Old Voice") },
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedBorderColor = Color.Cyan,
+                    unfocusedBorderColor = Color.Gray,
+                    focusedContainerColor = Color(0xFF1A1A2E),
+                    unfocusedContainerColor = Color(0xFF0F0F1A)
+                )
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = { if (name.isNotBlank()) onConfirm(name) },
+                enabled = name.isNotBlank()
+            ) {
+                Text("Create")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onCancel) {
+                Text("Cancel")
+            }
+        },
+        containerColor = Color(0xFF12122A),
+        titleContentColor = Color.White,
+        textContentColor = Color.White
+    )
 }

@@ -45,15 +45,15 @@ class VoiceManager(private val context: Context, private val onInit: (Boolean) -
     }
 
     /**
-     * Clones a voice from a reference audio file and saves it.
+     * Clones a voice from one or more reference audio files and saves it.
      */
-    fun cloneAndSaveVoice(name: String, audioFile: File, onResult: (Boolean) -> Unit) {
-        val voiceState = pocketTts.cloneVoice(audioFile)
-        if (voiceState != null) {
-            val namedState = voiceState.copy(name = name)
-            voiceStore.saveVoice(namedState)
+    fun cloneAndSaveVoice(name: String, audioFiles: List<File>, onResult: (Boolean) -> Unit) {
+        try {
+            val voiceState = pocketTts.cloneVoice(name, audioFiles)
+            voiceStore.saveVoice(voiceState)
             onResult(true)
-        } else {
+        } catch (e: Exception) {
+            Log.e("VoiceManager", "Voice cloning failed", e)
             onResult(false)
         }
     }

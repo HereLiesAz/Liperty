@@ -21,6 +21,7 @@ data class VoiceUiState(
     val activeVoiceName: String? = null,
     val isRecording: Boolean = false,
     val isCloning: Boolean = false,
+    val isNamingVoice: Boolean = false,
     val statusMessage: String = "Ready"
 )
 
@@ -32,6 +33,9 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _uiState = MutableStateFlow(VoiceUiState())
     val uiState: StateFlow<VoiceUiState> = _uiState.asStateFlow()
+
+    private var pendingCloningUris: List<Uri> = emptyList()
+    private var pendingRecordedFile: File? = null
 
     init {
         loadVoices()
@@ -50,8 +54,9 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
         voiceRecorder.startRecording(
             durationMs = 5000L,
             onComplete = { file, samples ->
-                _uiState.value = _uiState.value.copy(isRecording = false, statusMessage = "Recording complete. Cloning...")
-                cloneVoice("Voice_${System.currentTimeMillis()}", file)
+                _uiState.value = _uiState.value.copy(isRecording = false, statusMessage = "Recording complete. Choose a name.")
+                pendingRecordedFile = file
+                _uiState.value = _uiState.value.copy(isNamingVoice = true)
             },
             onError = { msg ->
                 _uiState.value = _uiState.value.copy(isRecording = false, statusMessage = "Error: $msg")
@@ -63,40 +68,57 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
         voiceRecorder.stopRecording()
     }
 
-    fun cloneFromUri(uri: Uri) {
-        _uiState.value = _uiState.value.copy(isCloning = true, statusMessage = "Importing audio...")
-        viewModelScope.launch {
-            val tempFile = File(getApplication<Application>().cacheDir, "imported_voice_${System.currentTimeMillis()}.wav")
-            val success = withContext(Dispatchers.IO) {
-                try {
-                    getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
-                        FileOutputStream(tempFile).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    true
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    false
-                }
-            }
-
-            if (success) {
-                cloneVoice("Imported_${System.currentTimeMillis()}", tempFile)
-            } else {
-                _uiState.value = _uiState.value.copy(isCloning = false, statusMessage = "Import failed")
-            }
-        }
+    fun startCloningProcess(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        pendingCloningUris = uris
+        _uiState.value = _uiState.value.copy(isNamingVoice = true)
     }
 
-    private fun cloneVoice(name: String, audioFile: File) {
-        _uiState.value = _uiState.value.copy(isCloning = true)
+    fun cancelCloning() {
+        pendingCloningUris = emptyList()
+        pendingRecordedFile = null
+        _uiState.value = _uiState.value.copy(isNamingVoice = false)
+    }
+
+    fun confirmVoiceName(name: String) {
+        _uiState.value = _uiState.value.copy(isNamingVoice = false, isCloning = true, statusMessage = "Creating profile: $name...")
+        
         viewModelScope.launch {
-            val voiceState = pocketTts.cloneVoice(audioFile)
-            val namedState = voiceState.copy(name = name)
-            voiceStore.saveVoice(namedState)
+            if (pendingRecordedFile != null) {
+                val voiceState = withContext(Dispatchers.IO) {
+                    pocketTts.cloneVoice(name, listOf(pendingRecordedFile!!))
+                }
+                voiceStore.saveVoice(voiceState)
+                pendingRecordedFile = null
+            } else if (pendingCloningUris.isNotEmpty()) {
+                val tempFiles = withContext(Dispatchers.IO) {
+                    pendingCloningUris.mapNotNull { uri ->
+                        val tempFile = File(getApplication<Application>().cacheDir, "imported_${System.currentTimeMillis()}_${uri.lastPathSegment}.wav")
+                        try {
+                            getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
+                                FileOutputStream(tempFile).use { output ->
+                                    input.copyTo(output)
+                                }
+                            }
+                            tempFile
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            null
+                        }
+                    }
+                }
+
+                if (tempFiles.isNotEmpty()) {
+                    val voiceState = withContext(Dispatchers.IO) {
+                        pocketTts.cloneVoice(name, tempFiles)
+                    }
+                    voiceStore.saveVoice(voiceState)
+                }
+                pendingCloningUris = emptyList()
+            }
+            
             loadVoices()
-            _uiState.value = _uiState.value.copy(isCloning = false, statusMessage = "Voice cloned: $name")
+            _uiState.value = _uiState.value.copy(isCloning = false, statusMessage = "Voice profile created: $name")
         }
     }
 
