@@ -111,9 +111,37 @@ class PocketTTSEngine(private val context: Context) {
      * Extracts a voice state from a reference audio file using the speaker encoder model.
      */
     fun cloneVoice(audioFile: File): VoiceState {
-        val session = speakerEncoderSession ?: throw IllegalStateException("Speaker encoder not initialized")
-        Log.i(TAG, "Cloning voice from: ${audioFile.name}")
+        return VoiceState(
+            name = audioFile.nameWithoutExtension,
+            embedding = extractEmbedding(audioFile)
+        )
+    }
+
+    /**
+     * Extracts a voice state from multiple reference audio files, averaging their embeddings.
+     */
+    fun cloneVoice(name: String, audioFiles: List<File>): VoiceState {
+        if (audioFiles.isEmpty()) throw IllegalArgumentException("Audio files list cannot be empty")
         
+        val embeddings = audioFiles.map { extractEmbedding(it) }
+        val embeddingSize = embeddings[0].size
+        val averagedEmbedding = FloatArray(embeddingSize)
+
+        for (i in 0 until embeddingSize) {
+            var sum = 0f
+            for (emb in embeddings) {
+                sum += emb[i]
+            }
+            averagedEmbedding[i] = sum / embeddings.size
+        }
+
+        return VoiceState(name = name, embedding = averagedEmbedding)
+    }
+
+    private fun extractEmbedding(audioFile: File): FloatArray {
+        val session = speakerEncoderSession ?: throw IllegalStateException("Speaker encoder not initialized")
+        Log.i(TAG, "Extracting embedding from: ${audioFile.name}")
+
         // Minimal PCM load logic: skip 44-byte WAV header
         val bytes = audioFile.readBytes()
         val headerOffset = 44
@@ -125,21 +153,16 @@ class PocketTTSEngine(private val context: Context) {
             floatSamples[i] = sample.toFloat() / Short.MAX_VALUE
         }
 
-        var embedding: FloatArray? = null
         OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(floatSamples), longArrayOf(1, floatSamples.size.toLong())).use { audioTensor ->
             val inputs = mapOf("audio" to audioTensor)
             session.run(inputs).use { result ->
                 val tensor = result.get(0)?.value as? OnnxTensor ?: throw IllegalStateException("Failed to extract embedding")
                 val floatBuffer = tensor.floatBuffer
-                embedding = FloatArray(floatBuffer.remaining())
+                val embedding = FloatArray(floatBuffer.remaining())
                 floatBuffer.get(embedding)
+                return embedding
             }
         }
-
-        return VoiceState(
-            name = audioFile.nameWithoutExtension,
-            embedding = embedding ?: FloatArray(0)
-        )
     }
 
     /**

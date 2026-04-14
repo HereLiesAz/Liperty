@@ -2,9 +2,9 @@ import tensorflow as tf
 import os
 
 def create_dummy_model():
-    # Define input shapes for LipCoordNet: (Batch=1, Time=50, Height=64, Width=128, Channel=1) and Landmarks
-    input_layer = tf.keras.layers.Input(shape=(50, 64, 128, 1), batch_size=1, name="input_video")
-    landmark_layer = tf.keras.layers.Input(shape=(50, 40), batch_size=1, name="input_landmarks")
+    # Define input shape: (Batch=1, Time=50, Height=96, Width=96, Channel=1)
+    # This shape is based on common VSR model inputs like LipNet/VALLR (as per RESEARCH.md)
+    input_layer = tf.keras.layers.Input(shape=(50, 96, 96, 1), batch_size=1, name="input_video")
 
     # Simple transformation to reach output shape (1, 50, 40)
     # 1. TimeDistributed Conv2D to process frames
@@ -15,9 +15,6 @@ def create_dummy_model():
 
     # Flatten spatial dimensions: (1, 50, H, W, C) -> (1, 50, Features)
     x = tf.keras.layers.TimeDistributed(tf.keras.layers.Flatten())(x)
-
-    # Concatenate visual features with landmark features
-    x = tf.keras.layers.Concatenate(axis=-1)([x, landmark_layer])
 
     # Recurrent layers to model temporal dependencies
     x = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(64, return_sequences=True))(x)
@@ -37,7 +34,7 @@ def create_dummy_model():
     # (Note: This is hard to do in a simple Keras functional API setup without a custom layer,
     # but we can try to adjust the bias of the dense layer after creation)
 
-    model = tf.keras.Model(inputs=[input_layer, landmark_layer], outputs=output_layer)
+    model = tf.keras.Model(inputs=input_layer, outputs=output_layer)
 
     # Manually adjust bias to favor blank (index 0) to prevent constant "VG" output
     weights = model.get_layer("ctc_output").get_weights()

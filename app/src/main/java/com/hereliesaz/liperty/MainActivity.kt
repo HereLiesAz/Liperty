@@ -522,7 +522,7 @@ class MainActivity : ComponentActivity() {
             // Add to Buffer
             // Extract landmarks for LipCoordNet input: 40 coordinates (20 inner lip points x 2)
             val landmarkArray = FloatArray(40)
-            rawLandmarks?.let { lms ->
+            rawLandmarks?.let { landmarkList ->
                 // MediaPipe Face Mesh lip indices (inner lip specifically, approx 20 points)
                 val innerLipIndices = FaceLandmarkerHelper.LIP_INDICES
                 for (i in innerLipIndices.indices) {

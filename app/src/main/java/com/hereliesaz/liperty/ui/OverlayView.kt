@@ -60,12 +60,12 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
 
     /**
      * MediaPipe face mesh lip contour index groups.
-     * Source: mediapipe/python/solutions/face_mesh_connections.py
+     * Source: com.hereliesaz.liperty.ml.MLConstants
      */
-    private val outerUpperLip = intArrayOf(61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291)
-    private val outerLowerLip = intArrayOf(291, 375, 321, 405, 314, 17, 84, 181, 91, 146, 61)
-    private val innerUpperLip = intArrayOf(78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308)
-    private val innerLowerLip = intArrayOf(308, 324, 318, 402, 317, 14, 87, 178, 88, 95, 78)
+    private val outerUpperLip = com.hereliesaz.liperty.ml.MLConstants.OUTER_UPPER_LIP
+    private val outerLowerLip = com.hereliesaz.liperty.ml.MLConstants.OUTER_LOWER_LIP
+    private val innerUpperLip = com.hereliesaz.liperty.ml.MLConstants.INNER_UPPER_LIP
+    private val innerLowerLip = com.hereliesaz.liperty.ml.MLConstants.INNER_LOWER_LIP
 
     private val allLipIndices: Set<Int> = (
         outerUpperLip.toList() + outerLowerLip.toList() +

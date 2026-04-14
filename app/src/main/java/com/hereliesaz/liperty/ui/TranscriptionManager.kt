@@ -4,6 +4,9 @@ import android.content.Context
 import com.hereliesaz.liperty.ml.HomopheneCorrector
 import com.hereliesaz.liperty.ml.LanguageModel
 
+/**
+ * Manages the list of transcribed words, their confidences, and autocorrection logic.
+ */
 class TranscriptionManager(private val context: Context) {
 
     companion object {
@@ -56,17 +59,29 @@ class TranscriptionManager(private val context: Context) {
 
     private fun buildAlternatives(word: String): List<String> {
         val alternatives = homopheneCorrector.getAlternatives(word).toMutableList()
-        // Ensure the original word is at the front to act as the default for tie-breaking
-        alternatives.removeAll { it.equals(word, ignoreCase = true) }
-        alternatives.add(0, word)
+        if (!alternatives.contains(word.lowercase()) && !alternatives.contains(word)) {
+            alternatives.add(0, word)
+        } else if (!alternatives.contains(word)) {
+            alternatives.add(word)
+        }
         return alternatives
     }
 
     private fun applyOriginalCasing(original: String, corrected: String): String {
-        return if (original.firstOrNull()?.isUpperCase() == true) {
-            corrected.replaceFirstChar { it.uppercase() }
-        } else {
-            corrected
+        if (original.isEmpty()) return corrected
+
+        return when {
+            // Preserve acronyms / all-uppercase tokens, e.g. "USA" -> "USE"
+            original.all { it.isUpperCase() } -> corrected.uppercase()
+
+            // Preserve leading capital for capitalized words, e.g. "London" -> "Paris"
+            original.first().isUpperCase() ->
+                corrected.replaceFirstChar { ch ->
+                    if (ch.isLowerCase()) ch.titlecase() else ch.toString()
+                }
+
+            // Default: keep corrected as-is
+            else -> corrected
         }
     }
 
@@ -81,13 +96,7 @@ class TranscriptionManager(private val context: Context) {
         if (selectedWordIndex == -1 || selectedWordIndex >= wordEntries.size) return
 
         val currentWord = wordEntries[selectedWordIndex].first
-        val alternatives = homopheneCorrector.getAlternatives(currentWord).toMutableList()
-
-        if (!alternatives.contains(currentWord.lowercase()) && !alternatives.contains(currentWord)) {
-            alternatives.add(0, currentWord)
-        } else {
-            if (!alternatives.contains(currentWord)) alternatives.add(currentWord)
-        }
+        val alternatives = buildAlternatives(currentWord)
 
         val currentIndex = alternatives.indexOfFirst { it.equals(currentWord, ignoreCase = true) }
         if (currentIndex != -1 && alternatives.isNotEmpty()) {
