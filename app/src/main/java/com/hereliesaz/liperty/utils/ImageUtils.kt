@@ -149,30 +149,30 @@ object ImageUtils {
     /**
      * Aligns and crops the mouth region from the input bitmap.
      */
-    fun alignAndCropMouth(bitmap: Bitmap, mouthRect: Rect, rotationDegrees: Float, targetSize: Int): Bitmap {
-        val targetBitmap = Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
-        return alignAndCropMouth(bitmap, mouthRect, rotationDegrees, targetSize, targetBitmap)
+    fun alignAndCropMouth(bitmap: Bitmap, mouthRect: Rect, rotationDegrees: Float, targetWidth: Int, targetHeight: Int): Bitmap {
+        val targetBitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+        return alignAndCropMouth(bitmap, mouthRect, rotationDegrees, targetWidth, targetHeight, targetBitmap)
     }
 
     /**
      * Overload that writes to a reused bitmap to reduce allocation.
      */
-    fun alignAndCropMouth(bitmap: Bitmap, mouthRect: Rect, rotationDegrees: Float, targetSize: Int, destBitmap: Bitmap): Bitmap {
+    fun alignAndCropMouth(bitmap: Bitmap, mouthRect: Rect, rotationDegrees: Float, targetWidth: Int, targetHeight: Int, destBitmap: Bitmap): Bitmap {
         // Ensure destBitmap is correct size, if not, recreate (though typically caller ensures this)
-        val targetBitmap = if (destBitmap.width != targetSize || destBitmap.height != targetSize) {
-            Bitmap.createBitmap(targetSize, targetSize, Bitmap.Config.ARGB_8888)
+        val targetBitmap = if (destBitmap.width != targetWidth || destBitmap.height != targetHeight) {
+            Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
         } else {
             destBitmap
         }
 
         val canvas = Canvas(targetBitmap)
-        val scale = targetSize.toFloat() / max(mouthRect.width(), 1)
+        val scale = targetWidth.toFloat() / max(mouthRect.width(), 1) // Base scale on width primarily
 
         val drawingMatrix = android.graphics.Matrix()
         drawingMatrix.postTranslate(-mouthRect.centerX().toFloat(), -mouthRect.centerY().toFloat())
         drawingMatrix.postRotate(rotationDegrees)
         drawingMatrix.postScale(scale, scale)
-        drawingMatrix.postTranslate(targetSize / 2f, targetSize / 2f)
+        drawingMatrix.postTranslate(targetWidth / 2f, targetHeight / 2f)
 
         val paint = Paint()
         paint.isFilterBitmap = true

@@ -22,10 +22,10 @@ class VSRInference(private val engine: ModelEngine) {
     private var useBeamSearch = true
 
     // Default Constants (overridden dynamically by model shape)
-    private var inputWidth = 96
-    private var inputHeight = 96
+    private var inputWidth = 128
+    private var inputHeight = 64
     private var numFrames = 50
-    private var numChannels = 1
+    private var numChannels = 3
 
     /**
      * Initializes the inference engine.
@@ -36,9 +36,9 @@ class VSRInference(private val engine: ModelEngine) {
     }
 
     /**
-     * Runs inference on the provided frames.
+     * Runs inference on the provided frames and (optionally) lip landmarks.
      */
-    fun runInference(frames: List<Bitmap>): VSRResult {
+    fun runInference(frames: List<Bitmap>, landmarks: FloatArray? = null): VSRResult {
         val startTime = SystemClock.uptimeMillis()
 
         try {
@@ -131,7 +131,31 @@ class VSRInference(private val engine: ModelEngine) {
             outputBuffer.order(ByteOrder.nativeOrder())
 
             // 3. Run Inference
-            engine.run(inputBuffer, outputBuffer)
+            val landmarkShape = try { engine.getInputShape(1) } catch (e: Exception) { intArrayOf() }
+            if (landmarks != null && landmarkShape.isNotEmpty()) {
+                // Secondary input buffer for LipCoordNet landmarks
+                // Explicitly check for expected shape [1, 50, 40] to fail fast if model is incompatible
+                if (landmarkShape.size != 3 || landmarkShape[1] != 50 || landmarkShape[2] != 40) {
+                    Log.w("VSRInference", "Model exposes a second input, but shape ${landmarkShape.contentToString()} does not match expected [1, 50, 40]. Falling back to single-input inference.")
+                    engine.run(inputBuffer, outputBuffer)
+                } else {
+                    val landmarkElements = landmarkShape.reduce { acc, i -> acc * i }
+                    val landmarkBuffer = ByteBuffer.allocateDirect(landmarkElements * 4).order(ByteOrder.nativeOrder())
+
+                    for (i in 0 until landmarkElements) {
+                        if (i < landmarks.size) {
+                            landmarkBuffer.putFloat(landmarks[i])
+                        } else {
+                            landmarkBuffer.putFloat(0f)
+                        }
+                    }
+                    landmarkBuffer.rewind()
+
+                    engine.run(arrayOf(inputBuffer, landmarkBuffer), outputBuffer)
+                }
+            } else {
+                engine.run(inputBuffer, outputBuffer)
+            }
 
             outputBuffer.rewind()
 

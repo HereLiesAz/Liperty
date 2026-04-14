@@ -5,24 +5,24 @@ import java.util.ArrayDeque
 
 class FrameBuffer(private val capacity: Int) {
 
-    private val buffer = ArrayDeque<Bitmap>(capacity)
+    private val buffer = ArrayDeque<Pair<Bitmap, FloatArray?>>(capacity)
 
     /**
-     * Adds a frame to the buffer.
+     * Adds a frame and an optional array of landmarks to the buffer.
      * If the buffer is full, the oldest frame is removed and recycled securely via BitmapPool.
      * Thread-safe.
      */
     @Synchronized
-    fun addFrame(bitmap: Bitmap) {
+    fun addFrame(bitmap: Bitmap, landmarks: FloatArray? = null) {
         if (buffer.size >= capacity) {
-            val oldBitmap = buffer.removeFirst()
-            com.hereliesaz.liperty.utils.BitmapPool.recycle(oldBitmap)
+            val oldEntry = buffer.removeFirst()
+            com.hereliesaz.liperty.utils.BitmapPool.recycle(oldEntry.first)
         }
-        buffer.addLast(bitmap)
+        buffer.addLast(Pair(bitmap, landmarks))
     }
 
     @Synchronized
-    fun getFrames(): List<Bitmap> {
+    fun getFrames(): List<Pair<Bitmap, FloatArray?>> {
         return buffer.toList()
     }
 
@@ -31,7 +31,7 @@ class FrameBuffer(private val capacity: Int) {
      * The caller is now responsible for recycling the returned Bitmaps.
      */
     @Synchronized
-    fun clearAndGetFrames(): List<Bitmap> {
+    fun clearAndGetFrames(): List<Pair<Bitmap, FloatArray?>> {
         val frames = buffer.toList()
         buffer.clear()
         return frames // Caller assumes ownership for recycling
@@ -50,8 +50,8 @@ class FrameBuffer(private val capacity: Int) {
      */
     @Synchronized
     fun clearAndRecycle() {
-        for (bitmap in buffer) {
-            com.hereliesaz.liperty.utils.BitmapPool.recycle(bitmap)
+        for (entry in buffer) {
+            com.hereliesaz.liperty.utils.BitmapPool.recycle(entry.first)
         }
         buffer.clear()
     }

@@ -6,6 +6,10 @@ import com.hereliesaz.liperty.ml.LanguageModel
 
 class TranscriptionManager(private val context: Context) {
 
+    companion object {
+        private val WHITESPACE_REGEX = "\\s+".toRegex()
+    }
+
     private val homopheneCorrector = HomopheneCorrector(context)
     private val languageModel = LanguageModel()
 
@@ -20,6 +24,32 @@ class TranscriptionManager(private val context: Context) {
      */
     fun appendText(text: String, confidence: Float = 0f) {
         if (text.isEmpty()) return
+        val newWords = text.trim().split(WHITESPACE_REGEX)
+
+        for (word in newWords) {
+            var bestWord = word
+            val prevWord = wordEntries.lastOrNull()?.first
+
+            if (prevWord != null) {
+                val alternatives = buildAlternatives(word)
+
+                // Score them with the language model if there are alternatives
+                if (alternatives.size > 1) {
+                    var bestScore = -1.0
+                    for (alt in alternatives) {
+                        val score = languageModel.getWordScore(prevWord, alt)
+                        if (score > bestScore) {
+                            bestScore = score
+                            bestWord = alt
+                        }
+                    }
+                }
+            }
+
+            val formattedWord = applyOriginalCasing(word, bestWord)
+            wordEntries.add(Pair(formattedWord, confidence))
+        }
+
         val newWords = text.trim().split("\\s+".toRegex())
 
         for (word in newWords) {
@@ -47,6 +77,22 @@ class TranscriptionManager(private val context: Context) {
         }
 
         if (wordEntries.isNotEmpty()) selectedWordIndex = wordEntries.size - 1
+    }
+
+    private fun buildAlternatives(word: String): List<String> {
+        val alternatives = homopheneCorrector.getAlternatives(word).toMutableList()
+        // Ensure the original word is at the front to act as the default for tie-breaking
+        alternatives.removeAll { it.equals(word, ignoreCase = true) }
+        alternatives.add(0, word)
+        return alternatives
+    }
+
+    private fun applyOriginalCasing(original: String, corrected: String): String {
+        return if (original.firstOrNull()?.isUpperCase() == true) {
+            corrected.replaceFirstChar { it.uppercase() }
+        } else {
+            corrected
+        }
     }
 
     private fun buildAlternatives(word: String): List<String> {
