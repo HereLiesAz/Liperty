@@ -163,7 +163,7 @@ TranscriptionManager  ──► displayed in OverlayView / Compose UI
 - **Memory**: Use `ByteBuffer.allocateDirect()` for model I/O to avoid GC pressure during camera callbacks. Reuse `Bitmap` objects through `BitmapPool`.
 - **Model interface**: New inference backends must implement the `ModelEngine` interface, not touch `TFLiteEngine` directly.
 - **Frame window**: `FrameBuffer` holds exactly 50 frames. Do not change this constant without retraining and converting the model.
-- **Input shape**: The VSR model expects `[1, 50, 96, 96, 1]` (batch, frames, H, W, channels). Preprocessing in `VSRInference` must produce this shape exactly.
+- **Input shape**: The VSR model expects `[1, 50, 64, 128, 3]` (batch, frames, H, W, channels). Preprocessing in `VSRInference` must produce this shape exactly.
 
 ### Camera & Computer Vision
 

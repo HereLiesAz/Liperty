@@ -36,8 +36,9 @@ class TranscriptionManager(private val context: Context) {
                 // Score them with the language model if there are alternatives
                 if (alternatives.size > 1) {
                     var bestScore = -1.0
+                    val normalizedPrev = prevWord.lowercase().replace(Regex("[^a-z']"), "")
                     for (alt in alternatives) {
-                        val score = languageModel.getWordScore(prevWord, alt)
+                        val score = languageModel.getWordScore(normalizedPrev, alt)
                         if (score > bestScore) {
                             bestScore = score
                             bestWord = alt

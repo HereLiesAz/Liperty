@@ -545,7 +545,7 @@ class MainActivity : ComponentActivity() {
                 bufferEntries.forEachIndexed { index, entry ->
                     entry.second?.let { lms ->
                         if (lms.size == 40) {
-                            System.arraycopy(lms, 0, landmarksToProcess, index * 40, 40)
+                            lms.copyInto(landmarksToProcess, destinationOffset = index * 40)
                         }
                     }
                 }
