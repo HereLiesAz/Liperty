@@ -27,12 +27,41 @@ class VSRInference(private val engine: ModelEngine) {
     private var numFrames = 50
     private var numChannels = 3
 
+    private var inputBuffer: ByteBuffer? = null
+    private var outputBuffer: ByteBuffer? = null
+    private var landmarkBuffer: ByteBuffer? = null
+
     /**
      * Initializes the inference engine.
      * Call this from a background thread.
      */
     fun initialize(): Boolean {
         return engine.initialize()
+    }
+
+    private fun allocateBuffersIfNeeded(outputShape: IntArray, landmarkShape: IntArray) {
+        val inputCapacity = 1 * numFrames * inputHeight * inputWidth * numChannels * 4
+        if (inputBuffer == null || inputBuffer!!.capacity() != inputCapacity) {
+            inputBuffer = ByteBuffer.allocateDirect(inputCapacity).order(ByteOrder.nativeOrder())
+        }
+
+        if (outputShape.size >= 3) {
+            val batchSize = outputShape[0]
+            val timeSteps = outputShape[1]
+            val vocabSize = outputShape[2]
+            val outputCapacity = batchSize * timeSteps * vocabSize * 4
+            if (outputBuffer == null || outputBuffer!!.capacity() != outputCapacity) {
+                outputBuffer = ByteBuffer.allocateDirect(outputCapacity).order(ByteOrder.nativeOrder())
+            }
+        }
+
+        if (landmarkShape.isNotEmpty()) {
+            val landmarkElements = landmarkShape.reduce { acc, i -> acc * i }
+            val landmarkCapacity = landmarkElements * 4
+            if (landmarkBuffer == null || landmarkBuffer!!.capacity() != landmarkCapacity) {
+                landmarkBuffer = ByteBuffer.allocateDirect(landmarkCapacity).order(ByteOrder.nativeOrder())
+            }
+        }
     }
 
     /**
@@ -54,12 +83,31 @@ class VSRInference(private val engine: ModelEngine) {
                 }
             }
             Log.d("VSRInference", "using numFrames=$numFrames ${inputWidth}x${inputHeight} ch=$numChannels")
-            
-            // 1. Prepare Input Buffer
-            // Float32 (4 bytes)
-            val inputBuffer = ByteBuffer.allocateDirect(1 * numFrames * inputHeight * inputWidth * numChannels * 4)
-            inputBuffer.order(ByteOrder.nativeOrder())
 
+            val outputShape = engine.getOutputShape(0)
+            val landmarkShape = try { engine.getInputShape(1) } catch (e: Exception) { intArrayOf() }
+            
+            if (landmarks != null) {
+                if (landmarkShape.size != 3 || landmarkShape[1] != 50 || landmarkShape[2] != 40) {
+                    throw IllegalArgumentException("Landmarks provided but model second input shape ${landmarkShape.contentToString()} does not match expected [1, 50, 40].")
+                }
+            }
+
+            Log.d("VSRInference", "outputShape=${outputShape.contentToString()}")
+            if (outputShape.size < 3) {
+                Log.e("VSRInference", "Unexpected output shape: ${outputShape.contentToString()}")
+                val processingTime = SystemClock.uptimeMillis() - startTime
+                return VSRResult("", 0f, emptyList(), processingTime)
+            }
+
+            allocateBuffersIfNeeded(outputShape, landmarkShape)
+
+            val currentInputBuffer = inputBuffer!!
+            val currentOutputBuffer = outputBuffer!!
+            currentInputBuffer.rewind()
+            currentOutputBuffer.rewind()
+
+            // 1. Prepare Input Buffer
             // Take last N frames if we have more, or all if fewer
             val framesToProcess = if (frames.size > numFrames) {
                 frames.takeLast(numFrames)
@@ -82,15 +130,15 @@ class VSRInference(private val engine: ModelEngine) {
                     if (numChannels == 1) {
                         // Extract Red channel for grayscale
                         val r = (pixel shr 16) and 0xFF
-                        inputBuffer.putFloat(r / 255.0f)
+                        currentInputBuffer.putFloat(r / 255.0f)
                     } else if (numChannels == 3) {
                         // Extract RGB
                         val r = (pixel shr 16) and 0xFF
                         val g = (pixel shr 8) and 0xFF
                         val b = pixel and 0xFF
-                        inputBuffer.putFloat(r / 255.0f)
-                        inputBuffer.putFloat(g / 255.0f)
-                        inputBuffer.putFloat(b / 255.0f)
+                        currentInputBuffer.putFloat(r / 255.0f)
+                        currentInputBuffer.putFloat(g / 255.0f)
+                        currentInputBuffer.putFloat(b / 255.0f)
                     }
                 }
             }
@@ -98,72 +146,56 @@ class VSRInference(private val engine: ModelEngine) {
             // Pad with zeros if fewer frames
             val paddingFrames = numFrames - framesToProcess.size
             for (i in 0 until paddingFrames * inputHeight * inputWidth * numChannels) {
-                inputBuffer.putFloat(0f)
+                currentInputBuffer.putFloat(0f)
             }
 
-            inputBuffer.rewind()
+            currentInputBuffer.rewind()
 
             // Diagnostic: log mean pixel value of frame 0 to confirm input varies across batches
             run {
                 val slice = FloatArray(inputHeight * inputWidth * numChannels)
-                inputBuffer.asFloatBuffer().get(slice)
-                inputBuffer.rewind()
+                currentInputBuffer.asFloatBuffer().get(slice)
+                currentInputBuffer.rewind()
                 val mean = slice.average()
                 Log.d("VSRInput", "input buffer frame0 mean=%.4f (%.1f/255)".format(mean, mean * 255))
             }
 
-            // 2. Prepare Output Buffer
-            val outputShape = engine.getOutputShape(0)
-
-            Log.d("VSRInference", "outputShape=${outputShape.contentToString()}")
-            if (outputShape.size < 3) {
-                Log.e("VSRInference", "Unexpected output shape: ${outputShape.contentToString()}")
-                val processingTime = SystemClock.uptimeMillis() - startTime
-                return VSRResult("", 0f, emptyList(), processingTime)
-            }
-
+            // 2. Prepare Output Buffer (already allocated)
             val batchSize = outputShape[0]
             val timeSteps = outputShape[1]
             val vocabSize = outputShape[2]
             Log.d("VSRInference", "decoding: timeSteps=$timeSteps vocabSize=$vocabSize")
 
-            val outputBuffer = ByteBuffer.allocateDirect(batchSize * timeSteps * vocabSize * 4)
-            outputBuffer.order(ByteOrder.nativeOrder())
-
             // 3. Run Inference
-            val landmarkShape = try { engine.getInputShape(1) } catch (e: Exception) { intArrayOf() }
             if (landmarks != null && landmarkShape.isNotEmpty()) {
                 // Secondary input buffer for LipCoordNet landmarks
-                // Explicitly check for expected shape [1, 50, 40] to fail fast if model is incompatible
-                if (landmarkShape.size != 3 || landmarkShape[1] != 50 || landmarkShape[2] != 40) {
-                    Log.w("VSRInference", "Model exposes a second input, but shape ${landmarkShape.contentToString()} does not match expected [1, 50, 40]. Falling back to single-input inference.")
-                    engine.run(inputBuffer, outputBuffer)
+                val currentLandmarkBuffer = landmarkBuffer!!
+                currentLandmarkBuffer.rewind()
+
+                val floatBuffer = currentLandmarkBuffer.asFloatBuffer()
+                val landmarkElements = landmarkShape.reduce { acc, i -> acc * i }
+
+                if (landmarks.size >= landmarkElements) {
+                    floatBuffer.put(landmarks, 0, landmarkElements)
                 } else {
-                    val landmarkElements = landmarkShape.reduce { acc, i -> acc * i }
-                    val landmarkBuffer = ByteBuffer.allocateDirect(landmarkElements * 4).order(ByteOrder.nativeOrder())
-
-                    for (i in 0 until landmarkElements) {
-                        if (i < landmarks.size) {
-                            landmarkBuffer.putFloat(landmarks[i])
-                        } else {
-                            landmarkBuffer.putFloat(0f)
-                        }
+                    floatBuffer.put(landmarks)
+                    for (i in landmarks.size until landmarkElements) {
+                        floatBuffer.put(0f)
                     }
-                    landmarkBuffer.rewind()
-
-                    engine.run(arrayOf(inputBuffer, landmarkBuffer), outputBuffer)
                 }
+
+                engine.run(arrayOf(currentInputBuffer, currentLandmarkBuffer), currentOutputBuffer)
             } else {
-                engine.run(inputBuffer, outputBuffer)
+                engine.run(currentInputBuffer, currentOutputBuffer)
             }
 
-            outputBuffer.rewind()
+            currentOutputBuffer.rewind()
 
             // 4. Decode
             // CTC models output raw logits. Apply softmax per timestep so the
             // BeamSearchDecoder receives proper probabilities in [0,1].
             val probabilities = Array(timeSteps) {
-                val logits = FloatArray(vocabSize) { outputBuffer.float }
+                val logits = FloatArray(vocabSize) { currentOutputBuffer.float }
                 if (it == 0) {
                     Log.d("VSRInference", "logits[0] sample (first 5): ${logits.take(5)}")
                 }

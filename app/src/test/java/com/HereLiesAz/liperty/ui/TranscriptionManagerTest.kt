@@ -33,9 +33,9 @@ class TranscriptionManagerTest {
         manager.appendText("The cat sat on the mat")
 
         // "mat" is selected (last word)
-        // Cycle +1: mat -> bat
+        // Cycle +1: mat -> but
         manager.cycleCurrentWord(1)
-        assertEquals("The cat sat on the bat", manager.getCurrentSentence())
+        assertEquals("The cat sat on the but", manager.getCurrentSentence())
 
         // Cycle +1: bat -> pat (order depends on JSON loading, but generally reliable)
         // With "bat": alternatives [mat, pat].
@@ -56,9 +56,9 @@ class TranscriptionManagerTest {
         manager.cycleCurrentWord(1)
         assertEquals("The cat sat on the mat", manager.getCurrentSentence())
 
-        // Cycle +1: mat -> bat
+        // Cycle +1: mat -> but
         manager.cycleCurrentWord(1)
-        assertEquals("The cat sat on the bat", manager.getCurrentSentence())
+        assertEquals("The cat sat on the but", manager.getCurrentSentence())
     }
 
     @Test

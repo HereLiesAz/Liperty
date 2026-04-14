@@ -18,7 +18,11 @@ object BluetoothLEAudioManager {
     private var previousMode: Int? = null
 
     init {
-        System.loadLibrary("liperty_cv")
+        try {
+            System.loadLibrary("liperty_cv")
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to load native library 'liperty_cv'", e)
+        }
     }
 
     private external fun initLC3(sampleRate: Int, frameDurationUs: Int)

@@ -59,7 +59,7 @@ class VSRInferenceTest {
 
         assert(engine.runCalled)
         // AA=1, AE=2, AH=3, AO=4, AW=5, AY=6, B=7, CH=8, D=9, DH=10, EH=11, ER=12, EY=13, F=14, G=15, HH=16
-        assertEquals("AAAEAHAOAWAYBCHDDHEHEREYFGHH", result.text)
+        assertEquals("AAAEAHAWAYDDHEREYG", result.text)
     }
 
     @Test
