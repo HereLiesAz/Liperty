@@ -4,6 +4,9 @@ import android.content.Context
 import com.hereliesaz.liperty.ml.HomopheneCorrector
 import com.hereliesaz.liperty.ml.LanguageModel
 
+/**
+ * Manages the list of transcribed words, their confidences, and autocorrection logic.
+ */
 class TranscriptionManager(private val context: Context) {
 
     companion object {
@@ -50,49 +53,7 @@ class TranscriptionManager(private val context: Context) {
             wordEntries.add(Pair(formattedWord, confidence))
         }
 
-        val newWords = text.trim().split("\\s+".toRegex())
-
-        for (word in newWords) {
-            var bestWord = word
-            val prevWord = wordEntries.lastOrNull()?.first
-
-            if (prevWord != null) {
-                val alternatives = buildAlternatives(word)
-
-                // Score them with the language model if there are alternatives
-                if (alternatives.size > 1) {
-                    var bestScore = -1.0
-                    for (alt in alternatives) {
-                        val score = languageModel.getWordScore(prevWord, alt)
-                        if (score > bestScore) {
-                            bestScore = score
-                            bestWord = alt
-                        }
-                    }
-                }
-            }
-
-            val formattedWord = applyOriginalCasing(word, bestWord)
-            wordEntries.add(Pair(formattedWord, confidence))
-        }
-
         if (wordEntries.isNotEmpty()) selectedWordIndex = wordEntries.size - 1
-    }
-
-    private fun buildAlternatives(word: String): List<String> {
-        val alternatives = homopheneCorrector.getAlternatives(word).toMutableList()
-        // Ensure the original word is at the front to act as the default for tie-breaking
-        alternatives.removeAll { it.equals(word, ignoreCase = true) }
-        alternatives.add(0, word)
-        return alternatives
-    }
-
-    private fun applyOriginalCasing(original: String, corrected: String): String {
-        return if (original.firstOrNull()?.isUpperCase() == true) {
-            corrected.replaceFirstChar { it.uppercase() }
-        } else {
-            corrected
-        }
     }
 
     private fun buildAlternatives(word: String): List<String> {
@@ -134,13 +95,7 @@ class TranscriptionManager(private val context: Context) {
         if (selectedWordIndex == -1 || selectedWordIndex >= wordEntries.size) return
 
         val currentWord = wordEntries[selectedWordIndex].first
-        val alternatives = homopheneCorrector.getAlternatives(currentWord).toMutableList()
-
-        if (!alternatives.contains(currentWord.lowercase()) && !alternatives.contains(currentWord)) {
-            alternatives.add(0, currentWord)
-        } else {
-            if (!alternatives.contains(currentWord)) alternatives.add(currentWord)
-        }
+        val alternatives = buildAlternatives(currentWord)
 
         val currentIndex = alternatives.indexOfFirst { it.equals(currentWord, ignoreCase = true) }
         if (currentIndex != -1 && alternatives.isNotEmpty()) {

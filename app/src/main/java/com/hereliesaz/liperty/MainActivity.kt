@@ -522,13 +522,14 @@ class MainActivity : ComponentActivity() {
             // Add to Buffer
             // Extract landmarks for LipCoordNet input: 40 coordinates (20 inner lip points x 2)
             val landmarkArray = FloatArray(40)
-            rawLandmarks?.let { lms ->
+            rawLandmarks?.let { landmarkList ->
                 // MediaPipe Face Mesh lip indices (inner lip specifically, approx 20 points)
-                val innerLipIndices = INNER_LIP_INDICES
-                for (i in innerLipIndices.indices) {
-                    if (innerLipIndices[i] < lms.size) {
-                        landmarkArray[i * 2] = lms[innerLipIndices[i]].x()
-                        landmarkArray[i * 2 + 1] = lms[innerLipIndices[i]].y()
+                val lipIndices = com.hereliesaz.liperty.ml.MLConstants.INNER_LIP_INDICES
+                for (i in lipIndices.indices) {
+                    val landmarkIndex = lipIndices[i]
+                    if (landmarkIndex < landmarkList.size) {
+                        landmarkArray[i * 2] = landmarkList[landmarkIndex].x()
+                        landmarkArray[i * 2 + 1] = landmarkList[landmarkIndex].y()
                     }
                 }
             }
