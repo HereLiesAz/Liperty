@@ -122,7 +122,7 @@ class FaceLandmarkerHelper(
 
     companion object {
         // MediaPipe Face Mesh Lip Landmark Indices
-        private val LIP_INDICES = listOf(
+        val LIP_INDICES = listOf(
             0, 13, 14, 17, 37, 39, 40, 61, 146, 178, 181, 185, 191, 267, 269, 270, 291, 308, 310, 311, 312, 317, 318, 321, 375, 402, 405, 409
         )
 

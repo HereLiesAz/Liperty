@@ -524,12 +524,11 @@ class MainActivity : ComponentActivity() {
             val landmarkArray = FloatArray(40)
             rawLandmarks?.let { landmarkList ->
                 // MediaPipe Face Mesh lip indices (inner lip specifically, approx 20 points)
-                val lipIndices = com.hereliesaz.liperty.ml.MLConstants.INNER_LIP_INDICES
-                for (i in lipIndices.indices) {
-                    val landmarkIndex = lipIndices[i]
-                    if (landmarkIndex < landmarkList.size) {
-                        landmarkArray[i * 2] = landmarkList[landmarkIndex].x()
-                        landmarkArray[i * 2 + 1] = landmarkList[landmarkIndex].y()
+                val innerLipIndices = FaceLandmarkerHelper.LIP_INDICES
+                for (i in innerLipIndices.indices) {
+                    if (innerLipIndices[i] < lms.size) {
+                        landmarkArray[i * 2] = lms[innerLipIndices[i]].x()
+                        landmarkArray[i * 2 + 1] = lms[innerLipIndices[i]].y()
                     }
                 }
             }
@@ -546,7 +545,7 @@ class MainActivity : ComponentActivity() {
                 bufferEntries.forEachIndexed { index, entry ->
                     entry.second?.let { lms ->
                         if (lms.size == 40) {
-                            System.arraycopy(lms, 0, landmarksToProcess, index * 40, 40)
+                            lms.copyInto(landmarksToProcess, destinationOffset = index * 40)
                         }
                     }
                 }

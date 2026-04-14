@@ -34,7 +34,7 @@ class InspectModelsTest {
                     println("  Failed to initialize $modelName")
                 }
                 engine.close()
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 println("  Error inspecting $modelName: ${e.message}")
             }
         }
