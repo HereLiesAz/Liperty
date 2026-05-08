@@ -1,17 +1,12 @@
 package com.hereliesaz.liperty.ui
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -26,17 +22,10 @@ import com.hereliesaz.liperty.voicebox.VoiceViewModel
 
 @Composable
 fun VoiceManagementScreen(
-    vm: VoiceViewModel = viewModel()
+    vm: VoiceViewModel = viewModel(),
+    onNavigateToImportWizard: () -> Unit = {}
 ) {
     val state by vm.uiState.collectAsState()
-
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetMultipleContents()
-    ) { uris ->
-        if (uris.isNotEmpty()) {
-            vm.startCloningProcess(uris)
-        }
-    }
 
     if (state.isNamingVoice) {
         NamingDialog(
@@ -61,10 +50,10 @@ fun VoiceManagementScreen(
         )
 
         Text(
-            "Clone your own voice or select a profile for speech synthesis.",
+            "Recreate your voice from old recordings, or record a new sample.",
             color = Color(0xFFB0B0CC),
             fontSize = 14.sp,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            textAlign = TextAlign.Center
         )
 
         // Recording Card
@@ -84,7 +73,7 @@ fun VoiceManagementScreen(
                     tint = if (state.isRecording) Color.Red else Color.Cyan,
                     modifier = Modifier.size(48.dp)
                 )
-                
+
                 Text(
                     text = if (state.isRecording) "Recording... Speak clearly" else "Ready to Clone",
                     color = Color.White,
@@ -102,7 +91,7 @@ fun VoiceManagementScreen(
                 ) {
                     Text(if (state.isRecording) "STOP" else "RECORD NEW SAMPLE")
                 }
-                
+
                 if (state.isCloning) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         CircularProgressIndicator(color = Color.Cyan, modifier = Modifier.size(24.dp))
@@ -114,16 +103,16 @@ fun VoiceManagementScreen(
             }
         }
 
-        // Import WAV Button
+        // Import from old recordings (launches the wizard)
         Button(
-            onClick = { filePickerLauncher.launch("audio/*") },
+            onClick = { onNavigateToImportWizard() },
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A1A2E)),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Icon(Icons.Default.FileUpload, contentDescription = "Upload audio file", tint = Color.Cyan)
+            Icon(Icons.Default.FileUpload, contentDescription = "Import recordings", tint = Color.Cyan)
             Spacer(Modifier.width(8.dp))
-            Text("Import Recordings (WAV)", color = Color.White)
+            Text("Import Audio / Video Recordings", color = Color.White)
         }
 
         // Voice List
@@ -136,45 +125,115 @@ fun VoiceManagementScreen(
         )
 
         LazyColumn(
-            modifier = Modifier.fillMaxWidth().weight(1f),
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(state.voices) { voice ->
                 val isActive = state.activeVoiceName == voice.name
+                val profile = state.profiles.find { it.name == voice.name }
+
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
                         containerColor = if (isActive) Color(0xFF1A1A2E) else Color(0xFF0F0F1A)
                     ),
                     shape = RoundedCornerShape(12.dp),
-                    border = if (isActive) CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(Color.Cyan)) else null
+                    border = if (isActive) CardDefaults.outlinedCardBorder().copy(
+                        brush = androidx.compose.ui.graphics.SolidColor(Color.Cyan)
+                    ) else null
                 ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Default.RecordVoiceOver, contentDescription = "Voice profile", tint = if (isActive) Color.Cyan else Color.Gray)
-                            Spacer(Modifier.width(12.dp))
-                            Text(voice.name, color = Color.White, fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal)
-                        }
-                        
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (!isActive) {
-                                Button(
-                                    onClick = { vm.selectVoice(voice.name) },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                    modifier = Modifier.height(32.dp)
-                                ) {
-                                    Text("Select", fontSize = 12.sp)
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(
+                                    Icons.Default.RecordVoiceOver,
+                                    contentDescription = "Voice profile",
+                                    tint = if (isActive) Color.Cyan else Color.Gray
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        voice.name,
+                                        color = Color.White,
+                                        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                    if (profile != null) {
+                                        Text(
+                                            "${profile.sampleCount} samples · ${profile.totalSpeechDurationMs / 1000}s",
+                                            color = Color(0xFF808099),
+                                            fontSize = 11.sp
+                                        )
+                                    }
                                 }
-                            } else {
-                                Text("Active", color = Color.Cyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
-                            
-                            IconButton(onClick = { vm.deleteVoice(voice.name) }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFF666680))
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (!isActive) {
+                                    Button(
+                                        onClick = { vm.selectVoice(voice.name) },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                        modifier = Modifier.height(32.dp)
+                                    ) {
+                                        Text("Select", fontSize = 12.sp)
+                                    }
+                                } else {
+                                    Text("Active", color = Color.Cyan, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp))
+                                }
+
+                                IconButton(onClick = { vm.deleteVoice(voice.name) }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFF666680))
+                                }
+                            }
+                        }
+
+                        // Quality bar for profiles with rich metadata
+                        if (profile != null) {
+                            Spacer(Modifier.height(8.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                LinearProgressIndicator(
+                                    progress = { profile.qualityScore },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(4.dp)
+                                        .clip(RoundedCornerShape(2.dp)),
+                                    color = when {
+                                        profile.qualityScore >= 0.7f -> Color(0xFF4CAF50)
+                                        profile.qualityScore >= 0.4f -> Color(0xFFFFEB3B)
+                                        else -> Color(0xFFFF9800)
+                                    },
+                                    trackColor = Color(0xFF1A1A2E),
+                                )
+                                Text(
+                                    when {
+                                        profile.qualityScore >= 0.8f -> "Excellent"
+                                        profile.qualityScore >= 0.6f -> "Good"
+                                        profile.qualityScore >= 0.4f -> "Fair"
+                                        else -> "Basic"
+                                    },
+                                    color = Color(0xFF808099),
+                                    fontSize = 10.sp
+                                )
+                            }
+
+                            // Add more samples button
+                            Spacer(Modifier.height(4.dp))
+                            TextButton(
+                                onClick = { onNavigateToImportWizard() },
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, tint = Color.Cyan, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Add more samples", color = Color.Cyan, fontSize = 11.sp)
                             }
                         }
                     }

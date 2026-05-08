@@ -141,4 +141,41 @@ class G2PConverter {
         
         return phonemes
     }
+
+    // ── ARPAbet ↔ IPA Conversion ────────────────────────────────────────
+
+    /**
+     * ARPAbet-to-IPA mapping table.
+     * Used when the TTS model (e.g. VITS/VCTK) expects IPA input.
+     */
+    private val arpabetToIpa = mapOf(
+        "AA" to "ɑ", "AE" to "æ", "AH" to "ʌ", "AO" to "ɔ",
+        "AW" to "aʊ", "AY" to "aɪ", "B" to "b", "CH" to "tʃ",
+        "D" to "d", "DH" to "ð", "EH" to "ɛ", "ER" to "ɝ",
+        "EY" to "eɪ", "F" to "f", "G" to "ɡ", "HH" to "h",
+        "IH" to "ɪ", "IY" to "i", "JH" to "dʒ", "K" to "k",
+        "L" to "l", "M" to "m", "N" to "n", "NG" to "ŋ",
+        "OW" to "oʊ", "OY" to "ɔɪ", "P" to "p", "R" to "ɹ",
+        "S" to "s", "SH" to "ʃ", "T" to "t", "TH" to "θ",
+        "UH" to "ʊ", "UW" to "u", "V" to "v", "W" to "w",
+        "Y" to "j", "Z" to "z", "ZH" to "ʒ"
+    )
+
+    /**
+     * Converts an ARPAbet phoneme to its IPA equivalent.
+     * Returns the original if no mapping exists.
+     */
+    fun toIPA(arpabet: String): String = arpabetToIpa[arpabet] ?: arpabet
+
+    /**
+     * Converts a list of ARPAbet phonemes to IPA.
+     */
+    fun toIPAList(arpabetPhonemes: List<String>): List<String> =
+        arpabetPhonemes.map { toIPA(it) }
+
+    /**
+     * Converts a sentence directly to IPA phonemes.
+     */
+    fun sentenceToIPA(sentence: String): List<String> =
+        toIPAList(sentenceToPhonemes(sentence))
 }

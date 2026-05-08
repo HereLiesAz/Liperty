@@ -211,6 +211,42 @@ else
     echo "[*] ${ONNX_MODEL} already exists."
 fi
 
+# --- TTS / Voice Cloning ONNX Models ---
+# Pre-converted ONNX models for PocketTTSEngine (voice cloning pipeline).
+# If not available from GitHub Releases, generate them locally with:
+#   pip install speechbrain TTS torch onnx onnxruntime numpy
+#   python tools/convert_tts_models.py
+
+TTS_RELEASE_TAG="v0.1.0-models"
+TTS_MODELS=("pocket_tts_speaker.onnx" "pocket_tts_acoustic.onnx" "pocket_tts_vocoder.onnx")
+
+for model in "${TTS_MODELS[@]}"; do
+    if [ ! -f "${TARGET_ASSETS}/${model}" ]; then
+        TTS_URL="https://github.com/HereLiesAz/Liperty/releases/download/${TTS_RELEASE_TAG}/${model}"
+        echo "[+] Downloading ${model} from GitHub Releases..."
+        if command -v curl &> /dev/null; then
+            curl -L -o "${TARGET_ASSETS}/${model}" "$TTS_URL"
+        elif command -v wget &> /dev/null; then
+            wget -O "${TARGET_ASSETS}/${model}" "$TTS_URL"
+        fi
+        if [ -f "${TARGET_ASSETS}/${model}" ] && file "${TARGET_ASSETS}/${model}" | grep -q "HTML"; then
+            echo "[!] Download failed for ${model} (got HTML). Generate locally with: python tools/convert_tts_models.py"
+            rm -f "${TARGET_ASSETS}/${model}"
+        else
+            echo "[+] ${model} installed."
+        fi
+    else
+        echo "[*] ${model} already exists."
+    fi
+done
+
+# Optional: FreeVC voice conversion model (requires manual download)
+if [ ! -f "${TARGET_ASSETS}/pocket_tts_vc.onnx" ]; then
+    echo "[*] pocket_tts_vc.onnx not found. Voice conversion is optional."
+    echo "    To enable: download FreeVC from https://github.com/OlaWod/FreeVC"
+    echo "    then run: python tools/convert_tts_models.py --freevc"
+fi
+
 # Fallback/Utility: Face and Hand Landmarkers (if still missing after assets.zip)
 FACE_TASK_URL="https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
 HAND_TASK_URL="https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"

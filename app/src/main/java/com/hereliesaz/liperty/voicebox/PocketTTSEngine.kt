@@ -138,8 +138,32 @@ class PocketTTSEngine(private val context: Context) {
         return VoiceState(name = name, embedding = averagedEmbedding)
     }
 
+    /**
+     * Extracts a speaker embedding from raw PCM samples (16 kHz mono, normalized [-1, 1]).
+     * Keeps audio in RAM only — no temporary files written to disk.
+     */
+    fun extractEmbeddingFromPcm(pcmSamples: FloatArray): FloatArray {
+        val session = speakerEncoderSession
+            ?: throw IllegalStateException("Speaker encoder not initialized")
+
+        OnnxTensor.createTensor(
+            ortEnv,
+            java.nio.FloatBuffer.wrap(pcmSamples),
+            longArrayOf(1, pcmSamples.size.toLong())
+        ).use { audioTensor ->
+            val inputs = mapOf("audio" to audioTensor)
+            session.run(inputs).use { result ->
+                val tensor = result.get(0)?.value as? OnnxTensor
+                    ?: throw IllegalStateException("Failed to extract embedding")
+                val floatBuffer = tensor.floatBuffer
+                val embedding = FloatArray(floatBuffer.remaining())
+                floatBuffer.get(embedding)
+                return embedding
+            }
+        }
+    }
+
     private fun extractEmbedding(audioFile: File): FloatArray {
-        val session = speakerEncoderSession ?: throw IllegalStateException("Speaker encoder not initialized")
         Log.i(TAG, "Extracting embedding from: ${audioFile.name}")
 
         // Minimal PCM load logic: skip 44-byte WAV header
@@ -153,16 +177,7 @@ class PocketTTSEngine(private val context: Context) {
             floatSamples[i] = sample.toFloat() / Short.MAX_VALUE
         }
 
-        OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(floatSamples), longArrayOf(1, floatSamples.size.toLong())).use { audioTensor ->
-            val inputs = mapOf("audio" to audioTensor)
-            session.run(inputs).use { result ->
-                val tensor = result.get(0)?.value as? OnnxTensor ?: throw IllegalStateException("Failed to extract embedding")
-                val floatBuffer = tensor.floatBuffer
-                val embedding = FloatArray(floatBuffer.remaining())
-                floatBuffer.get(embedding)
-                return embedding
-            }
-        }
+        return extractEmbeddingFromPcm(floatSamples)
     }
 
     /**

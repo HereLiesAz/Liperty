@@ -429,7 +429,19 @@ fun LipertyApp(
                     }
 
                     composable("voice_mgmt") {
-                        VoiceManagementScreen()
+                        VoiceManagementScreen(
+                            onNavigateToImportWizard = {
+                                navController.navigate("voice_import_wizard")
+                            }
+                        )
+                    }
+
+                    composable("voice_import_wizard") {
+                        val voiceVm: com.hereliesaz.liperty.voicebox.VoiceViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+                        VoiceImportWizardScreen(
+                            vm = voiceVm,
+                            onDismiss = { navController.popBackStack() }
+                        )
                     }
 
                     composable("settings") {
