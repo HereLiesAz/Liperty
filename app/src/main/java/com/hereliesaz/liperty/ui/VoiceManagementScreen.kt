@@ -80,7 +80,7 @@ fun VoiceManagementScreen(
             ) {
                 Icon(
                     imageVector = Icons.Default.Mic,
-                    contentDescription = null,
+                    contentDescription = "Recording status",
                     tint = if (state.isRecording) Color.Red else Color.Cyan,
                     modifier = Modifier.size(48.dp)
                 )
@@ -121,7 +121,7 @@ fun VoiceManagementScreen(
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A1A2E)),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Icon(Icons.Default.FileUpload, contentDescription = null, tint = Color.Cyan)
+            Icon(Icons.Default.FileUpload, contentDescription = "Upload audio file", tint = Color.Cyan)
             Spacer(Modifier.width(8.dp))
             Text("Import Recordings (WAV)", color = Color.White)
         }
@@ -155,7 +155,7 @@ fun VoiceManagementScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            Icon(Icons.Default.RecordVoiceOver, contentDescription = null, tint = if (isActive) Color.Cyan else Color.Gray)
+                            Icon(Icons.Default.RecordVoiceOver, contentDescription = "Voice profile", tint = if (isActive) Color.Cyan else Color.Gray)
                             Spacer(Modifier.width(12.dp))
                             Text(voice.name, color = Color.White, fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal)
                         }

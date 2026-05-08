@@ -2,7 +2,6 @@
 
 # Keep MediaPipe and LiteRT classes
 -keep class com.google.mediapipe.** { *; }
--keep class com.google.tensorflow.lite.** { *; }
 -keep class com.google.ai.edge.litert.** { *; }
 -keep class com.google.ai.edge.** { *; }
 

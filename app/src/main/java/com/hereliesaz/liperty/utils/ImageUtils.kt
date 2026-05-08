@@ -45,7 +45,10 @@ object ImageUtils {
         return image.toBitmap()
     }
 
-    // Pre-allocated buffers for zero-allocation YUV to ARGB conversion
+    // Pre-allocated buffers for zero-allocation YUV to ARGB conversion.
+    // NOTE: These fields are NOT thread-safe and must only be accessed from a single
+    // camera/processing thread. Do not call imageProxyToBitmap(ImageProxy, Bitmap)
+    // concurrently from multiple threads.
     private var nv21Buffer: ByteArray? = null
     private var argbBuffer: IntArray? = null
 
@@ -149,6 +152,10 @@ object ImageUtils {
     /**
      * Aligns and crops the mouth region from the input bitmap.
      */
+    @Deprecated(
+        "Use the two-arg overload with a pooled destBitmap",
+        ReplaceWith("alignAndCropMouth(bitmap, destBitmap)")
+    )
     fun alignAndCropMouth(bitmap: Bitmap, mouthRect: Rect, rotationDegrees: Float, targetWidth: Int, targetHeight: Int): Bitmap {
         val targetBitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
         return alignAndCropMouth(bitmap, mouthRect, rotationDegrees, targetWidth, targetHeight, targetBitmap)

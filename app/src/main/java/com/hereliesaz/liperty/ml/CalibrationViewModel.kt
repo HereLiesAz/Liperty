@@ -3,6 +3,7 @@ package com.hereliesaz.liperty.ml
 import android.app.Application
 import android.content.Context
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,8 +52,11 @@ class CalibrationViewModel(private val app: Application) : AndroidViewModel(app)
         _uiState.value = _uiState.value.copy(isRecording = false, isTraining = true, statusMessage = "Updating model...")
         
         viewModelScope.launch {
-            manager.processCurrentPhrase(_uiState.value.currentPhrase)
-            
+            val loss = manager.processCurrentPhrase(_uiState.value.currentPhrase)
+            if (loss < 0f) {
+                Log.w("CalibrationViewModel", "processCurrentPhrase returned $loss — training step skipped (insufficient frames or API unavailable)")
+            }
+
             val isDone = manager.isCalibrationComplete()
             if (isDone) {
                 val sharedPrefs = app.getSharedPreferences("LipertyPrefs", Context.MODE_PRIVATE)
@@ -62,7 +66,7 @@ class CalibrationViewModel(private val app: Application) : AndroidViewModel(app)
             _uiState.value = _uiState.value.copy(
                 isTraining = false,
                 currentPhrase = manager.getCurrentPhrase(),
-                progress = _uiState.value.progress + 0.25f,
+                progress = (_uiState.value.progress + 0.25f).coerceAtMost(1.0f),
                 calibrationDone = isDone,
                 statusMessage = if (isDone) "Calibration Complete!" else "Phrase saved. Next one?"
             )

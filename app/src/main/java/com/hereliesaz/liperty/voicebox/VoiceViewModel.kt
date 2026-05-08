@@ -2,6 +2,7 @@ package com.hereliesaz.liperty.voicebox
 
 import android.app.Application
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.hereliesaz.liperty.voicebox.cloning.VoiceStore
@@ -102,7 +103,7 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
                             }
                             tempFile
                         } catch (e: Exception) {
-                            e.printStackTrace()
+                            Log.e("VoiceViewModel", "Failed to copy URI to temp file: $uri", e)
                             null
                         }
                     }
@@ -113,6 +114,9 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
                         pocketTts.cloneVoice(name, tempFiles)
                     }
                     voiceStore.saveVoice(voiceState)
+                    withContext(Dispatchers.IO) {
+                        tempFiles.forEach { it.delete() }
+                    }
                 }
                 pendingCloningUris = emptyList()
             }

@@ -26,22 +26,41 @@ def create_trainable_model():
     model = tf.keras.Model(inputs=input_video, outputs=output_layer)
     
     # 2. Define Loss and Optimizer
-    loss_fn = tf.keras.losses.CategoricalCrossentropy(from_logits=False)
+    # CTC loss must be used for sequence-to-sequence lipreading (not CategoricalCrossentropy).
+    # tf.nn.ctc_loss expects inputs of shape (time, batch, num_classes) with log probabilities,
+    # target labels as a SparseTensor, sequence lengths, and label lengths.
+    # The training signature below wraps ctc_loss for use inside tf.GradientTape.
+    loss_fn = tf.nn.ctc_loss
     optimizer = tf.keras.optimizers.SGD(learning_rate=0.01)
 
     # 3. Define Training Step (The Signature)
+    # NOTE: CTC loss requires (labels, label_length, logit_length) and logits in time-major
+    # layout (time, batch, num_classes). The signature below accepts pre-encoded sparse
+    # label indices and sequence-length tensors as required by tf.nn.ctc_loss.
     @tf.function(input_signature=[
         tf.TensorSpec([None, 50, 88, 88, 1], tf.float32),  # Input Video
-        tf.TensorSpec([None, 50, 40], tf.float32)          # Target Labels (One-Hot)
+        tf.TensorSpec([None, None], tf.int32),              # Target label indices (padded)
+        tf.TensorSpec([None], tf.int32),                    # Label lengths
+        tf.TensorSpec([None], tf.int32),                    # Logit (input) lengths
     ])
-    def train(video_input, target_labels):
+    def train(video_input, target_labels, label_lengths, logit_lengths):
         with tf.GradientTape() as tape:
-            predictions = model(video_input, training=True)
-            loss = loss_fn(target_labels, predictions)
-            
+            predictions = model(video_input, training=True)  # (batch, time, num_classes)
+            # CTC loss expects time-major logits: (time, batch, num_classes)
+            logits_time_major = tf.transpose(predictions, [1, 0, 2])
+            loss = loss_fn(
+                labels=target_labels,
+                logits=logits_time_major,
+                label_length=label_lengths,
+                logit_length=logit_lengths,
+                blank_index=39,  # Index 39 reserved as CTC blank token
+                logits_time_major=True,
+            )
+            loss = tf.reduce_mean(loss)
+
         gradients = tape.gradient(loss, model.trainable_variables)
         optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-        
+
         return {"loss": loss}
 
     # 4. Define Inference Step

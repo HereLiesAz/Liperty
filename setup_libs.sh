@@ -40,7 +40,17 @@ else
 
     # 3. Extract
     echo "[+] Extracting ${OPENCV_ZIP}..."
-    unzip -q "${TARGET_LIBS}/${OPENCV_ZIP}" -d "$TARGET_LIBS"
+    OUTPUT_FILE="${TARGET_LIBS}/${OPENCV_ZIP}"
+    if file "$OUTPUT_FILE" | grep -q "HTML"; then
+        echo "ERROR: Downloaded file appears to be an HTML page, not a zip. Google Drive download likely failed."
+        rm -f "$OUTPUT_FILE"
+        exit 1
+    fi
+    unzip -q "$OUTPUT_FILE" -d "$TARGET_LIBS"
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Failed to unzip. Download may have failed."
+        exit 1
+    fi
 
     # 4. Rename/Structure
     if [ -d "${TARGET_LIBS}/OpenCV-android-sdk" ]; then
@@ -106,8 +116,17 @@ if [ ! -f "VALLR/VALLR.path" ]; then
     mkdir -p "VALLR"
     download_from_gdrive "$VALLR_GD_ID" "Vallr.zip"
     if [ -f "Vallr.zip" ]; then
+        if file "Vallr.zip" | grep -q "HTML"; then
+            echo "ERROR: Downloaded file appears to be an HTML page, not a zip. Google Drive download likely failed."
+            rm -f "Vallr.zip"
+            exit 1
+        fi
         echo "[+] Extracting Vallr.zip..."
         unzip -o "Vallr.zip" -d "VALLR/"
+        if [ $? -ne 0 ]; then
+            echo "ERROR: Failed to unzip. Download may have failed."
+            exit 1
+        fi
         rm "Vallr.zip"
     fi
 else
@@ -119,8 +138,17 @@ if [ ! -d "tools/external" ]; then
     mkdir -p "tools"
     download_from_gdrive "$TOOLS_GD_ID" "tools.zip"
     if [ -f "tools.zip" ]; then
+        if file "tools.zip" | grep -q "HTML"; then
+            echo "ERROR: Downloaded file appears to be an HTML page, not a zip. Google Drive download likely failed."
+            rm -f "tools.zip"
+            exit 1
+        fi
         echo "[+] Extracting tools.zip..."
         unzip -o "tools.zip" -d "tools/"
+        if [ $? -ne 0 ]; then
+            echo "ERROR: Failed to unzip. Download may have failed."
+            exit 1
+        fi
         rm "tools.zip"
     fi
 else
@@ -131,8 +159,17 @@ fi
 if [ ! -f "${TARGET_ASSETS}/vallr_model.tflite" ]; then
     download_from_gdrive "$ASSETS_GD_ID" "assets.zip"
     if [ -f "assets.zip" ]; then
+        if file "assets.zip" | grep -q "HTML"; then
+            echo "ERROR: Downloaded file appears to be an HTML page, not a zip. Google Drive download likely failed."
+            rm -f "assets.zip"
+            exit 1
+        fi
         echo "[+] Extracting assets.zip..."
         unzip -o "assets.zip" -d "$TARGET_ASSETS"
+        if [ $? -ne 0 ]; then
+            echo "ERROR: Failed to unzip. Download may have failed."
+            exit 1
+        fi
         rm "assets.zip"
     fi
 else

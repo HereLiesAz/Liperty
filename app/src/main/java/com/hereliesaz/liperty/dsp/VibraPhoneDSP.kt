@@ -15,12 +15,15 @@ class VibraPhoneDSP {
 
     companion object {
         init {
-            System.loadLibrary("liperty_cv")
+            try {
+                System.loadLibrary("liperty_cv")
+            } catch (e: UnsatisfiedLinkError) {
+                android.util.Log.e("VibraPhoneDSP", "Native library not available", e)
+            }
         }
         const val SAMPLE_RATE = 16000
         const val FRAME_SIZE = 512
         const val HOP_SIZE = 256
-        private const val EXCITED_HARMONICS_SCALE = 0.5f
     }
 
     private external fun nativeSpectralSubtraction(input: FloatArray, noise: FloatArray)
@@ -250,11 +253,17 @@ class VibraPhoneDSP {
         
         return Array(numBins) { m ->
             val filter = FloatArray(numFreqs)
-            for (i in binPoints[m]..binPoints[m+1]) {
-                filter[i] = (i - binPoints[m]).toFloat() / (binPoints[m+1] - binPoints[m])
+            val denom1 = binPoints[m+1] - binPoints[m]
+            if (denom1 > 0) {
+                for (i in binPoints[m]..binPoints[m+1]) {
+                    filter[i] = (i - binPoints[m]).toFloat() / denom1
+                }
             }
-            for (i in binPoints[m+1]..binPoints[m+2]) {
-                filter[i] = (binPoints[m+2] - i).toFloat() / (binPoints[m+2] - binPoints[m+1])
+            val denom2 = binPoints[m+2] - binPoints[m+1]
+            if (denom2 > 0) {
+                for (i in binPoints[m+1]..binPoints[m+2]) {
+                    filter[i] = (binPoints[m+2] - i).toFloat() / denom2
+                }
             }
             filter
         }
@@ -289,8 +298,8 @@ class VibraPhoneDSP {
             complexSpectrum[2 * i + 1] = im
             
             // Mirror for conjugate symmetry (negative frequencies)
-            if (i > 0) {
-                val mirrorIdx = (n * 2 - i) % (n * 2)
+            val mirrorIdx = n - i
+            if (mirrorIdx > 0 && mirrorIdx < n) {
                 complexSpectrum[2 * mirrorIdx] = re
                 complexSpectrum[2 * mirrorIdx + 1] = -im
             }
@@ -305,13 +314,6 @@ class VibraPhoneDSP {
             val re = complex[2 * i]
             val im = complex[2 * i + 1]
             sqrt(re * re + im * im)
-        }
-    }
-
-    private fun calculatePhases(complex: FloatArray): FloatArray {
-        val n = complex.size / 2
-        return FloatArray(n) { i ->
-            atan2(complex[2 * i + 1], complex[2 * i])
         }
     }
 

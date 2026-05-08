@@ -34,7 +34,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -53,7 +53,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.hereliesaz.liperty.ml.CalibrationViewModel
-import com.hereliesaz.liperty.ui.CalibrationScreen
 import com.hereliesaz.aznavrail.AzHostActivityLayout
 import com.hereliesaz.aznavrail.AzNavHost
 
@@ -434,28 +433,28 @@ fun LipertyApp(
                     }
 
                     composable("settings") {
-                        SideEffect {
+                        LaunchedEffect(Unit) {
                             onOpenSettings()
                             navController.popBackStack()
                         }
                     }
 
                     composable("switch_cam") {
-                        SideEffect {
+                        LaunchedEffect(Unit) {
                             onSwitchCamera()
                             navController.popBackStack()
                         }
                     }
 
                     composable("clear") {
-                        SideEffect {
+                        LaunchedEffect(Unit) {
                             onClearTranscript()
                             navController.popBackStack()
                         }
                     }
 
                     composable("speak") {
-                        SideEffect {
+                        LaunchedEffect(Unit) {
                             onSpeak()
                             navController.popBackStack()
                         }

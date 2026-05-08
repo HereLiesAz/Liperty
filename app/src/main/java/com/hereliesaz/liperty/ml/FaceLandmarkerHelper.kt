@@ -42,7 +42,7 @@ class FaceLandmarkerHelper(
     private fun setupFaceLandmarker() {
         try {
             val baseOptions = BaseOptions.builder()
-                .setModelAssetPath("./face_landmarker.task") // Uses BlazeFace (Short/Full Range)
+                .setModelAssetPath("face_landmarker.task") // Uses BlazeFace (Short/Full Range)
                 .build()
 
             val options = FaceLandmarker.FaceLandmarkerOptions.builder()
@@ -89,8 +89,8 @@ class FaceLandmarkerHelper(
 
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE
-        var maxX = Float.MIN_VALUE
-        var maxY = Float.MIN_VALUE
+        var maxX = Float.NEGATIVE_INFINITY
+        var maxY = Float.NEGATIVE_INFINITY
 
         for (index in LIP_INDICES) {
             if (index < landmarks.size) {

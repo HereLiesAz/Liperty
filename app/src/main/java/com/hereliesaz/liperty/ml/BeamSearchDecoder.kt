@@ -15,26 +15,46 @@ class BeamSearchDecoder(
 
     data class BeamState(
         val text: String,
-        val lastToken: String = "",         // last non-blank token emitted (for LM scoring)
-        val probBlank: Double = 0.0,        // probability that path ends in blank
-        val probNonBlank: Double = 0.0      // probability that path ends in non-blank
+        val lastToken: String = "",
+        val logProbBlank: Double = Double.NEGATIVE_INFINITY,
+        val logProbNonBlank: Double = Double.NEGATIVE_INFINITY
     ) {
-        val totalProb: Double get() = probBlank + probNonBlank
-        val score: Double get() = if (totalProb > 0) Math.log(totalProb) else -Double.MAX_VALUE
+        val logTotalProb: Double get() = logSumExp(logProbBlank, logProbNonBlank)
+        val score: Double get() = logTotalProb
+    }
+
+    companion object {
+        private fun logSumExp(a: Double, b: Double): Double {
+            if (a == Double.NEGATIVE_INFINITY) return b
+            if (b == Double.NEGATIVE_INFINITY) return a
+            val max = maxOf(a, b)
+            return max + Math.log(Math.exp(a - max) + Math.exp(b - max))
+        }
     }
 
     /**
-     * Decodes a sequence of probabilities (T × V) into a string using CTC Beam Search
+     * Decodes a sequence of probabilities (T x V) into a string using CTC Beam Search
      * with prefix merging and optional bigram language-model rescoring.
      *
+     * Uses log-domain arithmetic throughout to avoid floating-point underflow on long
+     * sequences. All probabilities are represented as natural logarithms.
+     *
      * LM integration: when [languageModel] is non-null, each token extension receives
-     *   a multiplicative bonus of `(1 + lmWeight × P_lm(token | prevToken))`
+     *   an additive log bonus of `log(1 + lmWeight * P_lm(token | prevToken))`
      * so the LM gently steers the search without dominating the acoustic model.
      */
     fun decode(probabilities: Array<FloatArray>): String {
         if (probabilities.isEmpty()) return ""
 
-        var beams = listOf(BeamState(text = "", lastToken = "", probBlank = 1.0, probNonBlank = 0.0))
+        // Seed beam: the empty prefix has log(1.0) = 0.0 probability of ending in blank.
+        var beams = listOf(
+            BeamState(
+                text = "",
+                lastToken = "",
+                logProbBlank = 0.0,
+                logProbNonBlank = Double.NEGATIVE_INFINITY
+            )
+        )
 
         for (timeStep in probabilities) {
             val nextBeams = mutableMapOf<String, BeamState>()
@@ -42,9 +62,10 @@ class BeamSearchDecoder(
             for (beam in beams) {
                 // 1. Path continues through blank
                 val pBlank = timeStep[blankIndex].toDouble()
-                val cur = nextBeams.getOrDefault(beam.text, BeamState(beam.text, beam.lastToken))
-                nextBeams[beam.text] = cur.copy(
-                    probBlank = cur.probBlank + beam.totalProb * pBlank
+                val logPBlank = if (pBlank > 0.0) Math.log(pBlank) else Double.NEGATIVE_INFINITY
+                val curBlank = nextBeams.getOrDefault(beam.text, BeamState(beam.text, beam.lastToken))
+                nextBeams[beam.text] = curBlank.copy(
+                    logProbBlank = logSumExp(curBlank.logProbBlank, beam.logTotalProb + logPBlank)
                 )
 
                 // 2. Path extends with a non-blank token
@@ -54,29 +75,43 @@ class BeamSearchDecoder(
                     val char = if (v < vocabulary.size) vocabulary[v] else ""
                     if (char.isEmpty()) continue
 
-                    // LM bonus: favour phoneme transitions that are common in English
-                    val lmFactor = if (languageModel != null && beam.lastToken.isNotEmpty()) {
-                        1.0 + lmWeight * languageModel.getScore(beam.lastToken, char)
-                    } else 1.0
-                    val pToken = timeStep[v].toDouble() * lmFactor
+                    val pToken = timeStep[v].toDouble()
+                    if (pToken <= 0.0) continue
+                    var logPToken = Math.log(pToken)
 
-                    val newText = beam.text + char
+                    // LM bonus: favour phoneme transitions common in English
+                    if (languageModel != null && beam.lastToken.isNotEmpty()) {
+                        val lmScore = languageModel.getScore(beam.lastToken, char)
+                        val lmFactor = 1.0 + lmWeight * lmScore
+                        if (lmFactor > 0.0) logPToken += Math.log(lmFactor)
+                    }
+
+                    val newText = if (beam.text.isEmpty()) char else beam.text + " " + char
 
                     if (beam.text.endsWith(char)) {
                         // Repeat token: only allowed if last arc was blank (CTC rule)
                         val repeatEntry = nextBeams.getOrDefault(newText, BeamState(newText, char))
                         nextBeams[newText] = repeatEntry.copy(
-                            probNonBlank = repeatEntry.probNonBlank + beam.probBlank * pToken
+                            logProbNonBlank = logSumExp(
+                                repeatEntry.logProbNonBlank,
+                                beam.logProbBlank + logPToken
+                            )
                         )
                         // Collapsing: same token following same token stays on current prefix
                         val stayEntry = nextBeams.getOrDefault(beam.text, BeamState(beam.text, beam.lastToken))
                         nextBeams[beam.text] = stayEntry.copy(
-                            probNonBlank = stayEntry.probNonBlank + beam.probNonBlank * pToken
+                            logProbNonBlank = logSumExp(
+                                stayEntry.logProbNonBlank,
+                                beam.logProbNonBlank + logPToken
+                            )
                         )
                     } else {
                         val newEntry = nextBeams.getOrDefault(newText, BeamState(newText, char))
                         nextBeams[newText] = newEntry.copy(
-                            probNonBlank = newEntry.probNonBlank + beam.totalProb * pToken
+                            logProbNonBlank = logSumExp(
+                                newEntry.logProbNonBlank,
+                                beam.logTotalProb + logPToken
+                            )
                         )
                     }
                 }

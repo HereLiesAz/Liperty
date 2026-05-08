@@ -17,15 +17,15 @@ class SSREngine(private val context: Context) : ModelEngine {
     override fun initialize(): Boolean {
         if (compiledModel != null) return true
         try {
-            val options = try {
-                CompiledModel.Options(Accelerator.GPU)
-            } catch (e: Exception) {
-                Log.e("SSREngine", "GPU Accelerator not supported, falling back to CPU", e)
-                CompiledModel.Options(Accelerator.CPU)
-            }
-            // Attempt to load.
-            compiledModel = CompiledModel.create(context.assets, MODEL_NAME, options)
-            Log.i("SSREngine", "SSR Model loaded successfully with LiteRT")
+            compiledModel = CompiledModel.create(context.assets, MODEL_NAME, CompiledModel.Options(Accelerator.GPU))
+            Log.i("SSREngine", "SSR Model loaded with GPU")
+            return true
+        } catch (e: Exception) {
+            Log.w("SSREngine", "GPU failed, trying CPU", e)
+        }
+        try {
+            compiledModel = CompiledModel.create(context.assets, MODEL_NAME, CompiledModel.Options(Accelerator.CPU))
+            Log.i("SSREngine", "SSR Model loaded with CPU")
             return true
         } catch (e: Exception) {
             Log.e("SSREngine", "Error initializing SSREngine", e)

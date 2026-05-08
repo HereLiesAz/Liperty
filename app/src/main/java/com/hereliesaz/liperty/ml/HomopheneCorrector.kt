@@ -1,6 +1,7 @@
 package com.hereliesaz.liperty.ml
 
 import android.content.Context
+import android.util.Log
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -37,7 +38,7 @@ class HomopheneCorrector(private val context: Context) {
                 map[key] = alternatives
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("HomopheneCorrector", "Failed to load homophones.json", e)
             // Fallback or empty map if loading fails
         }
         return map

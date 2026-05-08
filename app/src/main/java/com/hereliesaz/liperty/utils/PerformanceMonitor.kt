@@ -6,9 +6,8 @@ import android.util.Log
 object PerformanceMonitor {
     private const val TAG = "PerformanceMonitor"
 
-    private var lastFrameTime = 0L
     private var frameCount = 0
-    private var lastFpsTime = 0L
+    @Volatile private var lastFpsTime = 0L
 
     fun logInferenceTime(timeMs: Long) {
         Log.d(TAG, "Inference Time: $timeMs ms")
@@ -16,6 +15,12 @@ object PerformanceMonitor {
 
     fun logFrame() {
         val now = SystemClock.uptimeMillis()
+
+        if (lastFpsTime == 0L) {
+            lastFpsTime = now
+            return
+        }
+
         frameCount++
 
         if (now - lastFpsTime >= 1000) {

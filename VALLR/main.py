@@ -1,4 +1,3 @@
-from curses import version
 import torch
 import wandb
 from tqdm import tqdm
@@ -11,9 +10,8 @@ from Data.dataset import VideoDataset
 import torch.nn as nn
 from config import load_args, WarmupScheduler, get_vocab
 import numpy as np
-from transformers import VideoMAEConfig, Wav2Vec2Config, Wav2Vec2Tokenizer, GPT2Tokenizer, GPT2LMHeadModel
+from transformers import VideoMAEConfig, Wav2Vec2Config
 import os
-import numpy as np
 from decord import VideoReader, cpu
 import torch.nn.functional as F
 import jiwer

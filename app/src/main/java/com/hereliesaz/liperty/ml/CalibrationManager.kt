@@ -17,7 +17,8 @@ import java.nio.ByteOrder
 class CalibrationManager(private val context: Context) {
 
     private val trainer = OnDeviceTrainer(context)
-    
+    private val g2pConverter = G2PConverter()
+
     // Phrases for calibration (phonetically diverse)
     val calibrationPhrases = listOf(
         "The quick brown fox jumps over the lazy dog",
@@ -28,13 +29,14 @@ class CalibrationManager(private val context: Context) {
 
     private var currentPhraseIndex = 0
     private val collectedFrames = mutableListOf<Bitmap>()
+    private var hasStarted = false
     
     // Constants matching vsr_lora_model.tflite (VALLR Production)
     private val INPUT_WIDTH = 224
     private val INPUT_HEIGHT = 224
     private val NUM_FRAMES = 16
     private val NUM_CHANNELS = 3
-    private val VOCAB_SIZE = 40 // Matching MLConstants.PHONEME_VOCAB (0-39)
+    private val VOCAB_SIZE = 40 // Matching MLConstants.PHONEME_VOCAB (0-39); label buffer shape: [1, NUM_FRAMES, VOCAB_SIZE]
 
     fun initialize() {
         trainer.initialize()
@@ -56,6 +58,7 @@ class CalibrationManager(private val context: Context) {
      * @param label The ground truth text for the phrase.
      */
     suspend fun processCurrentPhrase(label: String): Float = withContext(Dispatchers.Default) {
+        hasStarted = true
         if (collectedFrames.size < NUM_FRAMES) {
             Log.w("CalibrationManager", "Insufficient frames for training: ${collectedFrames.size}")
             return@withContext -1f
@@ -77,7 +80,7 @@ class CalibrationManager(private val context: Context) {
         }
         inputBuffer.rewind()
 
-        // 2. Prepare Label Buffer [1, 50, 40]
+        // 2. Prepare Label Buffer [1, NUM_FRAMES, VOCAB_SIZE]
         val labelBuffer = ByteBuffer.allocateDirect(1 * NUM_FRAMES * VOCAB_SIZE * 4)
         labelBuffer.order(ByteOrder.nativeOrder())
         
@@ -85,8 +88,7 @@ class CalibrationManager(private val context: Context) {
         val vocab = MLConstants.PHONEME_VOCAB
 
         // Use G2PConverter to translate text to phonemes
-        val converter = G2PConverter()
-        val targetPhonemes = converter.sentenceToPhonemes(label)
+        val targetPhonemes = g2pConverter.sentenceToPhonemes(label)
         
         // Convert phonemes to their respective vocab indices
         val targetIndices = targetPhonemes.mapNotNull { phoneme ->
@@ -106,7 +108,7 @@ class CalibrationManager(private val context: Context) {
         val loss = trainer.trainStep(inputBuffer, labelBuffer)
         
         // Clean up
-        collectedFrames.forEach { it.recycle() }
+        collectedFrames.forEach { BitmapPool.recycle(it) }
         collectedFrames.clear()
         
         currentPhraseIndex = (currentPhraseIndex + 1) % calibrationPhrases.size
@@ -115,9 +117,9 @@ class CalibrationManager(private val context: Context) {
     }
 
     fun isCalibrationComplete(): Boolean {
-        // Return true if we've gone through all phrases once
-        // (For the sake of this task, we can say it's done after phrases are processed)
-        return currentPhraseIndex == 0 && collectedFrames.isEmpty() // Wrapped around
+        // Return true only after calibration has started and all phrases have been processed
+        // (currentPhraseIndex wraps back to 0 after the final phrase)
+        return hasStarted && currentPhraseIndex == 0 && collectedFrames.isEmpty()
     }
 
     fun close() {

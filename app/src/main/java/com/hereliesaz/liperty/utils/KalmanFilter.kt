@@ -28,6 +28,7 @@ class KalmanFilter(
         val kalmanGain = priorError / (priorError + measurementNoise)
         predictedEstimate = priorEstimate + kalmanGain * (measurement - priorEstimate)
         estimateError = (1 - kalmanGain) * priorError
+        estimateError = estimateError.coerceAtLeast(1e-6f)
 
         return predictedEstimate
     }

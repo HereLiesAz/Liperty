@@ -75,8 +75,8 @@ class VideoViTMasked(nn.Module):
             bias=True
         )
 
-        # Positional embeddings: created on first forward for the current N
-        self.register_buffer("pos_embed", None, persistent=False)  # created as nn.Parameter at runtime
+        # Positional embeddings: initialized to None; lazily created as a non-persistent buffer on first forward
+        self.pos_embed = None
 
         # Transformer encoder
         self.blocks = nn.ModuleList([
@@ -119,9 +119,9 @@ class VideoViTMasked(nn.Module):
         x = x.flatten(2).transpose(1, 2)  # (B, N, D), N = Tp*Hp*Wp
         N = x.size(1)
 
-        # Create/resize learnable positional embeddings for this N
-        if (self.pos_embed is None) or (self.pos_embed.size(1) != N):
-            self.pos_embed = nn.Parameter(torch.zeros(1, N, self.embed_dim, device=device))
+        # Create/resize positional embeddings for this N (registered as a non-persistent buffer)
+        if self.pos_embed is None or self.pos_embed.size(1) != N:
+            self.register_buffer('pos_embed', torch.zeros(1, N, self.embed_dim, device=device), persistent=False)
 
         tokens = x + self.pos_embed  # (B, N, D)
 
@@ -165,7 +165,7 @@ class VALLR(nn.Module):
         adapter_dim: int,
         feature_size: int = 768,      # ViT embed dim
         ctc_hidden_size: int = 768,
-        num_classes: int = 32,
+        num_classes: int = 40,
 
         # ViT (video) config
         img_size: int = 224,

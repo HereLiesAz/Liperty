@@ -21,7 +21,7 @@ import java.nio.channels.FileChannel
  */
 class TFLiteEngine(
     private val context: Context,
-    private val modelName: String = "vallr_model.tflite"
+    private val modelName: String = "vsr_model.tflite"
 ) : ModelEngine {
 
     private var interpreter: Interpreter? = null
@@ -31,6 +31,7 @@ class TFLiteEngine(
         useInternalStorage = use
     }
 
+    @Synchronized
     override fun initialize(): Boolean {
         if (interpreter != null) return true
 
@@ -50,9 +51,11 @@ class TFLiteEngine(
         if (useInternalStorage) {
             val file = java.io.File(context.filesDir, modelName)
             if (file.exists()) {
-                return FileInputStream(file).channel
-                    .map(FileChannel.MapMode.READ_ONLY, 0, file.length())
-                    .also { Log.i("TFLiteEngine", "Loaded '$modelName' from filesDir") }
+                return FileInputStream(file).use { fis ->
+                    fis.channel
+                        .map(FileChannel.MapMode.READ_ONLY, 0, file.length())
+                        .also { Log.i("TFLiteEngine", "Loaded '$modelName' from filesDir") }
+                }
             }
             Log.w("TFLiteEngine", "Internal file '$modelName' not found, using assets")
         }
@@ -88,7 +91,7 @@ class TFLiteEngine(
 
     override fun getInputShape(inputIndex: Int): IntArray =
         interpreter?.getInputTensor(inputIndex)?.shape()
-            ?: if (inputIndex == 0) intArrayOf(1, 50, 64, 128, 1) else intArrayOf(1, 50, 40) // Dummy landmark array shape
+            ?: if (inputIndex == 0) intArrayOf(1, 50, 64, 128, 3) else intArrayOf(1, 50, 40) // Dummy landmark array shape
 
     override fun close() {
         interpreter?.close()

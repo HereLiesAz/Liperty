@@ -58,6 +58,7 @@ class VideoDataset(Dataset):
                 continue
 
             video_tensor = torch.tensor(video).permute(0, 3, 1, 2)  # Convert to (T, C, H, W)
+            video_tensor = video_tensor.float() / 255.0
 
             # Get phoneme indices for the label using the pronouncing library
             phonemes = get_phonemes(label)

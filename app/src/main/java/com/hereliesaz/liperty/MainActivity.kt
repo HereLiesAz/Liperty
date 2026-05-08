@@ -6,10 +6,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
  import android.graphics.PointF
-import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Bundle
-import android.speech.tts.TextToSpeech
 import android.util.Log
 import android.view.ViewGroup
 import android.widget.Toast
@@ -47,9 +45,6 @@ import com.hereliesaz.liperty.voicebox.recording.VoiceRecorder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Locale
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
 
@@ -58,7 +53,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var handGestureHelper: HandGestureHelper
     private lateinit var overlayView: OverlayView
     private lateinit var previewView: PreviewView
-    private lateinit var cameraExecutor: ExecutorService
     private lateinit var vsrInference: VSRInference
     private lateinit var ssrInference: SSRInference
     private lateinit var frameBuffer: FrameBuffer
@@ -88,10 +82,10 @@ class MainActivity : ComponentActivity() {
     private val isDarkTheme = mutableStateOf(true)
 
     // Flag to prevent overlapping inference calls
-    private var isInferencing = false
+    @Volatile private var isInferencing = false
     private val isPausedState = mutableStateOf(false)
-    private var frameCount = 0
-    private var calibrationCallback: ((Bitmap) -> Unit)? = null
+    @Volatile private var frameCount = 0
+    @Volatile private var calibrationCallback: ((Bitmap) -> Unit)? = null
 
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
@@ -130,7 +124,6 @@ class MainActivity : ComponentActivity() {
         // For simplicity, let's use the one in LaryngealSensor if EL mode is active.
         // But MainActivity might need its own if it does other things.
         frameBuffer = FrameBuffer(capacity = 50) // VSR model input: [1, 50, 64, 128, 3] and landmarks: [1, 50, 40]
-        cameraExecutor = Executors.newSingleThreadExecutor()
 
         // Initialize TFLite in background
         lifecycleScope.launch(Dispatchers.Default) {
@@ -272,7 +265,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun toggleSSIMode() {
-        if (isELModeState.value) toggleELMode() // Mutually exclusive
+        if (isELModeState.value) {
+            isSSIModeState.value = false
+            toggleELMode() // Mutually exclusive
+        }
         val newMode = !isSSIModeState.value
         isSSIModeState.value = newMode
         
@@ -308,7 +304,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun toggleELMode() {
-        if (isSSIModeState.value) toggleSSIMode() // Mutually exclusive
+        if (isSSIModeState.value) {
+            isELModeState.value = false
+            toggleSSIMode() // Mutually exclusive
+        }
         val newMode = !isELModeState.value
         isELModeState.value = newMode
         
@@ -371,8 +370,8 @@ class MainActivity : ComponentActivity() {
             if (frameCount % 5 == 0) {
                 val gesture = handGestureHelper.detectSynchronously(bitmap)
                 if (gesture == HandGestureHelper.HandGesture.WAVE_PAUSE) {
-                    isPausedState.value = !isPausedState.value
                     runOnUiThread {
+                        isPausedState.value = !isPausedState.value
                         val msg = if (isPausedState.value) "Paused" else "Resumed"
                         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
                     }
@@ -580,9 +579,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        cameraExecutor.shutdown()
         cameraManager.shutdown()
         faceLandmarkerHelper.close()
+        handGestureHelper.close()
+        laryngealSensor.stop()
         vsrInference.close()
         ssrInference.close()
         voiceManager.stop()

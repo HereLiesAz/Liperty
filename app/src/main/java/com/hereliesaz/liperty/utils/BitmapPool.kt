@@ -31,11 +31,19 @@ object BitmapPool {
         synchronized(pools) {
             val deque = pools.getOrPut(key) { ArrayDeque() }
             if (deque.size < MAX_POOL_SIZE) deque.addLast(bitmap)
+            else bitmap.recycle()
         }
     }
 
     fun clear() {
-        synchronized(pools) { pools.clear() }
+        synchronized(pools) {
+            for (deque in pools.values) {
+                for (bitmap in deque) {
+                    if (!bitmap.isRecycled) bitmap.recycle()
+                }
+            }
+            pools.clear()
+        }
     }
 
     private fun key(w: Int, h: Int, c: Bitmap.Config) = "${w}x${h}x${c.name}"

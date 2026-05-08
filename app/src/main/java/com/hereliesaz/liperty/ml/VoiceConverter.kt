@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Log
 import com.google.ai.edge.litert.Accelerator
 import com.google.ai.edge.litert.CompiledModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * VoiceConverter: Real-time neural mapping from Electrolarynx 'robotic' speech
@@ -12,11 +14,16 @@ import com.google.ai.edge.litert.CompiledModel
  * Uses a GAN-based architecture (StarGAN-v2-VC or modified MelGAN) optimized for
  * on-device LiteRT inference.
  */
-class VoiceConverter(context: Context) {
+class VoiceConverter(private val context: Context) {
 
     private var compiledModel: CompiledModel? = null
 
-    init {
+    /**
+     * Loads the voice converter model. Call this from a coroutine or background thread
+     * before invoking [convert]. Model loading is deferred out of the constructor to avoid
+     * blocking the calling thread and to allow controlled error handling.
+     */
+    suspend fun initialize() = withContext(Dispatchers.IO) {
         compiledModel = try {
             CompiledModel.create(context.assets, "voice_converter.tflite", CompiledModel.Options(Accelerator.GPU))
         } catch (e: Exception) {
@@ -24,7 +31,7 @@ class VoiceConverter(context: Context) {
             try {
                 CompiledModel.create(context.assets, "voice_converter.tflite", CompiledModel.Options(Accelerator.CPU))
             } catch (e2: Exception) {
-                Log.e("VoiceConverter", "Failed to load voice_converter.tflite", e2)
+                Log.e("VoiceConverter", "Failed to load voice_converter.tflite — convert() will be a no-op", e2)
                 null
             }
         }

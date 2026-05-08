@@ -25,6 +25,7 @@ class TranscriptionManager(private val context: Context) {
      * Uses a language model to automatically correct common homophenes based on context.
      * @param confidence Mean max-softmax probability for this inference window (0–1).
      */
+    @Synchronized
     fun appendText(text: String, confidence: Float = 0f) {
         if (text.isEmpty()) return
         val newWords = text.trim().split(WHITESPACE_REGEX)
@@ -85,13 +86,16 @@ class TranscriptionManager(private val context: Context) {
         }
     }
 
+    @Synchronized
     fun getCurrentSentence(): String = wordEntries.joinToString(" ") { it.first }
 
+    @Synchronized
     fun clear() {
         wordEntries.clear()
         selectedWordIndex = -1
     }
 
+    @Synchronized
     fun cycleCurrentWord(direction: Int) {
         if (selectedWordIndex == -1 || selectedWordIndex >= wordEntries.size) return
 
@@ -107,13 +111,17 @@ class TranscriptionManager(private val context: Context) {
         }
     }
 
+    @Synchronized
     fun selectWord(index: Int) {
         if (index in 0 until wordEntries.size) selectedWordIndex = index
     }
 
+    @Synchronized
     fun getSelectedWordIndex(): Int = selectedWordIndex
 
+    @Synchronized
     fun getWords(): List<String> = wordEntries.map { it.first }
 
+    @Synchronized
     fun getWordConfidences(): List<Float> = wordEntries.map { it.second }
 }

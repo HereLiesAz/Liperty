@@ -16,6 +16,9 @@ class SSRInference(private val engine: ModelEngine) {
     private val beamDecoder = BeamSearchDecoder()
     private var useBeamSearch = true
 
+    private var cachedInputBuffer: ByteBuffer? = null
+    private var cachedOutputBuffer: ByteBuffer? = null
+
     fun initialize(): Boolean {
         return engine.initialize()
     }
@@ -38,8 +41,12 @@ class SSRInference(private val engine: ModelEngine) {
             val numSteps = inputShape[1]
             val numFeatures = inputShape[2]
 
-            val inputBuffer = ByteBuffer.allocateDirect(1 * numSteps * numFeatures * 4)
-            inputBuffer.order(ByteOrder.nativeOrder())
+            val inputCapacity = 1 * numSteps * numFeatures * 4
+            if (cachedInputBuffer == null || cachedInputBuffer!!.capacity() != inputCapacity) {
+                cachedInputBuffer = ByteBuffer.allocateDirect(inputCapacity).order(ByteOrder.nativeOrder())
+            }
+            val inputBuffer = cachedInputBuffer!!
+            inputBuffer.rewind()
 
             // Reshape/Window the signal to fit the model input if necessary.
             // For now, we assume the signal matches the expected feature count.
@@ -64,8 +71,12 @@ class SSRInference(private val engine: ModelEngine) {
             val timeSteps = outputShape[1]
             val vocabSize = outputShape[2]
 
-            val outputBuffer = ByteBuffer.allocateDirect(batchSize * timeSteps * vocabSize * 4)
-            outputBuffer.order(ByteOrder.nativeOrder())
+            val outputCapacity = batchSize * timeSteps * vocabSize * 4
+            if (cachedOutputBuffer == null || cachedOutputBuffer!!.capacity() != outputCapacity) {
+                cachedOutputBuffer = ByteBuffer.allocateDirect(outputCapacity).order(ByteOrder.nativeOrder())
+            }
+            val outputBuffer = cachedOutputBuffer!!
+            outputBuffer.rewind()
 
             engine.run(inputBuffer, outputBuffer)
             outputBuffer.rewind()
@@ -85,7 +96,7 @@ class SSRInference(private val engine: ModelEngine) {
             }
 
             val confidence = if (probabilities.isNotEmpty()) {
-                probabilities.map { it.max() }.average().toFloat()
+                probabilities.map { it.maxOrNull() ?: 0f }.average().toFloat()
             } else 0f
 
             val processingTime = SystemClock.uptimeMillis() - startTime

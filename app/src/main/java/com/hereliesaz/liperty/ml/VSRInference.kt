@@ -6,6 +6,7 @@ import android.util.Log
 import com.hereliesaz.liperty.utils.PerformanceMonitor
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import com.hereliesaz.liperty.BuildConfig
 import kotlin.math.exp
 
 data class VSRResult(
@@ -67,6 +68,7 @@ class VSRInference(private val engine: ModelEngine) {
     /**
      * Runs inference on the provided frames and (optionally) lip landmarks.
      */
+    @Synchronized
     fun runInference(frames: List<Bitmap>, landmarks: FloatArray? = null): VSRResult {
         val startTime = SystemClock.uptimeMillis()
 
@@ -125,6 +127,7 @@ class VSRInference(private val engine: ModelEngine) {
 
                 val pixels = IntArray(inputWidth * inputHeight)
                 scaledBitmap.getPixels(pixels, 0, inputWidth, 0, 0, inputWidth, inputHeight)
+                if (scaledBitmap !== bitmap) scaledBitmap.recycle()
 
                 for (pixel in pixels) {
                     if (numChannels == 1) {
@@ -152,12 +155,14 @@ class VSRInference(private val engine: ModelEngine) {
             currentInputBuffer.rewind()
 
             // Diagnostic: log mean pixel value of frame 0 to confirm input varies across batches
-            run {
-                val slice = FloatArray(inputHeight * inputWidth * numChannels)
-                currentInputBuffer.asFloatBuffer().get(slice)
-                currentInputBuffer.rewind()
-                val mean = slice.average()
-                Log.d("VSRInput", "input buffer frame0 mean=%.4f (%.1f/255)".format(mean, mean * 255))
+            if (BuildConfig.DEBUG) {
+                run {
+                    val slice = FloatArray(inputHeight * inputWidth * numChannels)
+                    currentInputBuffer.asFloatBuffer().get(slice)
+                    currentInputBuffer.rewind()
+                    val mean = slice.average()
+                    Log.d("VSRInput", "input buffer frame0 mean=%.4f (%.1f/255)".format(mean, mean * 255))
+                }
             }
 
             // 2. Prepare Output Buffer (already allocated)
@@ -212,12 +217,16 @@ class VSRInference(private val engine: ModelEngine) {
             // This reflects how "peaked" the model's output distribution was — a well-trained
             // model that recognised a clear phoneme will produce high max-prob values.
             val confidence = if (probabilities.isNotEmpty()) {
-                probabilities.map { timeStep -> timeStep.max() }.average().toFloat()
+                probabilities.map { timeStep -> timeStep.maxOrNull() ?: 0f }.average().toFloat()
             } else 0f
 
             // Assign the same confidence to every word produced by this inference window.
-            val wordCount = decodedText.trim().split("\\s+".toRegex()).size.coerceAtLeast(1)
-            val wordConfidences = List(wordCount) { confidence }
+            val wordConfidences = if (decodedText.isBlank()) {
+                emptyList()
+            } else {
+                val wordCount = decodedText.trim().split("\\s+".toRegex()).size
+                List(wordCount) { confidence }
+            }
 
             val processingTime = SystemClock.uptimeMillis() - startTime
             PerformanceMonitor.logInferenceTime(processingTime)
@@ -237,7 +246,7 @@ class VSRInference(private val engine: ModelEngine) {
     }
 
     private fun softmax(logits: FloatArray): FloatArray {
-        val max = logits.max()
+        val max = logits.maxOrNull() ?: 0f
         val exps = FloatArray(logits.size) { exp((logits[it] - max).toDouble()).toFloat() }
         val sum = exps.sum()
         return FloatArray(exps.size) { exps[it] / sum }

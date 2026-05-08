@@ -4,6 +4,7 @@
 
     <uses-feature android:name="android.hardware.camera" />
     <uses-feature android:name="android.hardware.camera.autofocus" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -32,6 +33,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden"
             android:theme="@style/Theme.Liperty">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -41,7 +43,7 @@
         </activity>
         <activity
             android:name=".voicebox.spike.SpikeActivity"
-            android:exported="true"
+            android:exported="false"
             android:label="VoiceBox Spike"
            android:theme="@style/Theme.Liperty" />
         <activity
