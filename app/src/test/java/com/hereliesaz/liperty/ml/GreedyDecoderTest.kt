@@ -16,7 +16,7 @@ class GreedyDecoderTest {
         probs[2][2] = 1.0f // AE
 
         val result = decoder.decode(probs)
-        assertEquals("AAAE", result)
+        assertEquals("AA AE", result)
     }
 
     @Test
@@ -30,7 +30,7 @@ class GreedyDecoderTest {
         probs[2][2] = 1.0f // AE
 
         val result = decoder.decode(probs)
-        assertEquals("AAAE", result)
+        assertEquals("AA AE", result)
     }
 
     @Test
@@ -44,6 +44,6 @@ class GreedyDecoderTest {
         probs[2][1] = 1.0f // AA
 
         val result = decoder.decode(probs)
-        assertEquals("AAAA", result)
+        assertEquals("AA AA", result)
     }
 }

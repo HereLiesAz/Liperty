@@ -71,10 +71,18 @@ else
             sed 's/proguard-android.txt/proguard-android-optimize.txt/g' "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
 
             # 6. Patch for JVM Target Compatibility (Java 17)
-            # Replace 'JavaVersion.VERSION_1_8' with 'JavaVersion.VERSION_17'
-            # Note: Using sed with -i is safer with a backup extension, but since we are handling temp files manually above, we continue that pattern.
             echo "[+] Upgrading OpenCV source compatibility to Java 17..."
             sed 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
+
+            # 7. Patch for AGP 9 built-in Kotlin (remove kotlin-android plugin)
+            echo "[+] Removing kotlin-android plugin for AGP 9 compatibility..."
+            sed "/apply plugin: 'kotlin-android'/d" "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
+
+            # 8. Replace deprecated compileSdkVersion with compileSdk
+            sed 's/compileSdkVersion /compileSdk /g' "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
+
+            # 9. Remove kotlinOptions block (no longer needed without kotlin-android plugin)
+            sed '/kotlinOptions {/,/}/d' "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
 
         else
             echo "[!] Warning: OpenCV build.gradle not found at $OPENCV_BUILD_GRADLE"

@@ -1,25 +1,26 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
-val versionProps = java.util.Properties().apply {
-    file("../version.properties").inputStream().use { load(it) }
-}
-val vMajor = versionProps.getProperty("versionMajor", "0").toInt()
-val vMinor = versionProps.getProperty("versionMinor", "1").toInt()
-val vPatch = versionProps.getProperty("versionPatch", "0").toInt()
+val versionProps = providers.fileContents(layout.projectDirectory.file("../version.properties"))
+    .asText.get().lines().associate {
+        val parts = it.split("=", limit = 2)
+        if (parts.size == 2) parts[0].trim() to parts[1].trim() else "" to ""
+    }
+val vMajor = versionProps["versionMajor"]?.toIntOrNull() ?: 0
+val vMinor = versionProps["versionMinor"]?.toIntOrNull() ?: 1
+val vPatch = versionProps["versionPatch"]?.toIntOrNull() ?: 0
 val vBuild = (project.findProperty("versionBuild") as? String)?.toIntOrNull() ?: 0
 
 android {
     namespace = "com.hereliesaz.liperty"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.hereliesaz.liperty"
         minSdk = 26
-        targetSdk = 37
+        targetSdk = 36
         versionCode = vMajor * 10000 + vMinor * 100 + vPatch
         versionName = "$vMajor.$vMinor.$vPatch.$vBuild"
 
@@ -67,6 +68,7 @@ android {
     buildFeatures {
         viewBinding = false
         compose = true
+        buildConfig = true
     }
     testOptions {
         unitTests {

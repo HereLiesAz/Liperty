@@ -41,8 +41,11 @@ class GreedyDecoder {
             // Collapsing duplicates: H, E, L, Blank, L, O
             // Removing blanks: H, E, L, L, O
 
+            if (maxIndex < 0) continue
+
             if (maxIndex != prevIndex) {
                 if (maxIndex != 0 && maxIndex < vocab.size) {
+                    if (result.isNotEmpty()) result.append(" ")
                     result.append(vocab[maxIndex])
                 }
                 prevIndex = maxIndex
@@ -68,8 +71,11 @@ class GreedyDecoder {
                 }
             }
 
+            if (maxIndex < 0) continue
+
             if (maxIndex != prevIndex) {
                 if (maxIndex != 0 && maxIndex < vocabulary.size) {
+                    if (result.isNotEmpty()) result.append(" ")
                     result.append(vocabulary[maxIndex])
                 }
                 prevIndex = maxIndex

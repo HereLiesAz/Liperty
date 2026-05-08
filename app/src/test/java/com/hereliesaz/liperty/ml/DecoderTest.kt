@@ -24,7 +24,7 @@ class DecoderTest {
         }
 
         val result = decoder.decode(probabilities)
-        assertEquals("AAAEAHAHAE", result)
+        assertEquals("AA AE AH AH AE", result)
     }
 
     @Test
@@ -56,6 +56,6 @@ class DecoderTest {
         }
 
         val result = decoder.decode(probabilities)
-        assertEquals("AHAH", result)
+        assertEquals("AH AH", result)
     }
 }

@@ -26,7 +26,7 @@ class BeamSearchDecoderTest {
         probs[2][0] = 0.1f
 
         val result = decoder.decode(probs)
-        assertEquals("AAAE", result)
+        assertEquals("AA AE", result)
     }
 
     @Test
@@ -34,7 +34,7 @@ class BeamSearchDecoderTest {
         val decoder = BeamSearchDecoder(beamWidth = 3)
         val vocabSize = 40
 
-        // Sequence: AA, _, AA -> "AAAA"
+        // Sequence: AA, _, AA -> "AA AA"
         val probs = Array(3) { FloatArray(vocabSize) }
 
         probs[0][1] = 0.9f
@@ -42,7 +42,7 @@ class BeamSearchDecoderTest {
         probs[2][1] = 0.9f
 
         val result = decoder.decode(probs)
-        assertEquals("AAAA", result)
+        assertEquals("AA AA", result)
     }
 
     @Test
