@@ -69,11 +69,11 @@ fun LipertyApp(
     onOpenSettings: () -> Unit,
     onClearTranscript: () -> Unit,
     onSpeak: () -> Unit,
-    onToggleSSI: () -> Unit = {},
+    onToggleBC: () -> Unit = {},
     onToggleLipRead: () -> Unit = {},
     onToggleEL: () -> Unit = {},
     isPaused: Boolean = false,
-    isSSIActive: Boolean = false,
+    isBCActive: Boolean = false,
     isLipReadActive: Boolean = false,
     isELActive: Boolean = false,
     currentLensFacing: Int = 0, // 0 for Front, 1 for Back
@@ -81,6 +81,8 @@ fun LipertyApp(
     onVsrSensitivityChange: (Float) -> Unit = {},
     larynxSensitivity: Float = 0.5f,
     onLarynxSensitivityChange: (Float) -> Unit = {},
+    carrierF0: Float = 120f,
+    onCarrierF0Change: (Float) -> Unit = {},
     isDarkTheme: Boolean = true,
     onRegisterCalibrationCallback: (((Bitmap) -> Unit)?) -> Unit = {}
 ) {
@@ -142,10 +144,10 @@ fun LipertyApp(
 
             azRailToggle(
                 id            = "voicebox",
-                isChecked     = isSSIActive,
-                toggleOnText  = "Larynx ON",
-                toggleOffText = "Larynx OFF",
-                onClick       = { onToggleSSI() },
+                isChecked     = isBCActive,
+                toggleOnText  = "BC Larynx ON",
+                toggleOffText = "BC Larynx OFF",
+                onClick       = { onToggleBC() },
                 color         = Color.White
             )
             
@@ -216,11 +218,11 @@ fun LipertyApp(
                 AzNavHost(navController = navController, startDestination = "home") {
 
                     composable("home") {
-                        val anyModeActive = isLipReadActive || isSSIActive || isELActive
+                        val anyModeActive = isLipReadActive || isBCActive || isELActive
                         val activeColor = when {
-                            isELActive  -> MaterialTheme.colorScheme.tertiary
-                            isSSIActive -> MaterialTheme.colorScheme.secondary
-                            else        -> MaterialTheme.colorScheme.primary
+                            isELActive -> MaterialTheme.colorScheme.tertiary
+                            isBCActive -> MaterialTheme.colorScheme.secondary
+                            else       -> MaterialTheme.colorScheme.primary
                         }
 
                         Column(
@@ -301,7 +303,7 @@ fun LipertyApp(
                                     val (badgeText, badgeColor) = when {
                                         isPaused        -> "PAUSED"  to Color(0xFFFFD600)
                                         isELActive      -> "EL"      to MaterialTheme.colorScheme.tertiary
-                                        isSSIActive     -> "SSI"     to MaterialTheme.colorScheme.primary
+                                        isBCActive      -> "BC"      to MaterialTheme.colorScheme.primary
                                         isLipReadActive -> "READING" to Color(0xFFFF5252)
                                         else            -> "REC"     to Color(0xFFFF5252)
                                     }
@@ -368,16 +370,16 @@ fun LipertyApp(
                                             )
                                         }
 
-                                        if (isSSIActive || isELActive) {
+                                        if (isBCActive || isELActive) {
                                             if (isLipReadActive) Spacer(Modifier.height(4.dp))
                                             val sliderColor = if (isELActive)
                                                 MaterialTheme.colorScheme.tertiary
                                             else
-                                                MaterialTheme.colorScheme.primary
+                                                MaterialTheme.colorScheme.secondary
                                             val sliderLabel = if (isELActive)
                                                 "EL Voice Activity Sensitivity"
                                             else
-                                                "Larynx Sensitivity"
+                                                "BC Larynx Sensitivity"
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -405,6 +407,39 @@ fun LipertyApp(
                                                     inactiveTrackColor = MaterialTheme.colorScheme.outline
                                                 )
                                             )
+
+                                            // F0 carrier pitch slider — only visible in BC mode
+                                            if (isBCActive) {
+                                                Spacer(Modifier.height(4.dp))
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        text = "Carrier Pitch (F0)",
+                                                        style = MaterialTheme.typography.labelLarge,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                    Text(
+                                                        text = "${carrierF0.toInt()} Hz",
+                                                        style = MaterialTheme.typography.labelLarge,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.secondary
+                                                    )
+                                                }
+                                                Slider(
+                                                    value = carrierF0,
+                                                    onValueChange = onCarrierF0Change,
+                                                    valueRange = 80f..200f,
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    colors = SliderDefaults.colors(
+                                                        thumbColor         = MaterialTheme.colorScheme.secondary,
+                                                        activeTrackColor   = MaterialTheme.colorScheme.secondary,
+                                                        inactiveTrackColor = MaterialTheme.colorScheme.outline
+                                                    )
+                                                )
+                                            }
                                         }
                                     }
                                 }

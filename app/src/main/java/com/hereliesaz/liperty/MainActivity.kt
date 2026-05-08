@@ -27,7 +27,7 @@ import com.hereliesaz.liperty.ml.CalibrationViewModel
 import com.hereliesaz.liperty.ml.FaceLandmarkerHelper
 import com.hereliesaz.liperty.ml.HandGestureHelper
 import com.hereliesaz.liperty.voicebox.LaryngealSensor
-import com.hereliesaz.liperty.voicebox.ArtificialLarynx
+
 import com.hereliesaz.liperty.ml.FrameBuffer
 import com.hereliesaz.liperty.ml.TFLiteEngine
 import com.hereliesaz.liperty.ml.VSRInference
@@ -68,7 +68,8 @@ class MainActivity : ComponentActivity() {
     private val wordConfidences = mutableStateOf(listOf<Float>())
     private val selectedWordIndex = mutableStateOf(-1)
     private val isRecordingState = mutableStateOf(false)
-    private val isSSIModeState = mutableStateOf(false)
+    private val isBCModeState = mutableStateOf(false)
+    private val carrierF0State = mutableStateOf(120f)
     private val isLipReadModeState = mutableStateOf(true)
     private val isELModeState = mutableStateOf(false)
 
@@ -161,11 +162,11 @@ class MainActivity : ComponentActivity() {
                     Toast.makeText(this, "Transcript Cleared", Toast.LENGTH_SHORT).show()
                 },
                 onSpeak = { speakText() },
-                onToggleSSI = { toggleSSIMode() },
+                onToggleBC = { toggleBCMode() },
                 onToggleLipRead = { isLipReadModeState.value = !isLipReadModeState.value },
                 onToggleEL = { toggleELMode() },
                 isPaused = isPausedState.value,
-                isSSIActive = isSSIModeState.value,
+                isBCActive = isBCModeState.value,
                 isLipReadActive = isLipReadModeState.value,
                 isELActive = isELModeState.value,
                 currentLensFacing = if (currentLensFacing == CameraSelector.LENS_FACING_BACK) 1 else 0,
@@ -175,9 +176,14 @@ class MainActivity : ComponentActivity() {
                     faceLandmarkerHelper.updateConfidence(value, value)
                 },
                 larynxSensitivity = larynxSensitivity.value,
-                onLarynxSensitivityChange = { 
+                onLarynxSensitivityChange = {
                     larynxSensitivity.value = it
                     laryngealSensor.setSensitivity(it)
+                },
+                carrierF0 = carrierF0State.value,
+                onCarrierF0Change = { hz ->
+                    carrierF0State.value = hz
+                    laryngealSensor.setCarrierF0(hz)
                 },
                 isDarkTheme = isDarkTheme.value,
                 onRegisterCalibrationCallback = { cb ->
@@ -264,31 +270,31 @@ class MainActivity : ComponentActivity() {
         startCamera()
     }
 
-    private fun toggleSSIMode() {
+    private fun toggleBCMode() {
         if (isELModeState.value) {
-            isSSIModeState.value = false
+            isBCModeState.value = false
             toggleELMode() // Mutually exclusive
         }
-        val newMode = !isSSIModeState.value
-        isSSIModeState.value = newMode
-        
+        val newMode = !isBCModeState.value
+        isBCModeState.value = newMode
+
         if (newMode) {
-            isLipReadModeState.value = false // Focus on SSI
-            laryngealSensor.start(
+            isLipReadModeState.value = false
+            laryngealSensor.setCarrierF0(carrierF0State.value)
+            laryngealSensor.startBCMode(
                 onProcessedAudio = { pcmSamples -> voiceManager.playAudio(pcmSamples) },
                 onVoicingState = { isVoicing ->
-                    // Optionally show visual feedback for contact detection
+                    // Visual feedback for voice activity could be added here
                 },
-                onVibrationData = { vibrationSignal ->
-                    // Phase 9: SSR Inference
+                onTranscriptionData = { audioData ->
+                    // SSR inference on the captured audio for simultaneous text display
                     if (!isInferencing) {
                         lifecycleScope.launch(Dispatchers.Default) {
-                            val result = ssrInference.runInference(vibrationSignal)
+                            val result = ssrInference.runInference(audioData)
                             if (result.text.isNotEmpty()) {
                                 withContext(Dispatchers.Main) {
                                     transcriptionManager.appendText(result.text, result.confidence)
                                     updateTranscriptionUI()
-                                    // Ultra-low latency synthesis:
                                     voiceManager.speakStreaming(result.text)
                                 }
                             }
@@ -296,17 +302,17 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             )
-            Toast.makeText(this, "Voice Box Mode Active: Press against throat.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "BC Larynx Active: Wear headphones around neck.", Toast.LENGTH_LONG).show()
         } else {
             laryngealSensor.stop()
-            Toast.makeText(this, "Voice Box Mode Inactive", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "BC Larynx Inactive", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun toggleELMode() {
-        if (isSSIModeState.value) {
+        if (isBCModeState.value) {
             isELModeState.value = false
-            toggleSSIMode() // Mutually exclusive
+            toggleBCMode() // Mutually exclusive
         }
         val newMode = !isELModeState.value
         isELModeState.value = newMode

@@ -16,7 +16,8 @@
       "Bash(mkdir:*)",
       "Bash(gh auth:*)",
       "Bash(gh release:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(grep:*)"
     ]
   }
 }

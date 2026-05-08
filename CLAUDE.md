@@ -7,7 +7,7 @@ This file provides guidance to Claude (and other AI coding assistants) when work
 **Liperty** is a real-time, on-device Visual Speech Recognition (VSR) Android application. It uses deep learning to convert lip movements into text (lipreading) or synthesized speech (Silent Speech Interface). It targets Deaf, Hard-of-Hearing, and speech-impaired communities.
 
 ### Key Characteristics
-- **Platform**: Android (Kotlin-first, minSdk 26 / targetSdk 36)
+- **Platform**: Android (Kotlin-first, minSdk 26 / targetSdk 37)
 - **ML Stack**: TensorFlow Lite (LiteRT 2.17.0), MediaPipe Tasks Vision, OpenCV 4.10.0 (C++ via NDK)
 - **UI**: Jetpack Compose + Material 3
 - **Privacy**: Fully offline; zero cloud dependencies. Biometric data lives only in RAM.
@@ -87,7 +87,7 @@ Liperty/
 
 ### Prerequisites
 - **JDK 17** (enforced by CI/CD and `build.gradle.kts`)
-- **Android SDK** compileSdk 36, buildToolsVersion matching AGP 9.2.1
+- **Android SDK** compileSdk 37, buildToolsVersion matching AGP 9.2.1
 - **CMake 3.22.1+** and NDK (for C++ OpenCV integration)
 - **Python 3** (for `tools/` model scripts and `VALLR/`)
 
