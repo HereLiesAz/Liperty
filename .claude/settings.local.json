@@ -10,7 +10,9 @@
       "Bash(./gradlew compileDebugKotlin:*)",
       "Bash(./gradlew testDebugUnitTest:*)",
       "Bash(rm:*)",
-      "Bash(./gradlew clean:*)"
+      "Bash(./gradlew clean:*)",
+      "Bash(GRADLE_USER_HOME=\"$LOCALAPPDATA/gradle_liperty\" ./gradlew testDebugUnitTest:*)",
+      "Bash(./gradlew:*)"
     ]
   }
 }
