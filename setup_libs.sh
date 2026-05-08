@@ -184,6 +184,24 @@ else
     echo "[*] Assets (Models) already exist."
 fi
 
+# 4. ONNX Model (from GitHub Releases — too large for git)
+ONNX_MODEL="vallr_model.onnx"
+ONNX_URL="https://github.com/HereLiesAz/Liperty/releases/download/v0.1.0-models/${ONNX_MODEL}"
+if [ ! -f "$ONNX_MODEL" ]; then
+    echo "[+] Downloading ${ONNX_MODEL} from GitHub Releases..."
+    if command -v curl &> /dev/null; then
+        curl -L -o "$ONNX_MODEL" "$ONNX_URL"
+    elif command -v wget &> /dev/null; then
+        wget -O "$ONNX_MODEL" "$ONNX_URL"
+    fi
+    if [ -f "$ONNX_MODEL" ] && file "$ONNX_MODEL" | grep -q "HTML"; then
+        echo "ERROR: Downloaded ONNX file appears to be HTML. Download likely failed."
+        rm -f "$ONNX_MODEL"
+    fi
+else
+    echo "[*] ${ONNX_MODEL} already exists."
+fi
+
 # Fallback/Utility: Face and Hand Landmarkers (if still missing after assets.zip)
 FACE_TASK_URL="https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
 HAND_TASK_URL="https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
