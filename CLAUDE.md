@@ -20,7 +20,7 @@ This file provides guidance to Claude (and other AI coding assistants) when work
 ```
 Liperty/
 ├── app/
-│   ├── build.gradle.kts               # App-level build config (AGP 9.0.1)
+│   ├── build.gradle.kts               # App-level build config (AGP 9.2.1)
 │   └── src/
 │       ├── main/
 │       │   ├── AndroidManifest.xml
@@ -38,7 +38,7 @@ Liperty/
 │       │   │   │   ├── ModelEngine.kt       # Interface for inference backends
 │       │   │   │   ├── TFLiteEngine.kt      # TFLite executor + GPU fallback
 │       │   │   │   ├── VSRInference.kt      # Pipeline orchestrator
-│       │   │   │   ├── FrameBuffer.kt       # Rolling 50-frame window
+│       │   │   │   ├── FrameBuffer.kt       # Rolling frame window (capacity set at construction time)
 │       │   │   │   ├── FaceLandmarkerHelper.kt  # MediaPipe wrapper
 │       │   │   │   ├── BeamSearchDecoder.kt
 │       │   │   │   ├── GreedyDecoder.kt
@@ -87,7 +87,7 @@ Liperty/
 
 ### Prerequisites
 - **JDK 17** (enforced by CI/CD and `build.gradle.kts`)
-- **Android SDK** compileSdk 36, buildToolsVersion matching AGP 9.0.1
+- **Android SDK** compileSdk 36, buildToolsVersion matching AGP 9.2.1
 - **CMake 3.22.1+** and NDK (for C++ OpenCV integration)
 - **Python 3** (for `tools/` model scripts and `VALLR/`)
 
@@ -138,7 +138,7 @@ FaceLandmarkerHelper  ──► 468 MediaPipe landmarks
 ImageUtils.alignAndCropMouth()  ──► grayscale 96×96 mouth ROI
         │
         ▼
-FrameBuffer  ──► rolling window of 50 frames (~2 s)
+FrameBuffer  ──► rolling window of frames (~2 s at default capacity)
         │
         ▼
 TFLiteEngine  ──► .tflite model (GPU Delegate → CPU fallback)
@@ -162,8 +162,8 @@ TranscriptionManager  ──► displayed in OverlayView / Compose UI
 - **Delegate initialization** must be wrapped in `try-catch`. Device delegate support varies widely (GPU, NNAPI, Hexagon, CPU). `TFLiteEngine` cascades from GPU → CPU automatically.
 - **Memory**: Use `ByteBuffer.allocateDirect()` for model I/O to avoid GC pressure during camera callbacks. Reuse `Bitmap` objects through `BitmapPool`.
 - **Model interface**: New inference backends must implement the `ModelEngine` interface, not touch `TFLiteEngine` directly.
-- **Frame window**: `FrameBuffer` holds exactly 50 frames. Do not change this constant without retraining and converting the model.
-- **Input shape**: The VSR model expects `[1, 50, 64, 128, 3]` (batch, frames, H, W, channels). Preprocessing in `VSRInference` must produce this shape exactly.
+- **Frame window**: `FrameBuffer` capacity is configurable at construction time and may vary based on the model's input shape. Do not change the capacity without retraining and converting the model to match.
+- **Input shape**: The VSR model's expected input shape depends on the loaded model; `[1, 50, 64, 128, 3]` (batch, frames, H, W, channels) are the fallback defaults. Preprocessing in `VSRInference` must produce the shape the loaded model declares.
 
 ### Camera & Computer Vision
 
@@ -246,13 +246,13 @@ All versions are centralized in `gradle/libs.versions.toml`. When adding or upgr
 ### Key Versions (as of v0.1.0)
 | Dependency | Version |
 |---|---|
-| AGP | 9.0.1 |
-| Kotlin | 2.3.10 |
-| Compose BOM | 2025.02.00 |
-| CameraX | 1.5.3 |
-| TFLite | 2.17.0 |
+| AGP | 9.2.1 |
+| Kotlin | 2.3.20 |
+| Compose BOM | 2026.05.00 |
+| CameraX | 1.6.0 |
+| TFLite (LiteRT) | 2.1.4 |
 | MediaPipe Tasks Vision | 0.20230731 |
-| OpenCV | 4.10.0 |
+| OpenCV | 4.5.3.0 |
 | Robolectric | 4.16.1 |
 
 ---
@@ -271,7 +271,7 @@ All versions are centralized in `gradle/libs.versions.toml`. When adding or upgr
 
 1. **Building without `setup_libs.sh`**: The OpenCV module won't exist; Gradle sync will fail.
 2. **GPU delegate on emulator**: Will silently fall back to CPU; inference will be very slow. This is expected.
-3. **Frame count mismatch**: Changing `FrameBuffer` size without retraining the TFLite model causes shape mismatch errors at runtime.
+3. **Frame count mismatch**: Changing `FrameBuffer` capacity without retraining and reconverting the TFLite model causes shape mismatch errors at runtime. The capacity must match the model's declared input shape.
 4. **Bypassing consent dialog**: Will break BIPA/GDPR compliance and `PrivacyTest` will fail.
 5. **Writing landmarks to SharedPreferences**: Illegal under biometric data laws; `PrivacyTest` catches this.
 6. **Hardcoding back camera**: Breaks telephoto selection; use `CameraManager` API.

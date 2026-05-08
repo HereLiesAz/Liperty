@@ -14,16 +14,22 @@ This guide outlines the process of converting PyTorch-based VSR models (like VAL
 
 ## Conversion Steps
 
-We provide a template script `tools/convert_vallr.py` to facilitate the conversion.
+We provide a stub script `tools/convert_vallr.py` to illustrate the conversion steps. For real VALLR V2 model conversions, use `VALLR/convert_to_tflite.py`, which contains the complete model definition imports and correct export logic.
+
+**Input shape note**: The legacy dummy model uses shape `(1, 50, 88, 88, 1)` (batch, frames, H, W, channels). The actual VALLR V2 model uses shape `(1, 3, 16, 224, 224)` (batch, channels, frames, H, W) following standard PyTorch channel-first convention. Ensure the script and the Android app's `VSRInference.kt` are configured for the same shape.
 
 1.  **Prepare the Script**:
-    -   Open `tools/convert_vallr.py`.
-    -   Import the actual VALLR model definition (you may need to clone the VALLR repo and add it to `PYTHONPATH`).
+    -   For real conversions, open `VALLR/convert_to_tflite.py`.
+    -   For a quick reference stub only, open `tools/convert_vallr.py` (note: this is a stub and does not contain full model definitions).
     -   Update the `pytorch_model_path` variable to point to your downloaded checkpoint.
-    -   Update the input shape if necessary (Default: `(1, 50, 88, 88, 1)`).
+    -   Confirm the input shape matches your model variant (legacy dummy: `(1, 50, 88, 88, 1)`; VALLR V2: `(1, 3, 16, 224, 224)`).
 
 2.  **Run the Conversion**:
     ```bash
+    # For real VALLR V2 conversions (recommended):
+    python VALLR/convert_to_tflite.py
+
+    # For stub/reference only:
     python tools/convert_vallr.py
     ```
     This script performs the following:
@@ -50,4 +56,4 @@ If you do not have the VALLR model or need to test the pipeline without it, you 
 
 -   **ONNX Export Errors**: Ensure the model is in `eval()` mode and doesn't use operations not supported by ONNX.
 -   **TFLite Conversion Errors**: Check if custom ops are used. You might need to enable `SELECT_TF_OPS`.
--   **Input Shape Mismatch**: Verify that the input tensor shape in `tools/create_dummy_model.py` matches what the Android app expects in `VSRInference.kt`.
+-   **Input Shape Mismatch**: Verify that the input tensor shape used during conversion matches what the Android app expects in `VSRInference.kt`. The legacy dummy model uses `(1, 50, 88, 88, 1)`; the real VALLR V2 model uses `(1, 3, 16, 224, 224)`. These are not interchangeable without updating both the conversion script and the app's preprocessing logic.
