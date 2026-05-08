@@ -14,12 +14,12 @@ val vBuild = (project.findProperty("versionBuild") as? String)?.toIntOrNull() ?:
 
 android {
     namespace = "com.hereliesaz.liperty"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.hereliesaz.liperty"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         versionCode = vMajor * 10000 + vMinor * 100 + vPatch
         versionName = "$vMajor.$vMinor.$vPatch.$vBuild"
 

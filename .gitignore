@@ -44,3 +44,4 @@ tools.zip
 VALLR.zip
 app/src/main/assets.zip
 app/src/main/assets/vallr_model.tflite
+vallr_model.onnx

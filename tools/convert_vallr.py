@@ -1,3 +1,8 @@
+# WARNING: This script is a NON-FUNCTIONAL STUB.
+# The actual model loading code is commented out and a DummyModel is used instead.
+# For real VALLR model conversion, use VALLR/convert_to_tflite.py
+# Do NOT use this script for production model conversion.
+
 import torch
 import torch.onnx
 import tensorflow as tf
