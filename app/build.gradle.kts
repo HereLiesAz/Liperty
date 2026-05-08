@@ -87,6 +87,11 @@ android {
             version = "3.22.1"
         }
     }
+    // Redirect C++ build directory outside Google Drive to avoid ninja
+    // "build.ninja still dirty" errors caused by cloud sync file locking.
+    @Suppress("UnstableApiUsage")
+    externalNativeBuild.cmake.buildStagingDirectory =
+        file(System.getProperty("java.io.tmpdir") + "/liperty-cxx-build")
 }
 
 dependencies {

@@ -15,7 +15,8 @@
       "Bash(./gradlew:*)",
       "Bash(mkdir:*)",
       "Bash(gh auth:*)",
-      "Bash(gh release:*)"
+      "Bash(gh release:*)",
+      "WebSearch"
     ]
   }
 }

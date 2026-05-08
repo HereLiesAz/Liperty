@@ -84,6 +84,15 @@ else
             # 9. Remove kotlinOptions block (no longer needed without kotlin-android plugin)
             sed '/kotlinOptions {/,/}/d' "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
 
+            # 10. Remove externalNativeBuild blocks (avoids ninja/Google Drive conflicts;
+            #     prebuilt .so files are already in jniLibs, app CMake links directly)
+            echo "[+] Removing externalNativeBuild from OpenCV module..."
+            sed '/externalNativeBuild {/,/}/d' "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
+
+            # 11. Remove prefab blocks (app links OpenCV via its own CMakeLists.txt)
+            sed '/prefabPublishing/d' "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
+            sed '/prefab {/,/}/d' "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
+
         else
             echo "[!] Warning: OpenCV build.gradle not found at $OPENCV_BUILD_GRADLE"
         fi

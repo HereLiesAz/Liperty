@@ -98,21 +98,14 @@ println "OpenCV: " +openCVersionName + " " + project.buildscript.sourceFile
 
 android {
     namespace 'org.opencv'
-    compileSdk 36
+    compileSdk 37
 
     defaultConfig {
         minSdkVersion 21
-        targetSdkVersion 36
+        targetSdkVersion 37
 
         versionCode openCVersionCode
         versionName openCVersionName
-
-        externalNativeBuild {
-            cmake {
-                arguments "-DANDROID_STL=c++_shared"
-                targets "opencv_jni_shared"
-            }
-        }
     }
 
     compileOptions {
@@ -136,13 +129,7 @@ android {
     }
 
     buildFeatures {
-        prefabPublishing true
         buildConfig true
-    }
-    prefab {
-        opencv_jni_shared {
-            headers "native/jni/include"
-        }
     }
 
     sourceSets {
@@ -161,11 +148,8 @@ android {
         }
     }
 
-    externalNativeBuild {
-        cmake {
-            path (project.projectDir.toString() + '/libcxx_helper/CMakeLists.txt')
-        }
-    }
+    // externalNativeBuild removed: prebuilt .so files are in jniLibs,
+    // and the app module's CMake handles native linking directly.
 }
 
 publishing {

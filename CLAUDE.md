@@ -247,7 +247,7 @@ All versions are centralized in `gradle/libs.versions.toml`. When adding or upgr
 | Dependency | Version |
 |---|---|
 | AGP | 9.2.1 |
-| Kotlin | 2.3.20 |
+| Kotlin | 2.2.10 (bundled with AGP 9) |
 | Compose BOM | 2026.05.00 |
 | CameraX | 1.6.0 |
 | TFLite (LiteRT) | 2.1.4 |
