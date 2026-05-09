@@ -53,28 +53,39 @@ def pull_preprocessed():
 
     grid_files, tcd_files = [], []
 
-    # Decide which GRID shards to fetch.
-    try:
-        all_grid = sorted(api.list_repo_files(HF_DATA_REPO_GRID, repo_type="dataset"))   # noqa: F821
-    except Exception as e:
-        print(f"GRID list: {e}")
-        all_grid = []
-    grid_shards_remote = [f for f in all_grid if f.endswith(".pt")]
-    if MAX_SPEAKERS > 0:
-        wanted = grid_shards_remote[:MAX_SPEAKERS]
-        print(f"GRID: subsetting {len(wanted)} of {len(grid_shards_remote)} shards "
-              f"(MAX_SPEAKERS={MAX_SPEAKERS}). Override with "
-              f"os.environ['LIPERTY_MAX_SPEAKERS']='0' for all.")
+    # If shards are already on disk (resumed session, manual upload, etc.),
+    # use them as-is. Saves bandwidth and avoids re-fetching when disk is
+    # near full. Override with LIPERTY_FORCE_DOWNLOAD=1 to force re-fetch.
+    on_disk = sorted(grid_dir.glob("*.pt"))
+    force = _os.environ.get("LIPERTY_FORCE_DOWNLOAD") == "1"
+    if on_disk and not force:
+        print(f"GRID: using {len(on_disk)} shard(s) already on disk; skipping download.")
+        if MAX_SPEAKERS > 0:
+            grid_files = on_disk[:MAX_SPEAKERS]
+            print(f"      capped to first {len(grid_files)} (MAX_SPEAKERS={MAX_SPEAKERS}).")
+        else:
+            grid_files = on_disk
     else:
-        wanted = grid_shards_remote
-        print(f"GRID: pulling all {len(wanted)} shards.")
-
-    try:
-        snapshot_download(repo_id=HF_DATA_REPO_GRID, repo_type="dataset",   # noqa: F821
-                          local_dir=str(grid_dir), allow_patterns=wanted)
-        grid_files = sorted(p for p in grid_dir.glob("*.pt") if p.name in wanted)
-    except Exception as e:
-        print(f"GRID pull: {e}")
+        # Decide which GRID shards to fetch.
+        try:
+            all_grid = sorted(api.list_repo_files(HF_DATA_REPO_GRID, repo_type="dataset"))   # noqa: F821
+        except Exception as e:
+            print(f"GRID list: {e}")
+            all_grid = []
+        grid_shards_remote = [f for f in all_grid if f.endswith(".pt")]
+        if MAX_SPEAKERS > 0:
+            wanted = grid_shards_remote[:MAX_SPEAKERS]
+            print(f"GRID: subsetting {len(wanted)} of {len(grid_shards_remote)} shards "
+                  f"(MAX_SPEAKERS={MAX_SPEAKERS}).")
+        else:
+            wanted = grid_shards_remote
+            print(f"GRID: pulling all {len(wanted)} shards.")
+        try:
+            snapshot_download(repo_id=HF_DATA_REPO_GRID, repo_type="dataset",   # noqa: F821
+                              local_dir=str(grid_dir), allow_patterns=wanted)
+            grid_files = sorted(p for p in grid_dir.glob("*.pt") if p.name in wanted)
+        except Exception as e:
+            print(f"GRID pull: {e}")
 
     try:
         snapshot_download(repo_id=HF_DATA_REPO_TCD, repo_type="dataset",   # noqa: F821
