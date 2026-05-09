@@ -126,10 +126,7 @@ Set your HuggingFace username so the exported ONNX gets uploaded to a private re
 """))
 
 cells.append(code("""\
-# === EDIT ME ===
-HF_USER = "CHANGE-ME"
-# ===============
-assert HF_USER != "CHANGE-ME", "Set HF_USER to your HuggingFace username."
+HF_USER = "HereLiesAz"
 
 # Destination for the exported ONNX + tokenizer.
 HF_EXPORT_REPO = f"{HF_USER}/liperty-autoavsr-onnx"   # private model repo

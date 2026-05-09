@@ -175,10 +175,7 @@ cells.append(md("""\
 """))
 
 cells.append(code("""\
-# === EDIT ME ===
-HF_USER = "CHANGE-ME"   # Your HuggingFace username
-# ===============
-assert HF_USER != "CHANGE-ME", "Set HF_USER to your HuggingFace username."
+HF_USER = "HereLiesAz"   # Your HuggingFace username
 
 HF_DATA_REPO_GRID = f"{HF_USER}/liperty-grid-preprocessed"
 HF_DATA_REPO_TCD  = f"{HF_USER}/liperty-tcd-preprocessed"

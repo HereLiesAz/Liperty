@@ -123,10 +123,7 @@ Two pairs of repos: pixel input → landmark output. Skip a corpus by setting `R
 """))
 
 cells.append(code("""\
-# === EDIT ME ===
-HF_USER = "CHANGE-ME"
-# ===============
-assert HF_USER != "CHANGE-ME", "Set HF_USER to your HuggingFace username."
+HF_USER = "HereLiesAz"
 
 # Source pixel shards (output of train_grid_tcd_resumable.ipynb preprocessing)
 HF_PIXEL_REPO_GRID = f"{HF_USER}/liperty-grid-preprocessed"

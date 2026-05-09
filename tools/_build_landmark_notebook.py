@@ -142,10 +142,7 @@ cells.append(md("""\
 """))
 
 cells.append(code("""\
-# === EDIT ME ===
-HF_USER = "CHANGE-ME"   # Your HuggingFace username
-# ===============
-assert HF_USER != "CHANGE-ME", "Set HF_USER to your HuggingFace username."
+HF_USER = "HereLiesAz"   # Your HuggingFace username
 
 # Separate from the pixel-model checkpoint repo so the two architectures don't
 # step on each other.
