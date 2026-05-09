@@ -690,11 +690,11 @@ def prune_old_checkpoints(keep=KEEP_LAST_CKPTS):
         return
     history = sorted(f for f in files if f.startswith(CKPT_HISTORY_PREFIX) and f.endswith(".pt"))
     to_delete = history[:-keep] if len(history) > keep else []
-    from huggingface_hub import delete_file
+    # huggingface_hub >= 0.27 dropped module-level delete_file; use HfApi instance.
     for f in to_delete:
         try:
-            delete_file(path_in_repo=f, repo_id=HF_CKPT_REPO, repo_type="model",
-                        commit_message=f"Prune {f}")
+            api.delete_file(path_in_repo=f, repo_id=HF_CKPT_REPO, repo_type="model",
+                            commit_message=f"Prune {f}")
         except Exception as e:
             print(f"    [prune] {f}: {e}")
 

@@ -264,7 +264,7 @@ import mediapipe as mp
 import pronouncing
 from huggingface_hub import HfApi, create_repo, upload_file, hf_hub_download, snapshot_download
 
-REPO_DIR = "/content/Liperty"
+REPO_DIR = "/kaggle/working/Liperty" if IS_KAGGLE else "/content/Liperty"
 if not os.path.exists(REPO_DIR):
     !git clone --depth 1 https://github.com/HereLiesAz/Liperty.git {REPO_DIR}
 if f"{REPO_DIR}/VALLR" not in sys.path:
@@ -793,11 +793,12 @@ def prune_old_checkpoints(keep=KEEP_LAST_CKPTS):
     to_delete = history[:-keep] if len(history) > keep else []
     if not to_delete:
         return
-    from huggingface_hub import delete_file
+    # huggingface_hub >= 0.27 dropped the module-level delete_file in favor
+    # of HfApi.delete_file. Use the api instance we already have above.
     for f in to_delete:
         try:
-            delete_file(path_in_repo=f, repo_id=HF_CKPT_REPO, repo_type="model",
-                        commit_message=f"Prune old checkpoint {f}")
+            api.delete_file(path_in_repo=f, repo_id=HF_CKPT_REPO, repo_type="model",
+                            commit_message=f"Prune old checkpoint {f}")
         except Exception as e:
             print(f"    [prune] {f}: {e}")
 
