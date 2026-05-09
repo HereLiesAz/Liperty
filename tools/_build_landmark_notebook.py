@@ -36,13 +36,13 @@ Sibling to `train_grid_tcd_resumable.ipynb`. Trains a small Transformer over **d
 - <50ms inference on a phone — slots into the deployed Android pipeline as a new `LipCoordNetEngine : ModelEngine`. The dual-input scaffolding for landmarks already exists in `VSRInference.kt`.
 - Same 40-phoneme ARPABET vocab as the pixel model — no changes to `BeamSearchDecoder`/`HomopheneCorrector`/`LanguageModel`.
 
-**The transcript situation:** the `e1lephant` pkls are landmarks-only — no text. Transcript sources, in order of preference:
+**Trainable today, scalable later.** Three data sources, mix and match:
 
-1. **Official LRS3 .txt files** — paste the path once you've gotten academic access from Oxford VGG.
-2. **`mattymchen/lrs3-test`** on HuggingFace — the 1,321 LRS3 test-split utterances with transcripts. Free; works as a smoke test today.
-3. **YouTube auto-captions** via `youtube_transcript_api` — fragile fallback (~50% of LRS3 videos still resolve).
+1. **`grid_shards`** (default) — landmarks extracted from `liperty-grid-preprocessed` by `preprocess_landmarks_resumable.ipynb`. ~33k clips, multi-speaker GRID grammar. Transcripts from filenames. **Runnable today.**
+2. **`tcd_shards`** — same, from `liperty-tcd-preprocessed`. ~6k clips, open vocabulary, 60+ speakers. **Runnable today.**
+3. **`lrs3_landmark`** — `e1lephant/lrs3-landmark` on Kaggle. ~150k clips, but landmarks-only — transcripts must come from elsewhere (Oxford VGG academic access, YouTube auto-captions, or other). When transcripts arrive, add this to `DATA_SOURCES`.
 
-Switch sources by changing one config string. The data loader handles the rest.
+The notebook concatenates whatever's enabled. Same model architecture and training loop regardless of source.
 """))
 
 cells.append(md("""\
@@ -156,16 +156,28 @@ RUN_NAME = "landmark-transformer-v1"
 # Time budget. Kaggle GPU sessions cap at ~9h, Colab free at ~4h.
 TIME_BUDGET_MIN = 480 if IS_KAGGLE else 200
 
-# Transcript source. Switch as your data situation evolves:
-#   "mattymchen_test"  — HuggingFace mattymchen/lrs3-test (1,321 utterances, smoke test)
-#   "lrs3_official"    — local path to LRS3 .txt files (set LRS3_TXT_ROOT below)
-#   "youtube_captions" — youtube_transcript_api fallback
-TRANSCRIPT_SOURCE = "mattymchen_test"
-LRS3_TXT_ROOT     = "/kaggle/input/lrs3-text"   # only used when TRANSCRIPT_SOURCE == "lrs3_official"
+# Data sources, comma-separated. The notebook concatenates whatever is enabled.
+#   "grid_shards"  — landmarks extracted from liperty-grid-preprocessed
+#                    via preprocess_landmarks_resumable.ipynb. Trainable today.
+#   "tcd_shards"   — same, from TCD-TIMIT.
+#   "lrs3_landmark" — e1lephant/lrs3-landmark on Kaggle. Requires transcripts
+#                     (set LRS3_TRANSCRIPT_SOURCE below). Adds ~150k clips.
+DATA_SOURCES = "grid_shards,tcd_shards"
+
+# HF dataset repos for shard-format landmark sources (output of
+# preprocess_landmarks_resumable.ipynb).
+HF_LM_REPO_GRID = f"{HF_USER}/liperty-grid-landmarks"
+HF_LM_REPO_TCD  = f"{HF_USER}/liperty-tcd-landmarks"
 
 # Where the e1lephant/lrs3-landmark pkls live in the session.
 # On Kaggle, attach the dataset as input and this is the path:
 LRS3_LANDMARK_ROOT = "/kaggle/input/lrs3-landmark"
+
+# For lrs3_landmark only — choose how to obtain transcripts:
+#   "lrs3_official"    — local path to LRS3 .txt files (set LRS3_TXT_ROOT)
+#   "youtube_captions" — youtube_transcript_api fallback (not recommended)
+LRS3_TRANSCRIPT_SOURCE = "lrs3_official"
+LRS3_TXT_ROOT          = "/kaggle/input/lrs3-text"
 
 # Data quality
 MAX_NONE_RATIO = 0.20   # reject clips where >20% of frames have no detected face
@@ -215,16 +227,15 @@ PHONEME_TO_IDX = {p: i for i, p in enumerate(PHONEME_VOCAB)}
 
 print(f"Run:              {RUN_NAME}")
 print(f"Budget:           {TIME_BUDGET_MIN} min")
-print(f"Transcript src:   {TRANSCRIPT_SOURCE}")
-print(f"Landmark root:    {LRS3_LANDMARK_ROOT}")
+print(f"Data sources:     {DATA_SOURCES}")
 print(f"Effective bs:     {BATCH_SIZE * GRAD_ACCUM}")
 print(f"Vocab size:       {VOCAB_SIZE}")
 """))
 
 cells.append(md("""\
-## 5. Pull the smoke-test transcripts (`mattymchen/lrs3-test`)
+## 5. Optional: pull `mattymchen/lrs3-test` for held-out evaluation
 
-677 MB Parquet with 1,321 LRS3 test-split rows — labels included. We use this for the initial smoke test regardless of which `TRANSCRIPT_SOURCE` is selected for full training, because it's the one corpus we know aligns with the e1lephant landmark pkls and has clean transcripts.
+677 MB Parquet with 1,321 LRS3 test-split rows including transcripts. Not used during training (its rows aren't keyed to e1lephant pkls), but useful as a held-out evaluation set if you later add an eval cell. Skip the cell if you don't need it.
 """))
 
 cells.append(code("""\
@@ -376,7 +387,66 @@ class YouTubeCaptionResolver(TranscriptResolver):
     def get(self, *_):
         return None
 
-# ---------- The dataset proper ----------
+# ---------- Helper: convert a List[Optional[ndarray(68,2)]] to (T, 68, 2) with nan ----------
+def list_to_landmark_array(landmarks_list):
+    T = len(landmarks_list)
+    arr = np.full((T, NUM_LANDMARKS, 2), np.nan, dtype=np.float32)
+    none_count = 0
+    for t, lm in enumerate(landmarks_list):
+        if lm is None:
+            none_count += 1
+        else:
+            arr[t] = lm
+    none_ratio = none_count / max(T, 1)
+    # Linear interpolate over None gaps
+    for j in range(NUM_LANDMARKS):
+        for k in range(2):
+            col = arr[:, j, k]
+            mask = np.isnan(col)
+            if mask.all() or not mask.any():
+                continue
+            xs = np.where(~mask)[0]
+            ys = col[~mask]
+            arr[mask, j, k] = np.interp(np.where(mask)[0], xs, ys)
+    return arr, none_ratio
+
+# ---------- Shard-format dataset (GRID, TCD landmarks) ----------
+class ShardLandmarkDataset(Dataset):
+    \"\"\"Reads .pt shards in the format produced by preprocess_landmarks_resumable.ipynb:
+        {'landmarks': [List[Optional[ndarray(68,2)]] per clip],
+         'phonemes':  [list[int] per clip],
+         'texts':     [str per clip],
+         'speaker':   <id>}
+    Each shard is loaded fully into memory once at construction time.
+    \"\"\"
+    def __init__(self, shard_paths):
+        self.entries = []   # (landmarks_list, phonemes_tensor)
+        for p in shard_paths:
+            d = torch.load(p, map_location="cpu", weights_only=False)
+            for lms, ph in zip(d["landmarks"], d["phonemes"]):
+                if not ph:
+                    continue
+                self.entries.append((lms, torch.tensor(ph, dtype=torch.long)))
+        print(f"  ShardLandmarkDataset: {len(self.entries)} clips across {len(shard_paths)} shards")
+
+    def __len__(self):
+        return len(self.entries)
+
+    def __getitem__(self, i):
+        lms, phonemes = self.entries[i]
+        arr, none_ratio = list_to_landmark_array(lms)
+        T = arr.shape[0]
+        if none_ratio > MAX_NONE_RATIO or T < MIN_FRAMES:
+            return None
+        if T > MAX_FRAMES:
+            arr = arr[:MAX_FRAMES]
+        arr = normalize_landmarks(arr)
+        landmarks = torch.from_numpy(arr.reshape(arr.shape[0], -1).astype(np.float32))
+        if phonemes.numel() == 0:
+            return None
+        return landmarks, phonemes
+
+# ---------- e1lephant directory-format dataset (LRS3) ----------
 class LandmarkClipDataset(Dataset):
     def __init__(self, root: str, splits: list[str], resolver: TranscriptResolver,
                  max_none_ratio=MAX_NONE_RATIO, min_frames=MIN_FRAMES, max_frames=MAX_FRAMES):
@@ -442,81 +512,78 @@ print("Dataset class defined.")
 """))
 
 cells.append(md("""\
-## 7. Smoke-test dataset
+## 7. Build the training dataset
 
-`mattymchen/lrs3-test` has labels but doesn't preserve LRS3 video_id/utt_id, so it can't be paired with the e1lephant pkls directly. For smoke testing the architecture, we use the parquet's *video* (raw RGB frames) and run dlib at decode time to derive landmarks — slow, but only 1,321 rows.
-
-If you have dlib installed and want to actually use this for smoke training, uncomment the install + dataset class below. Otherwise skip to cell 8 with the smoke test disabled and use the LRS3 official resolver once you have transcripts.
+Concatenates whatever sources are listed in `DATA_SOURCES`. With the default `"grid_shards,tcd_shards"` you get a runnable dataset today — landmarks extracted by `preprocess_landmarks_resumable.ipynb` from your existing pixel preprocessed shards. Add `lrs3_landmark` once LRS3 transcripts are available.
 """))
 
 cells.append(code("""\
-# Optional smoke-test path. Uses the mattymchen parquet's RAW video frames
-# (not the e1lephant landmarks) and re-extracts landmarks on the fly via dlib.
-# Slow but verifies the model can learn on a tiny labeled set.
-USE_SMOKE_TEST = False
+from torch.utils.data import DataLoader, ConcatDataset
+from huggingface_hub import snapshot_download
 
-if USE_SMOKE_TEST:
-    !pip install -q dlib
-    # Download the dlib 68-point model
-    import urllib.request
-    DLIB_MODEL_URL = "https://github.com/davisking/dlib-models/raw/master/shape_predictor_68_face_landmarks.dat.bz2"
-    bz2_path = Path(WORK_DIR) / "shape_predictor_68_face_landmarks.dat.bz2"
-    dat_path = bz2_path.with_suffix("")
-    if not dat_path.exists():
-        urllib.request.urlretrieve(DLIB_MODEL_URL, bz2_path)
-        import bz2
-        with bz2.open(bz2_path, "rb") as src, open(dat_path, "wb") as dst:
-            dst.write(src.read())
-    print(f"dlib 68-point model at {dat_path}")
-    # Smoke-test dataset implementation left as an exercise — typically:
-    # (a) read parquet rows, (b) decode video frames, (c) run dlib face
-    # detector + 68-point predictor per frame, (d) pad missing, (e) feed.
-    # The full pipeline is heavy; defer to LRS3 official transcripts when
-    # available, which lets us use the pre-extracted e1lephant pkls instead.
-    print("Smoke-test dataset stub. Implement run-time dlib extraction here.")
+sources = [s.strip() for s in DATA_SOURCES.split(",") if s.strip()]
+ds_list = []
+
+# --- Shard-format sources (output of preprocess_landmarks_resumable.ipynb) ---
+def _pull_shards(repo_id, subdir):
+    local = Path(WORK_DIR) / subdir
+    local.mkdir(parents=True, exist_ok=True)
+    try:
+        snapshot_download(repo_id=repo_id, repo_type="dataset",
+                          local_dir=str(local), allow_patterns="*.pt")
+    except Exception as e:
+        print(f"snapshot_download({repo_id}): {e}")
+        return []
+    return sorted(local.glob("*.pt"))
+
+if "grid_shards" in sources:
+    print("Pulling GRID landmark shards...")
+    shards = _pull_shards(HF_LM_REPO_GRID, "grid-landmarks")
+    print(f"  GRID shards: {len(shards)}")
+    if shards:
+        ds_list.append(ShardLandmarkDataset(shards))
+
+if "tcd_shards" in sources:
+    print("Pulling TCD landmark shards...")
+    shards = _pull_shards(HF_LM_REPO_TCD, "tcd-landmarks")
+    print(f"  TCD shards: {len(shards)}")
+    if shards:
+        ds_list.append(ShardLandmarkDataset(shards))
+
+# --- e1lephant directory-format source (LRS3) ---
+if "lrs3_landmark" in sources:
+    if LRS3_TRANSCRIPT_SOURCE == "lrs3_official":
+        resolver = LRS3OfficialResolver(LRS3_TXT_ROOT)
+    elif LRS3_TRANSCRIPT_SOURCE == "youtube_captions":
+        resolver = YouTubeCaptionResolver()
+    else:
+        raise ValueError(f"unknown LRS3_TRANSCRIPT_SOURCE: {LRS3_TRANSCRIPT_SOURCE}")
+    print(f"Walking LRS3 landmarks at {LRS3_LANDMARK_ROOT} with resolver={LRS3_TRANSCRIPT_SOURCE}...")
+    lrs3_ds = LandmarkClipDataset(
+        root=LRS3_LANDMARK_ROOT,
+        splits=["pretrain", "trainval"],
+        resolver=resolver,
+    )
+    if len(lrs3_ds) > 0:
+        ds_list.append(lrs3_ds)
+
+if not ds_list:
+    print("No data sources produced any clips. Check DATA_SOURCES and that the shards/transcripts exist.")
+    train_ds = None
+    train_loader = []
 else:
-    print("Smoke test disabled. Set USE_SMOKE_TEST=True to enable.")
+    train_ds = ConcatDataset(ds_list) if len(ds_list) > 1 else ds_list[0]
+    print(f"\\nTotal clips: {len(train_ds)}  ({len(ds_list)} source(s))")
+    train_loader = DataLoader(
+        train_ds, batch_size=BATCH_SIZE, shuffle=True,
+        num_workers=NUM_WORKERS, collate_fn=landmark_collate,
+        pin_memory=True, drop_last=True, persistent_workers=NUM_WORKERS > 0,
+    )
+    print(f"Batches per epoch: {len(train_loader)}")
 """))
 
 cells.append(md("""\
-## 8. Build the training dataset
-
-Picks the right resolver based on `TRANSCRIPT_SOURCE`. Until you have LRS3 transcripts, this dataset will be empty — switch `TRANSCRIPT_SOURCE` to `"lrs3_official"` and set `LRS3_TXT_ROOT` once they arrive.
-"""))
-
-cells.append(code("""\
-from torch.utils.data import DataLoader
-
-if TRANSCRIPT_SOURCE == "lrs3_official":
-    resolver = LRS3OfficialResolver(LRS3_TXT_ROOT)
-elif TRANSCRIPT_SOURCE == "mattymchen_test":
-    # Mattymchen doesn't pair with pkls — flag this and use empty dataset
-    print("Note: mattymchen_test cannot be paired with e1lephant pkls because")
-    print("      LRS3 video_ids are not preserved in the parquet.")
-    print("      Use USE_SMOKE_TEST mode (cell 7) for an end-to-end test, or")
-    print("      switch to TRANSCRIPT_SOURCE='lrs3_official' once you have LRS3 .txt files.")
-    resolver = LRS3OfficialResolver(LRS3_TXT_ROOT)  # will return None for everything
-elif TRANSCRIPT_SOURCE == "youtube_captions":
-    resolver = YouTubeCaptionResolver()
-else:
-    raise ValueError(f"unknown TRANSCRIPT_SOURCE: {TRANSCRIPT_SOURCE}")
-
-train_ds = LandmarkClipDataset(
-    root=LRS3_LANDMARK_ROOT,
-    splits=["pretrain", "trainval"],
-    resolver=resolver,
-)
-
-train_loader = DataLoader(
-    train_ds, batch_size=BATCH_SIZE, shuffle=True,
-    num_workers=NUM_WORKERS, collate_fn=landmark_collate,
-    pin_memory=True, drop_last=True, persistent_workers=NUM_WORKERS > 0,
-)
-print(f"Batches per epoch: {len(train_loader)}")
-"""))
-
-cells.append(md("""\
-## 9. Model — small Transformer over landmark sequences
+## 8. Model — small Transformer over landmark sequences
 
 `(B, T, 136)` → linear embed → 4-layer Transformer encoder → linear → CTC head over 40 phonemes. ~10M params. The `time_upsample` stage is needed because LRS3 utterances often have more phonemes than frames once short clips happen — CTC requires `T_out >= L_label`.
 """))
@@ -570,7 +637,7 @@ with torch.no_grad():
 """))
 
 cells.append(md("""\
-## 10. Checkpoint utilities
+## 9. Checkpoint utilities
 
 Same atomic-write-then-upload pattern as the pixel notebook. Different repo (`liperty-landmark-vsr-checkpoints`) so the two architectures don't collide.
 """))
@@ -662,7 +729,7 @@ print("Checkpoint utilities ready.")
 """))
 
 cells.append(md("""\
-## 11. Optimizer + scheduler + resume
+## 10. Optimizer + scheduler + resume
 """))
 
 cells.append(code("""\
@@ -689,7 +756,7 @@ print(f"Cosine total_steps={TOTAL_STEPS}; current LR={optimizer.param_groups[0][
 """))
 
 cells.append(md("""\
-## 12. Training loop
+## 11. Training loop
 
 Same time-budget pattern as the pixel notebook. CTC loss over the upsampled output.
 """))
@@ -776,7 +843,7 @@ print(f"\\nLoop finished. step={final_step} epoch={final_epoch}")
 """))
 
 cells.append(md("""\
-## 13. Final flush
+## 12. Final flush
 """))
 
 cells.append(code("""\
@@ -787,7 +854,7 @@ print(f"Final checkpoint pushed: step={final_step} epoch={final_epoch}")
 """))
 
 cells.append(md("""\
-## 14. ONNX export (run after training converges)
+## 13. ONNX export (run after training converges)
 
 When you're happy with a checkpoint, export to ONNX and bundle into `app/src/main/assets/landmark_vsr_model.onnx`. The Android side needs a new `LipCoordNetEngine : ModelEngine` that wraps `OrtSession` and reports `getInputLayout() = NTHWC`-ish (actually it's `(B, T, 136)` — a different shape regime; the engine's job is to translate from per-frame mediapipe landmarks to that input).
 """))
@@ -817,7 +884,7 @@ else:
 """))
 
 cells.append(md("""\
-## 15. Cross-account handoff
+## 14. Cross-account handoff
 
 Same as the pixel notebook: identical HF token across all your Kaggle/Colab accounts means the next session resumes from the most recent checkpoint regardless of which account or platform.
 
@@ -830,13 +897,9 @@ The first 3 cells set up the environment; cell 11 detects the prior checkpoint a
 """))
 
 cells.append(md("""\
-## 16. Troubleshooting
+## 15. Troubleshooting
 
-**"Empty dataloader."** No transcripts available. Three fixes, ordered by quality:
-
-1. Get LRS3 academic access from Oxford VGG, download just the `.txt` files (small), set `LRS3_TXT_ROOT` and `TRANSCRIPT_SOURCE = "lrs3_official"`.
-2. Wait for `e1lephant` to respond about transcripts.
-3. Implement the smoke-test path in cell 7 using dlib + the `mattymchen/lrs3-test` parquet for a 1.3k-row overfit run.
+**"Empty dataloader."** Most likely you haven't run `preprocess_landmarks_resumable.ipynb` yet, so no shards exist on HF. Run that first to populate `liperty-grid-landmarks` and `liperty-tcd-landmarks`. Alternatively, switch to `lrs3_landmark` once you have transcripts (Oxford VGG academic access for the .txt files, then set `LRS3_TXT_ROOT` and `LRS3_TRANSCRIPT_SOURCE = "lrs3_official"`).
 
 **"Loss not decreasing."** With 10M params on landmarks, the model has limited capacity. If loss plateaus at high values:
 - Increase `D_MODEL` to 256 and `N_LAYERS` to 6 (~25M params).
