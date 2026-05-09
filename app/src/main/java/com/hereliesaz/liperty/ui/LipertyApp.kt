@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -89,6 +90,7 @@ fun LipertyApp(
     onRegisterCalibrationCallback: (((Bitmap) -> Unit)?) -> Unit = {}
 ) {
     val navController = rememberNavController()
+    val context = LocalContext.current
 
     LipertyTheme(isDarkTheme = isDarkTheme) {
     val backgroundColor = MaterialTheme.colorScheme.background
@@ -129,7 +131,7 @@ fun LipertyApp(
             // ── Navigation rail items ─────────────────────────────────────
             azRailItem(
                 id      = "home",
-                text    = stringResource(R.string.nav_home),
+                text    = context.getString(R.string.nav_home),
                 route   = "home",
                 content = Icons.Filled.Home,
                 color   = Color.White
@@ -138,8 +140,8 @@ fun LipertyApp(
             azRailToggle(
                 id            = "lipread",
                 isChecked     = isLipReadActive,
-                toggleOnText  = stringResource(R.string.mode_lipread_on),
-                toggleOffText = stringResource(R.string.mode_lipread_off),
+                toggleOnText  = context.getString(R.string.mode_lipread_on),
+                toggleOffText = context.getString(R.string.mode_lipread_off),
                 onClick       = { onToggleLipRead() },
                 color         = Color.White
             )
@@ -147,8 +149,8 @@ fun LipertyApp(
             azRailToggle(
                 id            = "voicebox",
                 isChecked     = isBCActive,
-                toggleOnText  = stringResource(R.string.mode_bc_on),
-                toggleOffText = stringResource(R.string.mode_bc_off),
+                toggleOnText  = context.getString(R.string.mode_bc_on),
+                toggleOffText = context.getString(R.string.mode_bc_off),
                 onClick       = { onToggleBC() },
                 color         = Color.White
             )
@@ -156,8 +158,8 @@ fun LipertyApp(
             azRailToggle(
                 id            = "el_translator",
                 isChecked     = isELActive,
-                toggleOnText  = stringResource(R.string.mode_el_on),
-                toggleOffText = stringResource(R.string.mode_el_off),
+                toggleOnText  = context.getString(R.string.mode_el_on),
+                toggleOffText = context.getString(R.string.mode_el_off),
                 onClick       = { onToggleEL() },
                 color         = Color.Magenta
             )
@@ -165,15 +167,15 @@ fun LipertyApp(
             azRailToggle(
                 id            = "switch_cam",
                 isChecked     = currentLensFacing == 1, // 1 for Back
-                toggleOnText  = stringResource(R.string.mode_camera_back),
-                toggleOffText = stringResource(R.string.mode_camera_front),
+                toggleOnText  = context.getString(R.string.mode_camera_back),
+                toggleOffText = context.getString(R.string.mode_camera_front),
                 onClick       = { onSwitchCamera() },
                 color         = Color.White
             )
 
             azRailItem(
                 id      = "voice_mgmt",
-                text    = stringResource(R.string.nav_voice),
+                text    = context.getString(R.string.nav_voice),
                 route   = "voice_mgmt",
                 content = Icons.Filled.RecordVoiceOver,
                 color   = Color.White
@@ -181,7 +183,7 @@ fun LipertyApp(
 
             azRailItem(
                 id      = "calibrate",
-                text    = stringResource(R.string.nav_tweak),
+                text    = context.getString(R.string.nav_tweak),
                 route   = "calibrate",
                 content = Icons.Filled.Refresh,
                 color   = Color.White
@@ -189,7 +191,7 @@ fun LipertyApp(
 
             azRailItem(
                 id      = "settings",
-                text    = stringResource(R.string.nav_settings),
+                text    = context.getString(R.string.nav_settings),
                 route   = "settings",
                 content = Icons.Filled.Settings,
                 color   = Color.White
@@ -198,14 +200,14 @@ fun LipertyApp(
             // ── Action menu items ─────────────────────────────────────────
             azMenuItem(
                 id      = "clear",
-                text    = stringResource(R.string.nav_clear_transcript),
+                text    = context.getString(R.string.nav_clear_transcript),
                 route   = "clear",
                 content = Icons.Filled.Clear
             )
 
             azMenuItem(
                 id      = "speak",
-                text    = stringResource(R.string.nav_speak_text),
+                text    = context.getString(R.string.nav_speak_text),
                 route   = "speak",
                 content = Icons.Filled.PlayArrow
             )
