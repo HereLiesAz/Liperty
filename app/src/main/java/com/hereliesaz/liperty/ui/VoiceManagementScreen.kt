@@ -17,7 +17,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.hereliesaz.liperty.R
 import com.hereliesaz.liperty.voicebox.VoiceViewModel
 
 @Composable
@@ -43,14 +45,14 @@ fun VoiceManagementScreen(
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         Text(
-            "Voice Management",
+            stringResource(R.string.voice_mgmt_title),
             color = Color.White,
             fontSize = 22.sp,
             fontWeight = FontWeight.Bold
         )
 
         Text(
-            "Recreate your voice from old recordings, or record a new sample.",
+            stringResource(R.string.voice_mgmt_subtitle),
             color = Color(0xFFB0B0CC),
             fontSize = 14.sp,
             textAlign = TextAlign.Center
@@ -69,13 +71,13 @@ fun VoiceManagementScreen(
             ) {
                 Icon(
                     imageVector = Icons.Default.Mic,
-                    contentDescription = "Recording status",
+                    contentDescription = stringResource(R.string.cd_recording_status),
                     tint = if (state.isRecording) Color.Red else Color.Cyan,
                     modifier = Modifier.size(48.dp)
                 )
 
                 Text(
-                    text = if (state.isRecording) "Recording... Speak clearly" else "Ready to Clone",
+                    text = if (state.isRecording) stringResource(R.string.voice_mgmt_recording) else stringResource(R.string.voice_mgmt_ready),
                     color = Color.White,
                     fontWeight = FontWeight.Medium
                 )
@@ -89,7 +91,7 @@ fun VoiceManagementScreen(
                         containerColor = if (state.isRecording) Color(0xFFB71C1C) else Color(0xFF1565C0)
                     )
                 ) {
-                    Text(if (state.isRecording) "STOP" else "RECORD NEW SAMPLE")
+                    Text(if (state.isRecording) stringResource(R.string.common_stop) else stringResource(R.string.voice_mgmt_record))
                 }
 
                 if (state.isCloning) {
@@ -110,14 +112,14 @@ fun VoiceManagementScreen(
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A1A2E)),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Icon(Icons.Default.FileUpload, contentDescription = "Import recordings", tint = Color.Cyan)
+            Icon(Icons.Default.FileUpload, contentDescription = stringResource(R.string.cd_import_recordings), tint = Color.Cyan)
             Spacer(Modifier.width(8.dp))
-            Text("Import Audio / Video Recordings", color = Color.White)
+            Text(stringResource(R.string.voice_mgmt_import), color = Color.White)
         }
 
         // Voice List
         Text(
-            "Saved Voices",
+            stringResource(R.string.voice_mgmt_saved_voices),
             color = Color.White,
             fontSize = 18.sp,
             fontWeight = FontWeight.SemiBold,
@@ -152,7 +154,7 @@ fun VoiceManagementScreen(
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                                 Icon(
                                     Icons.Default.RecordVoiceOver,
-                                    contentDescription = "Voice profile",
+                                    contentDescription = stringResource(R.string.cd_voice_profile),
                                     tint = if (isActive) Color.Cyan else Color.Gray
                                 )
                                 Spacer(Modifier.width(12.dp))
@@ -164,7 +166,7 @@ fun VoiceManagementScreen(
                                     )
                                     if (profile != null) {
                                         Text(
-                                            "${profile.sampleCount} samples · ${profile.totalSpeechDurationMs / 1000}s",
+                                            stringResource(R.string.voice_mgmt_sample_info, profile.sampleCount, profile.totalSpeechDurationMs / 1000),
                                             color = Color(0xFF808099),
                                             fontSize = 11.sp
                                         )
@@ -179,15 +181,15 @@ fun VoiceManagementScreen(
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                         modifier = Modifier.height(32.dp)
                                     ) {
-                                        Text("Select", fontSize = 12.sp)
+                                        Text(stringResource(R.string.voice_mgmt_select), fontSize = 12.sp)
                                     }
                                 } else {
-                                    Text("Active", color = Color.Cyan, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                    Text(stringResource(R.string.voice_mgmt_active), color = Color.Cyan, fontSize = 12.sp, fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(horizontal = 8.dp))
                                 }
 
                                 IconButton(onClick = { vm.deleteVoice(voice.name) }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFF666680))
+                                    Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.cd_delete), tint = Color(0xFF666680))
                                 }
                             }
                         }
@@ -214,10 +216,10 @@ fun VoiceManagementScreen(
                                 )
                                 Text(
                                     when {
-                                        profile.qualityScore >= 0.8f -> "Excellent"
-                                        profile.qualityScore >= 0.6f -> "Good"
-                                        profile.qualityScore >= 0.4f -> "Fair"
-                                        else -> "Basic"
+                                        profile.qualityScore >= 0.8f -> stringResource(R.string.quality_excellent)
+                                        profile.qualityScore >= 0.6f -> stringResource(R.string.quality_good)
+                                        profile.qualityScore >= 0.4f -> stringResource(R.string.quality_fair)
+                                        else -> stringResource(R.string.quality_basic)
                                     },
                                     color = Color(0xFF808099),
                                     fontSize = 10.sp
@@ -231,9 +233,9 @@ fun VoiceManagementScreen(
                                 contentPadding = PaddingValues(0.dp),
                                 modifier = Modifier.height(28.dp)
                             ) {
-                                Icon(Icons.Default.Add, contentDescription = null, tint = Color.Cyan, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.cd_add_samples), tint = Color.Cyan, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
-                                Text("Add more samples", color = Color.Cyan, fontSize = 11.sp)
+                                Text(stringResource(R.string.voice_mgmt_add_samples), color = Color.Cyan, fontSize = 11.sp)
                             }
                         }
                     }
@@ -252,12 +254,12 @@ fun NamingDialog(
 
     AlertDialog(
         onDismissRequest = onCancel,
-        title = { Text("Name your Voice Profile") },
+        title = { Text(stringResource(R.string.voice_mgmt_name_title)) },
         text = {
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                placeholder = { Text("e.g. My Old Voice") },
+                placeholder = { Text(stringResource(R.string.voice_mgmt_name_hint)) },
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White,
@@ -274,12 +276,12 @@ fun NamingDialog(
                 onClick = { if (name.isNotBlank()) onConfirm(name) },
                 enabled = name.isNotBlank()
             ) {
-                Text("Create")
+                Text(stringResource(R.string.voice_mgmt_create))
             }
         },
         dismissButton = {
             TextButton(onClick = onCancel) {
-                Text("Cancel")
+                Text(stringResource(R.string.common_cancel))
             }
         },
         containerColor = Color(0xFF12122A),

@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
  import android.graphics.PointF
 import android.graphics.RectF
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.ViewGroup
@@ -41,7 +42,6 @@ import com.hereliesaz.liperty.utils.ImageUtils
 import com.hereliesaz.liperty.utils.PerformanceMonitor
 import com.hereliesaz.liperty.utils.RectKalmanFilter
 import com.hereliesaz.liperty.voicebox.VoiceManager
-import com.hereliesaz.liperty.voicebox.recording.VoiceRecorder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -88,12 +88,20 @@ class MainActivity : ComponentActivity() {
     @Volatile private var frameCount = 0
     @Volatile private var calibrationCallback: ((Bitmap) -> Unit)? = null
 
-    private val requestPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted: Boolean ->
-            if (isGranted) {
+    // Tracks whether BC/EL was active before onPause so we can restore on resume
+    @Volatile private var wasBCActiveBeforePause = false
+    @Volatile private var wasELActiveBeforePause = false
+
+    private val requestPermissionsLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            val allGranted = results.values.all { it }
+            if (allGranted) {
                 checkConsentAndStart()
             } else {
-                Toast.makeText(this, "Permission Denied", Toast.LENGTH_SHORT).show()
+                val denied = results.filter { !it.value }.keys.joinToString(", ") {
+                    it.removePrefix("android.permission.")
+                }
+                Toast.makeText(this, getString(R.string.common_permissions_denied, denied), Toast.LENGTH_LONG).show()
             }
         }
 
@@ -111,20 +119,19 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-        cameraManager = CameraManager(this)
-        faceLandmarkerHelper = FaceLandmarkerHelper(this)
-        handGestureHelper = HandGestureHelper(this)
-        laryngealSensor = LaryngealSensor(this)
-        // vsr_lora_model.tflite uses ops incompatible with LiteRT 2.x CompiledModel.
-        // Always load the base model until LoRA export is fixed.
-        val vsrEngine = TFLiteEngine(this, "vallr_model.tflite")
-        
-        vsrInference = VSRInference(vsrEngine)
-        ssrInference = SSRInference(TFLiteEngine(this, "ssr_model.tflite"))
-        // VoiceConverter is initialized lazily or in onCreate
-        // For simplicity, let's use the one in LaryngealSensor if EL mode is active.
-        // But MainActivity might need its own if it does other things.
-        frameBuffer = FrameBuffer(capacity = 50) // VSR model input: [1, 50, 64, 128, 3] and landmarks: [1, 50, 40]
+        try {
+            cameraManager = CameraManager(this)
+            faceLandmarkerHelper = FaceLandmarkerHelper(this)
+            handGestureHelper = HandGestureHelper(this)
+            laryngealSensor = LaryngealSensor(this)
+            val vsrEngine = TFLiteEngine(this, "vallr_model.tflite")
+            vsrInference = VSRInference(vsrEngine)
+            ssrInference = SSRInference(TFLiteEngine(this, "ssr_model.tflite"))
+            frameBuffer = FrameBuffer(capacity = 50)
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to initialize components", e)
+            Toast.makeText(this, getString(R.string.common_init_error, e.message ?: ""), Toast.LENGTH_LONG).show()
+        }
 
         // Initialize TFLite in background
         lifecycleScope.launch(Dispatchers.Default) {
@@ -159,7 +166,6 @@ class MainActivity : ComponentActivity() {
                     transcriptionManager.clear()
                     updateTranscriptionUI()
                     frameBuffer.clearAndRecycle()
-                    Toast.makeText(this, "Transcript Cleared", Toast.LENGTH_SHORT).show()
                 },
                 onSpeak = { speakText() },
                 onToggleBC = { toggleBCMode() },
@@ -195,13 +201,47 @@ class MainActivity : ComponentActivity() {
         if (allPermissionsGranted()) {
             checkConsentAndStart()
         } else {
-            requestPermissionLauncher.launch(Manifest.permission.CAMERA)
+            val perms = mutableListOf(
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                perms.add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
+            requestPermissionsLauncher.launch(perms.toTypedArray())
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Stop audio resources — camera stops automatically via CameraX lifecycle binding
+        wasBCActiveBeforePause = isBCModeState.value
+        wasELActiveBeforePause = isELModeState.value
+        if (isBCModeState.value || isELModeState.value) {
+            laryngealSensor.stop()
+            isBCModeState.value = false
+            isELModeState.value = false
+        }
+        isRecordingState.value = false
     }
 
     override fun onResume() {
         super.onResume()
         applySettings()
+        // Restart camera if consent was previously granted
+        val consentGranted = getSharedPreferences("LipertyPrefs", Context.MODE_PRIVATE)
+            .getBoolean("consent_granted", false)
+        if (consentGranted && allPermissionsGranted()) {
+            startCamera()
+        }
+        // Restore voice mode if it was active before pause
+        if (wasBCActiveBeforePause) {
+            wasBCActiveBeforePause = false
+            toggleBCMode()
+        } else if (wasELActiveBeforePause) {
+            wasELActiveBeforePause = false
+            toggleELMode()
+        }
     }
 
     private fun applySettings() {
@@ -231,7 +271,7 @@ class MainActivity : ComponentActivity() {
             if (!calibrationDone) {
                 // Ideally we should navigate to calibration route here.
                 // For now, let the user trigger it from the rail or add logic to auto-open.
-                Toast.makeText(this, "Please personalize the model for better accuracy.", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, getString(R.string.common_calibration_prompt), Toast.LENGTH_LONG).show()
             }
         } else {
             showConsentDialog()
@@ -240,12 +280,9 @@ class MainActivity : ComponentActivity() {
 
     private fun showConsentDialog() {
         AlertDialog.Builder(this)
-            .setTitle("Legal Consent Required")
-            .setMessage("This application records video and processes facial landmarks to provide visual speech recognition.\n\n" +
-                    "By proceeding, you consent to the real-time processing of your biometric data on this device. " +
-                    "No data is sent to the cloud or permanently stored without your explicit action.\n\n" +
-                    "Do you agree?")
-            .setPositiveButton("I Agree") { _, _ ->
+            .setTitle(getString(R.string.consent_title))
+            .setMessage(getString(R.string.consent_message))
+            .setPositiveButton(getString(R.string.consent_agree)) { _, _ ->
                 val sharedPrefs = getSharedPreferences("LipertyPrefs", Context.MODE_PRIVATE)
                 with(sharedPrefs.edit()) {
                     putBoolean("consent_granted", true)
@@ -253,8 +290,8 @@ class MainActivity : ComponentActivity() {
                 }
                 startCamera()
             }
-            .setNegativeButton("Decline") { _, _ ->
-                Toast.makeText(this, "Consent declined. App cannot function.", Toast.LENGTH_LONG).show()
+            .setNegativeButton(getString(R.string.consent_decline)) { _, _ ->
+                Toast.makeText(this, getString(R.string.consent_declined_message), Toast.LENGTH_LONG).show()
                 finish()
             }
             .setCancelable(false)
@@ -302,10 +339,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             )
-            Toast.makeText(this, "BC Larynx Active: Wear headphones around neck.", Toast.LENGTH_LONG).show()
+            // Badge UI shows "BC" state
         } else {
             laryngealSensor.stop()
-            Toast.makeText(this, "BC Larynx Inactive", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -320,10 +356,9 @@ class MainActivity : ComponentActivity() {
         if (newMode) {
             isLipReadModeState.value = false
             laryngealSensor.startELMode { pcmSamples -> voiceManager.playAudio(pcmSamples) }
-            Toast.makeText(this, "EL Translator Active", Toast.LENGTH_LONG).show()
+            // Badge UI shows "EL" state
         } else {
             laryngealSensor.stop()
-            Toast.makeText(this, "EL Translator Inactive", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -378,8 +413,7 @@ class MainActivity : ComponentActivity() {
                 if (gesture == HandGestureHelper.HandGesture.WAVE_PAUSE) {
                     runOnUiThread {
                         isPausedState.value = !isPausedState.value
-                        val msg = if (isPausedState.value) "Paused" else "Resumed"
-                        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+                        // Badge UI shows "PAUSED" state
                     }
                 } else if (gesture == HandGestureHelper.HandGesture.AIR_SWIPE_LEFT) {
                     runOnUiThread {
@@ -579,9 +613,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun allPermissionsGranted() = ContextCompat.checkSelfPermission(
-        baseContext, Manifest.permission.CAMERA
-    ) == PackageManager.PERMISSION_GRANTED
+    private fun allPermissionsGranted(): Boolean {
+        val cameraOk = ContextCompat.checkSelfPermission(
+            baseContext, Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        val micOk = ContextCompat.checkSelfPermission(
+            baseContext, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        val btOk = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            ContextCompat.checkSelfPermission(
+                baseContext, Manifest.permission.BLUETOOTH_CONNECT
+            ) == PackageManager.PERMISSION_GRANTED
+        return cameraOk && micOk && btOk
+    }
 
     override fun onDestroy() {
         super.onDestroy()

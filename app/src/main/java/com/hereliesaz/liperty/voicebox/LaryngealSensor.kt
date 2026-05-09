@@ -94,13 +94,21 @@ class LaryngealSensor(private val context: Context) {
                 sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
             )
 
-            val recorder = AudioRecord(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                sampleRate,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                minBufSize * 4
-            )
+            val recorder = try {
+                AudioRecord(
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                    sampleRate,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    minBufSize * 4
+                )
+            } catch (e: SecurityException) {
+                Log.e(TAG, "BC mode: RECORD_AUDIO permission not granted", e)
+                isRunning.set(false)
+                larynx.stop()
+                audioRouter.releaseFullDuplex()
+                return@launch
+            }
 
             if (recorder.state != AudioRecord.STATE_INITIALIZED) {
                 Log.e(TAG, "BC mode: AudioRecord failed to initialize")
@@ -191,13 +199,19 @@ class LaryngealSensor(private val context: Context) {
                 sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
             )
 
-            val recorder = AudioRecord(
-                MediaRecorder.AudioSource.MIC,
-                sampleRate,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                minBufSize * 4
-            )
+            val recorder = try {
+                AudioRecord(
+                    MediaRecorder.AudioSource.MIC,
+                    sampleRate,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    minBufSize * 4
+                )
+            } catch (e: SecurityException) {
+                Log.e(TAG, "EL mode: RECORD_AUDIO permission not granted", e)
+                isRunning.set(false)
+                return@launch
+            }
 
             if (recorder.state != AudioRecord.STATE_INITIALIZED) {
                 Log.e(TAG, "EL mode: AudioRecord failed to initialize")

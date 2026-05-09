@@ -58,6 +58,7 @@ class OnDeviceTrainer(private val context: Context) {
      *
      * @return -1 until training is re-enabled.
      */
+    @Suppress("unused") // Blocked: LiteRT 2.x does not expose training signatures
     fun trainStep(inputBuffer: ByteBuffer, labelBuffer: ByteBuffer): Float {
         Log.w("OnDeviceTrainer", "trainStep: on-device training requires LiteRT training API (not yet available in 2.x)")
         return -1f
@@ -81,6 +82,7 @@ class OnDeviceTrainer(private val context: Context) {
         return buf
     }
 
+    @Suppress("unused") // Blocked: LiteRT 2.x does not expose save signatures
     fun saveModelCheckpoint() {
         Log.w("OnDeviceTrainer", "Model weight persistence requires 'save' signature implementation.")
     }

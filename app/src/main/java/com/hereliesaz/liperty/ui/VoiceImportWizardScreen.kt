@@ -22,6 +22,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import com.hereliesaz.liperty.R
 import com.hereliesaz.liperty.voicebox.ImportState
 import com.hereliesaz.liperty.voicebox.ImportStep
 import com.hereliesaz.liperty.voicebox.VoiceViewModel
@@ -58,7 +60,7 @@ fun VoiceImportWizardScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             IconButton(onClick = onDismiss) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.cd_back), tint = Color.White)
             }
             Text(
                 stepTitle(importState.step),
@@ -84,16 +86,17 @@ fun VoiceImportWizardScreen(
     }
 }
 
+@Composable
 private fun stepTitle(step: ImportStep) = when (step) {
-    ImportStep.IDLE -> "Import Recordings"
-    ImportStep.EXTRACTING -> "Processing..."
-    ImportStep.SEGMENTING -> "Detecting Speech..."
-    ImportStep.CLUSTERING -> "Analyzing Speakers..."
-    ImportStep.SPEAKER_SELECTION -> "Identify Your Voice"
-    ImportStep.READY -> "Configure Profile"
-    ImportStep.SAVING -> "Saving..."
-    ImportStep.COMPLETE -> "Done"
-    ImportStep.ERROR -> "Error"
+    ImportStep.IDLE -> stringResource(R.string.wizard_import)
+    ImportStep.EXTRACTING -> stringResource(R.string.wizard_processing)
+    ImportStep.SEGMENTING -> stringResource(R.string.wizard_detecting_speech)
+    ImportStep.CLUSTERING -> stringResource(R.string.wizard_analyzing)
+    ImportStep.SPEAKER_SELECTION -> stringResource(R.string.wizard_identify_voice)
+    ImportStep.READY -> stringResource(R.string.wizard_configure)
+    ImportStep.SAVING -> stringResource(R.string.wizard_saving)
+    ImportStep.COMPLETE -> stringResource(R.string.wizard_done)
+    ImportStep.ERROR -> stringResource(R.string.wizard_error_title)
 }
 
 // ── Step 1: File Selection ──────────────────────────────────────────────
@@ -115,7 +118,7 @@ private fun FileSelectionStep(vm: VoiceViewModel) {
     ) {
         Icon(
             Icons.Default.AudioFile,
-            contentDescription = null,
+            contentDescription = stringResource(R.string.cd_audio_file),
             tint = Color.Cyan,
             modifier = Modifier.size(80.dp)
         )
@@ -123,7 +126,7 @@ private fun FileSelectionStep(vm: VoiceViewModel) {
         Spacer(Modifier.height(24.dp))
 
         Text(
-            "Select audio or video files containing your voice.",
+            stringResource(R.string.wizard_select_prompt),
             color = Color(0xFFB0B0CC),
             fontSize = 16.sp,
             textAlign = TextAlign.Center,
@@ -133,7 +136,7 @@ private fun FileSelectionStep(vm: VoiceViewModel) {
         Spacer(Modifier.height(8.dp))
 
         Text(
-            "Home videos, voicemails, voice memos — anything works.\nMultiple speakers are handled automatically.",
+            stringResource(R.string.wizard_select_hint),
             color = Color(0xFF808099),
             fontSize = 13.sp,
             textAlign = TextAlign.Center,
@@ -151,9 +154,9 @@ private fun FileSelectionStep(vm: VoiceViewModel) {
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0)),
             shape = RoundedCornerShape(16.dp)
         ) {
-            Icon(Icons.Default.FileUpload, contentDescription = null)
+            Icon(Icons.Default.FileUpload, contentDescription = stringResource(R.string.cd_upload_audio))
             Spacer(Modifier.width(12.dp))
-            Text("Select Audio Files", fontSize = 16.sp)
+            Text(stringResource(R.string.wizard_select_audio), fontSize = 16.sp)
         }
 
         Spacer(Modifier.height(12.dp))
@@ -166,9 +169,9 @@ private fun FileSelectionStep(vm: VoiceViewModel) {
                 .height(56.dp),
             shape = RoundedCornerShape(16.dp)
         ) {
-            Icon(Icons.Default.VideoFile, contentDescription = null, tint = Color.Cyan)
+            Icon(Icons.Default.VideoFile, contentDescription = stringResource(R.string.cd_upload_video), tint = Color.Cyan)
             Spacer(Modifier.width(12.dp))
-            Text("Select Video Files", color = Color.Cyan, fontSize = 16.sp)
+            Text(stringResource(R.string.wizard_select_video), color = Color.Cyan, fontSize = 16.sp)
         }
     }
 }
@@ -217,7 +220,7 @@ private fun SpeakerIdentificationStep(state: ImportState, vm: VoiceViewModel) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            "Multiple speakers were detected.\nWhich voice is yours?",
+            stringResource(R.string.wizard_speakers_detected),
             color = Color(0xFFB0B0CC),
             fontSize = 14.sp,
             textAlign = TextAlign.Center
@@ -252,7 +255,7 @@ private fun SpeakerIdentificationStep(state: ImportState, vm: VoiceViewModel) {
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0)),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text("Continue", fontSize = 16.sp)
+            Text(stringResource(R.string.wizard_continue), fontSize = 16.sp)
         }
     }
 }
@@ -286,26 +289,26 @@ private fun SpeakerCard(
                     .clip(CircleShape)
                     .background(Color(0xFF1565C0))
             ) {
-                Icon(Icons.Default.PlayArrow, "Play sample", tint = Color.White)
+                Icon(Icons.Default.PlayArrow, stringResource(R.string.cd_play_sample), tint = Color.White)
             }
 
             Spacer(Modifier.width(16.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "Speaker ${cluster.clusterId + 1}",
+                    stringResource(R.string.wizard_speaker_label, cluster.clusterId + 1),
                     color = Color.White,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
-                    "${cluster.segments.size} segments · ${cluster.totalSpeechDurationMs / 1000}s",
+                    stringResource(R.string.wizard_segment_info, cluster.segments.size, cluster.totalSpeechDurationMs / 1000),
                     color = Color(0xFF808099),
                     fontSize = 12.sp
                 )
             }
 
             if (isSelected) {
-                Icon(Icons.Default.CheckCircle, "Selected", tint = Color.Cyan)
+                Icon(Icons.Default.CheckCircle, stringResource(R.string.cd_selected), tint = Color.Cyan)
             }
         }
     }
@@ -339,7 +342,7 @@ private fun ProfileConfigurationStep(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("Voice Quality", color = Color(0xFFB0B0CC), fontSize = 12.sp)
+                Text(stringResource(R.string.wizard_voice_quality), color = Color(0xFFB0B0CC), fontSize = 12.sp)
                 LinearProgressIndicator(
                     progress = { state.qualityScore },
                     modifier = Modifier
@@ -355,7 +358,7 @@ private fun ProfileConfigurationStep(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    "${state.sampleCount} segments · ${state.totalSpeechDurationMs / 1000}s speech",
+                    stringResource(R.string.wizard_speech_info, state.sampleCount, state.totalSpeechDurationMs / 1000),
                     color = Color(0xFF808099),
                     fontSize = 12.sp
                 )
@@ -371,12 +374,12 @@ private fun ProfileConfigurationStep(
                 FilterChip(
                     selected = !addToExisting,
                     onClick = { addToExisting = false },
-                    label = { Text("New Profile") }
+                    label = { Text(stringResource(R.string.wizard_new_profile)) }
                 )
                 FilterChip(
                     selected = addToExisting,
                     onClick = { addToExisting = true },
-                    label = { Text("Add to Existing") }
+                    label = { Text(stringResource(R.string.wizard_add_to_existing)) }
                 )
             }
         }
@@ -406,13 +409,13 @@ private fun ProfileConfigurationStep(
                         ) {
                             Text(profile.name, color = Color.White, modifier = Modifier.weight(1f))
                             Text(
-                                "${profile.sampleCount} samples",
+                                stringResource(R.string.wizard_sample_count, profile.sampleCount),
                                 color = Color(0xFF808099),
                                 fontSize = 12.sp
                             )
                             if (selectedExisting == profile.name) {
                                 Spacer(Modifier.width(8.dp))
-                                Icon(Icons.Default.Check, "Selected", tint = Color.Cyan, modifier = Modifier.size(20.dp))
+                                Icon(Icons.Default.Check, stringResource(R.string.cd_selected), tint = Color.Cyan, modifier = Modifier.size(20.dp))
                             }
                         }
                     }
@@ -423,7 +426,7 @@ private fun ProfileConfigurationStep(
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                placeholder = { Text("e.g. My Old Voice") },
+                placeholder = { Text(stringResource(R.string.voice_mgmt_name_hint)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -444,9 +447,9 @@ private fun ProfileConfigurationStep(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Icon(Icons.Default.VolumeUp, contentDescription = null, tint = Color.Cyan)
+            Icon(Icons.Default.VolumeUp, contentDescription = stringResource(R.string.cd_preview_voice), tint = Color.Cyan)
             Spacer(Modifier.width(8.dp))
-            Text("Preview Voice", color = Color.Cyan)
+            Text(stringResource(R.string.wizard_preview_voice), color = Color.Cyan)
         }
 
         // Save button
@@ -466,7 +469,7 @@ private fun ProfileConfigurationStep(
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0)),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text(if (addToExisting) "Add Samples" else "Create Voice Profile", fontSize = 16.sp)
+            Text(if (addToExisting) stringResource(R.string.wizard_add_samples_btn) else stringResource(R.string.wizard_create_profile), fontSize = 16.sp)
         }
     }
 }
@@ -479,7 +482,7 @@ private fun SavingStep() {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             CircularProgressIndicator(color = Color.Cyan)
             Spacer(Modifier.height(16.dp))
-            Text("Saving voice profile...", color = Color.White)
+            Text(stringResource(R.string.wizard_saving_profile), color = Color.White)
         }
     }
 }
@@ -493,16 +496,16 @@ private fun ConfirmationStep(onDismiss: () -> Unit) {
     ) {
         Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF4CAF50), modifier = Modifier.size(80.dp))
         Spacer(Modifier.height(24.dp))
-        Text("Voice profile saved!", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.wizard_saved), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        Text("You can add more samples anytime to improve quality.", color = Color(0xFFB0B0CC), fontSize = 14.sp)
+        Text(stringResource(R.string.wizard_saved_hint), color = Color(0xFFB0B0CC), fontSize = 14.sp)
         Spacer(Modifier.height(32.dp))
         Button(
             onClick = onDismiss,
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0)),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text("Done")
+            Text(stringResource(R.string.wizard_done))
         }
     }
 }
@@ -516,15 +519,15 @@ private fun ErrorStep(state: ImportState, vm: VoiceViewModel, onDismiss: () -> U
     ) {
         Icon(Icons.Default.Error, null, tint = Color(0xFFFF5252), modifier = Modifier.size(64.dp))
         Spacer(Modifier.height(16.dp))
-        Text(state.error ?: "Something went wrong", color = Color.White, fontSize = 16.sp)
+        Text(state.error ?: stringResource(R.string.wizard_error_default), color = Color.White, fontSize = 16.sp)
         Spacer(Modifier.height(24.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedButton(onClick = onDismiss) { Text("Cancel", color = Color.White) }
+            OutlinedButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel), color = Color.White) }
             Button(
                 onClick = { vm.resetImport() },
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0))
             ) {
-                Text("Try Again")
+                Text(stringResource(R.string.wizard_try_again))
             }
         }
     }
@@ -538,10 +541,11 @@ private fun qualityColor(score: Float) = when {
     else -> Color(0xFFFF9800)          // Orange
 }
 
+@Composable
 private fun qualityLabel(score: Float) = when {
-    score >= 0.8f -> "Excellent"
-    score >= 0.6f -> "Good"
-    score >= 0.4f -> "Fair"
-    score >= 0.2f -> "Basic"
-    else -> "Needs more samples"
+    score >= 0.8f -> stringResource(R.string.quality_excellent)
+    score >= 0.6f -> stringResource(R.string.quality_good)
+    score >= 0.4f -> stringResource(R.string.quality_fair)
+    score >= 0.2f -> stringResource(R.string.quality_basic)
+    else -> stringResource(R.string.quality_needs_more)
 }

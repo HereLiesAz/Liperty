@@ -8,7 +8,6 @@
 
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" tools:targetApi="31" />
 
     <!-- Bluetooth LE Audio Permissions -->
@@ -41,11 +40,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity
-            android:name=".voicebox.spike.SpikeActivity"
-            android:exported="false"
-            android:label="VoiceBox Spike"
-           android:theme="@style/Theme.Liperty" />
         <activity
             android:name=".ui.SettingsActivity"
             android:exported="false"

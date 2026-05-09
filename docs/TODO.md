@@ -1,13 +1,13 @@
 # Comprehensive Todo List & Implementation Roadmap
 
-This document serves as the master source of truth for the Liperty project. It maps research findings to engineering tasks to ensure a production-ready Visual Speech Recognition (VSR) and Silent Speech Interface (SSI) application.
+This document serves as the master source of truth for the Liperty project. It maps research findings to engineering tasks to ensure a production-ready Visual Speech Recognition (VSR) and Voice Reconstruction (BC/EL) application.
 
 ---
 
 ## 🔍 Phase 1-2: Core Infrastructure (Completed/Verified)
 
 - [x] **Project Skeleton:** Kotlin 2.3.10, AGP 9.1.0, Version Catalog (`libs.versions.toml`).
-- [x] **Permission Management:** Runtime CAMERA, RECORD_AUDIO, and VIBRATE permissions.
+- [x] **Permission Management:** Runtime CAMERA, RECORD_AUDIO, and BLUETOOTH_CONNECT permissions.
 - [x] **Basic CameraX:** Implementation of Preview and ImageAnalysis with fixed front-camera default.
 - [x] **Legal Foundation:** Consent dialog and ephemeral RAM-only processing logic.
 
@@ -72,20 +72,21 @@ This document serves as the master source of truth for the Liperty project. It m
 
 ---
 
-## 🎙️ Phase 7: Experimental Modality (Silent Speech Interface)
+## 🎙️ Phase 7: Voice Reconstruction (BC/EL Pipeline)
 
-- [ ] **VibraPhone Implementation (Phase 2):**
-    - [ ] Capture Back-EMF from LRA via NDK (Requires specialized hardware/drivers).
-- [ ] **Artificial Larynx:**
-    - [ ] **Carrier Generation:** Continuous high-intensity vibration using `VibratorManager` (Multi-motor support).
-- [ ] **Laryngeal Sensing Pipeline:**
-    - [ ] **Dual-Stream Sync:** Synchronized capture of contact-mic and accelerometer.
-    - [ ] **Multimodal VAD:** Accelerometer-gated audio processing.
-    - [ ] **DSP Reconstruction:** FFT, Equalization, and Formant Extrapolation via LPC vocoder implemented.
+- [x] **BC Mode (Bone Conduction Larynx):**
+    - [x] **Carrier Generation:** `GlottalCarrierGenerator` produces glottal pulse carrier (80–200 Hz) via `ArtificialLarynx`.
+    - [x] **Audio Routing:** `AudioRouter` manages full-duplex (mic input + BC headphone output), forces built-in mic.
+    - [x] **DSP Pipeline:** Spectral subtraction → frequency equalization → mel spectrogram → VoiceConverter → inverse mel.
+- [x] **EL Mode (Electrolarynx Translator):**
+    - [x] **Capture:** Built-in mic captures external EL buzz; same DSP pipeline (no carrier generation).
+- [ ] **Future:**
+    - [ ] Native C++ Oboe/AAudio for ultra-low-latency audio playback.
+    - [ ] TRAMBA high-frequency bandwidth expansion model for BC input.
 
 ---
 
-## 🗣️ Phase 9: Voice Management & synthesis
+## 🗣️ Phase 9: Voice Management & Synthesis
 
 - [ ] **Voice Cloning (Pocket TTS):**
     - [ ] **Import/Record UI:** Support for capturing samples or selecting existing `.wav` files.
@@ -105,7 +106,7 @@ This document serves as the master source of truth for the Liperty project. It m
 
 ---
 
-## 🔕 Phase 9: Architecture 1 - Silent Speech Recognition (SSR)
+## 🔕 Phase 10: Architecture 1 - Silent Speech Recognition (SSR)
 
 *Ref: RESEARCH3.md Section "Architecture 1: Vibration-to-Text-to-Speech (Silent Speech Recognition)"*
 
@@ -117,7 +118,7 @@ This document serves as the master source of truth for the Liperty project. It m
 
 ---
 
-## 🤖 Phase 10: Architecture 2 - Electrolarynx Translator
+## 🤖 Phase 11: Architecture 2 - Electrolarynx Translator
 
 *Ref: RESEARCH3.md Section "Architecture 2: The Smartphone as an Electrolarynx Translator"*
 
@@ -128,7 +129,7 @@ This document serves as the master source of truth for the Liperty project. It m
 
 ---
 
-## ⚡ Phase 11: Wireless Latency & Native Audio Stack
+## ⚡ Phase 12: Wireless Latency & Native Audio Stack
 
 *Ref: RESEARCH3.md Section "Overcoming the Wireless Latency Bottleneck"*
 
@@ -149,7 +150,7 @@ This document serves as the master source of truth for the Liperty project. It m
 
 ---
 
-## 🔬 Phase 10: RESEARCH3 Implementation Plan
+## 🔬 Phase 13: RESEARCH3 Implementation Plan
 
 - [ ] **TRAMBA High-frequency bandwidth expansion model:** Restore attenuated high-frequency components from BCMs.
 - [ ] **Silent Speech Recognition (SSR) CNN:** Decode non-auditory physiological signals into text.

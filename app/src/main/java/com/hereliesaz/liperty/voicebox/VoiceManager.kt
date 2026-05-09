@@ -124,12 +124,43 @@ class VoiceManager(private val context: Context, private val onInit: (Boolean) -
 
     private fun initStreamingTrack() {
         if (streamingAudioTrack == null) {
-            val minBufSize = AudioTrack.getMinBufferSize(
-                16000,
-                AudioFormat.CHANNEL_OUT_MONO,
-                AudioFormat.ENCODING_PCM_FLOAT
-            )
-            streamingAudioTrack = AudioTrack.Builder()
+            try {
+                val minBufSize = AudioTrack.getMinBufferSize(
+                    16000,
+                    AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_FLOAT
+                )
+                val track = AudioTrack.Builder()
+                    .setAudioAttributes(AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build())
+                    .setAudioFormat(AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                        .setSampleRate(16000)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build())
+                    .setBufferSizeInBytes(Math.max(minBufSize, 8192))
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
+                if (track.state == AudioTrack.STATE_INITIALIZED) {
+                    streamingAudioTrack = track
+                } else {
+                    Log.e("VoiceManager", "Streaming AudioTrack failed to initialize")
+                    track.release()
+                }
+            } catch (e: Exception) {
+                Log.e("VoiceManager", "Failed to create streaming AudioTrack", e)
+            }
+        }
+    }
+
+    fun playAudio(samples: FloatArray) = playAudioStatic(samples)
+
+    private fun playAudioStatic(samples: FloatArray) {
+        val audioTrack: AudioTrack
+        try {
+            audioTrack = AudioTrack.Builder()
                 .setAudioAttributes(AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -139,39 +170,35 @@ class VoiceManager(private val context: Context, private val onInit: (Boolean) -
                     .setSampleRate(16000)
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .build())
-                .setBufferSizeInBytes(Math.max(minBufSize, 8192))
-                .setTransferMode(AudioTrack.MODE_STREAM)
+                .setBufferSizeInBytes(samples.size * 4)
+                .setTransferMode(AudioTrack.MODE_STATIC)
                 .build()
+        } catch (e: Exception) {
+            Log.e("VoiceManager", "Failed to create AudioTrack", e)
+            return
         }
-    }
 
-    fun playAudio(samples: FloatArray) = playAudioStatic(samples)
+        if (audioTrack.state != AudioTrack.STATE_INITIALIZED) {
+            Log.e("VoiceManager", "AudioTrack not initialized")
+            audioTrack.release()
+            return
+        }
 
-    private fun playAudioStatic(samples: FloatArray) {
-        val audioTrack = AudioTrack.Builder()
-            .setAudioAttributes(AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                .build())
-            .setAudioFormat(AudioFormat.Builder()
-                .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
-                .setSampleRate(16000)
-                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                .build())
-            .setBufferSizeInBytes(samples.size * 4)
-            .setTransferMode(AudioTrack.MODE_STATIC)
-            .build()
-
-        audioTrack.setPlaybackPositionUpdateListener(object : AudioTrack.OnPlaybackPositionUpdateListener {
-            override fun onMarkerReached(track: AudioTrack) {
-                track.stop()
-                track.release()
-            }
-            override fun onPeriodicNotification(track: AudioTrack) = Unit
-        })
-        audioTrack.setNotificationMarkerPosition(samples.size)
-        audioTrack.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
-        audioTrack.play()
+        try {
+            audioTrack.setPlaybackPositionUpdateListener(object : AudioTrack.OnPlaybackPositionUpdateListener {
+                override fun onMarkerReached(track: AudioTrack) {
+                    track.stop()
+                    track.release()
+                }
+                override fun onPeriodicNotification(track: AudioTrack) = Unit
+            })
+            audioTrack.setNotificationMarkerPosition(samples.size)
+            audioTrack.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
+            audioTrack.play()
+        } catch (e: Exception) {
+            Log.e("VoiceManager", "Playback failed", e)
+            audioTrack.release()
+        }
     }
 
     fun stop() {

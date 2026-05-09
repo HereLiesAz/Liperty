@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Liperty application architecture is designed for real-time, on-device execution of Visual Speech Recognition (VSR) and Silent Speech Interface (SSI) models. It prioritizes low latency (sub-100ms) and absolute privacy (RAM-only ephemeral processing).
+The Liperty application architecture is designed for real-time, on-device execution of Visual Speech Recognition (VSR) and Voice Reconstruction (BC/EL) pipelines. It prioritizes low latency (sub-100ms) and absolute privacy (RAM-only ephemeral processing).
 
 ## Core Pipelines
 
@@ -10,19 +10,18 @@ The Liperty application architecture is designed for real-time, on-device execut
 *   **Input (CameraX):** Captures high-quality frames, defaulting to the Front camera. Rear camera utilizes Telephoto lenses where available to minimize perspective distortion.
 *   **Preprocessing (JNI/OpenCV):**
     *   **Stabilization:** `RectKalmanFilter` smooths bounding box coordinates to counter hand jitter.
-    *   **Normalization:** Gaussian Blur and Histogram Equalization implemented in C++ via pixel locking for high-frequency efficiency.
+    *   **Normalization:** Gaussian Blur and Histogram Equalization implemented in C++ via pixel locking for high-frequency efficiency. **Note:** Histogram equalization is currently bypassed — the native implementation was collapsing per-frame contrast, making all frames near-identical. Raw crops are passed to inference instead.
 *   **Inference (LiteRT):** Executes `.tflite` models (VALLR/DeepLip) with GPU acceleration.
 *   **Decoding:** Custom CTC Beam Search with prefix merging for accurate linguistic reconstruction.
 
-### 2. Laryngeal Sensing (SSI) Pipeline
-*   **Carrier (Artificial Larynx):** High-intensity multi-motor vibration via `VibratorManager` acts as a carrier sound source.
-*   **Sensing (Multimodal):**
-    *   **Contact-mic:** Captures throat-conducted audio via the `VOICE_RECOGNITION` source.
-    *   **Accelerometer:** Tracks 0-400Hz laryngeal vibrations for high-precision VAD gating.
-*   **DSP Stage:**
-    *   **Spectral Subtraction:** Removes haptic noise using a calibrated noise profile.
+### 2. Voice Reconstruction (BC/EL) Pipeline
+*   **BC Mode (Bone Conduction Larynx):** `GlottalCarrierGenerator` produces a glottal pulse carrier (80–200 Hz) routed to BC headphones via `ArtificialLarynx` + `AudioRouter`. The phone's built-in mic captures the acoustically modulated result.
+*   **EL Mode (Electrolarynx Translator):** Captures external electrolarynx buzz via the phone mic. No carrier generation needed.
+*   **Shared DSP Stage (`VibraPhoneDSP`):**
+    *   **Spectral Subtraction:** Removes noise using a calibrated noise profile.
     *   **Equalization:** Emphasizes speech-modulation bands (300Hz–3.5kHz).
-    *   **Expansion:** Extrapolates harmonics beyond the 2kHz laryngeal "deaf zone."
+    *   **Mel Spectrogram → VoiceConverter → Inverse Mel:** Maps processed audio to the user's cloned voice.
+*   **Audio Routing (`AudioRouter`):** Manages full-duplex configuration (simultaneous mic input + headphone output). Forces phone built-in mic in BC mode to avoid capturing the carrier from the headphone mic.
 
 ### 3. Voice Management
 *   **PocketTTS Engine:** Executes ONNX-based voice cloning models locally.

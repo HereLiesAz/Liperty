@@ -47,11 +47,13 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.hereliesaz.liperty.R
 import com.hereliesaz.liperty.ml.CalibrationViewModel
 import com.hereliesaz.aznavrail.AzHostActivityLayout
 import com.hereliesaz.aznavrail.AzNavHost
@@ -88,7 +90,7 @@ fun LipertyApp(
 ) {
     val navController = rememberNavController()
 
-    LipertyTheme {
+    LipertyTheme(isDarkTheme = isDarkTheme) {
     val backgroundColor = MaterialTheme.colorScheme.background
 
     Box(modifier = Modifier.fillMaxSize().background(backgroundColor)) {
@@ -127,7 +129,7 @@ fun LipertyApp(
             // ── Navigation rail items ─────────────────────────────────────
             azRailItem(
                 id      = "home",
-                text    = "Home",
+                text    = stringResource(R.string.nav_home),
                 route   = "home",
                 content = Icons.Filled.Home,
                 color   = Color.White
@@ -136,8 +138,8 @@ fun LipertyApp(
             azRailToggle(
                 id            = "lipread",
                 isChecked     = isLipReadActive,
-                toggleOnText  = "Lip-Read ON",
-                toggleOffText = "Lip-Read OFF",
+                toggleOnText  = stringResource(R.string.mode_lipread_on),
+                toggleOffText = stringResource(R.string.mode_lipread_off),
                 onClick       = { onToggleLipRead() },
                 color         = Color.White
             )
@@ -145,8 +147,8 @@ fun LipertyApp(
             azRailToggle(
                 id            = "voicebox",
                 isChecked     = isBCActive,
-                toggleOnText  = "BC Larynx ON",
-                toggleOffText = "BC Larynx OFF",
+                toggleOnText  = stringResource(R.string.mode_bc_on),
+                toggleOffText = stringResource(R.string.mode_bc_off),
                 onClick       = { onToggleBC() },
                 color         = Color.White
             )
@@ -154,8 +156,8 @@ fun LipertyApp(
             azRailToggle(
                 id            = "el_translator",
                 isChecked     = isELActive,
-                toggleOnText  = "EL-Transl ON",
-                toggleOffText = "EL-Transl OFF",
+                toggleOnText  = stringResource(R.string.mode_el_on),
+                toggleOffText = stringResource(R.string.mode_el_off),
                 onClick       = { onToggleEL() },
                 color         = Color.Magenta
             )
@@ -163,15 +165,15 @@ fun LipertyApp(
             azRailToggle(
                 id            = "switch_cam",
                 isChecked     = currentLensFacing == 1, // 1 for Back
-                toggleOnText  = "Back",
-                toggleOffText = "Front",
+                toggleOnText  = stringResource(R.string.mode_camera_back),
+                toggleOffText = stringResource(R.string.mode_camera_front),
                 onClick       = { onSwitchCamera() },
                 color         = Color.White
             )
 
             azRailItem(
                 id      = "voice_mgmt",
-                text    = "Voice",
+                text    = stringResource(R.string.nav_voice),
                 route   = "voice_mgmt",
                 content = Icons.Filled.RecordVoiceOver,
                 color   = Color.White
@@ -179,7 +181,7 @@ fun LipertyApp(
 
             azRailItem(
                 id      = "calibrate",
-                text    = "Tweak",
+                text    = stringResource(R.string.nav_tweak),
                 route   = "calibrate",
                 content = Icons.Filled.Refresh,
                 color   = Color.White
@@ -187,7 +189,7 @@ fun LipertyApp(
 
             azRailItem(
                 id      = "settings",
-                text    = "Settings",
+                text    = stringResource(R.string.nav_settings),
                 route   = "settings",
                 content = Icons.Filled.Settings,
                 color   = Color.White
@@ -196,14 +198,14 @@ fun LipertyApp(
             // ── Action menu items ─────────────────────────────────────────
             azMenuItem(
                 id      = "clear",
-                text    = "Clear Transcript",
+                text    = stringResource(R.string.nav_clear_transcript),
                 route   = "clear",
                 content = Icons.Filled.Clear
             )
 
             azMenuItem(
                 id      = "speak",
-                text    = "Speak Text",
+                text    = stringResource(R.string.nav_speak_text),
                 route   = "speak",
                 content = Icons.Filled.PlayArrow
             )
@@ -289,7 +291,7 @@ fun LipertyApp(
                                 } else if (!anyModeActive) {
                                     // Nothing active — show subtle hint in center
                                     Text(
-                                        text = "Enable a mode from the\nnavigation rail to start",
+                                        text = stringResource(R.string.hint_enable_mode),
                                         color = MaterialTheme.colorScheme.outlineVariant,
                                         style = MaterialTheme.typography.bodyMedium,
                                         textAlign = TextAlign.Center,
@@ -301,11 +303,11 @@ fun LipertyApp(
                                 // Status badge — top-right corner
                                 if (isRecording) {
                                     val (badgeText, badgeColor) = when {
-                                        isPaused        -> "PAUSED"  to Color(0xFFFFD600)
-                                        isELActive      -> "EL"      to MaterialTheme.colorScheme.tertiary
-                                        isBCActive      -> "BC"      to MaterialTheme.colorScheme.primary
-                                        isLipReadActive -> "READING" to Color(0xFFFF5252)
-                                        else            -> "REC"     to Color(0xFFFF5252)
+                                        isPaused        -> stringResource(R.string.badge_paused)  to Color(0xFFFFD600)
+                                        isELActive      -> stringResource(R.string.badge_el)      to MaterialTheme.colorScheme.tertiary
+                                        isBCActive      -> stringResource(R.string.badge_bc)      to MaterialTheme.colorScheme.primary
+                                        isLipReadActive -> stringResource(R.string.badge_reading) to Color(0xFFFF5252)
+                                        else            -> stringResource(R.string.badge_rec)     to Color(0xFFFF5252)
                                     }
                                     Box(
                                         modifier = Modifier
@@ -347,12 +349,12 @@ fun LipertyApp(
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Text(
-                                                    text = "Detection Sensitivity",
+                                                    text = stringResource(R.string.slider_detection_sensitivity),
                                                     style = MaterialTheme.typography.labelLarge,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                                 Text(
-                                                    text = "${(vsrSensitivity * 100).toInt()}%",
+                                                    text = stringResource(R.string.format_percent, (vsrSensitivity * 100).toInt()),
                                                     style = MaterialTheme.typography.labelLarge,
                                                     fontWeight = FontWeight.Bold,
                                                     color = MaterialTheme.colorScheme.primary
@@ -377,9 +379,9 @@ fun LipertyApp(
                                             else
                                                 MaterialTheme.colorScheme.secondary
                                             val sliderLabel = if (isELActive)
-                                                "EL Voice Activity Sensitivity"
+                                                stringResource(R.string.slider_el_sensitivity)
                                             else
-                                                "BC Larynx Sensitivity"
+                                                stringResource(R.string.slider_bc_sensitivity)
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -391,7 +393,7 @@ fun LipertyApp(
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                                 Text(
-                                                    text = "${(larynxSensitivity * 100).toInt()}%",
+                                                    text = stringResource(R.string.format_percent, (larynxSensitivity * 100).toInt()),
                                                     style = MaterialTheme.typography.labelLarge,
                                                     fontWeight = FontWeight.Bold,
                                                     color = sliderColor
@@ -417,12 +419,12 @@ fun LipertyApp(
                                                     verticalAlignment = Alignment.CenterVertically
                                                 ) {
                                                     Text(
-                                                        text = "Carrier Pitch (F0)",
+                                                        text = stringResource(R.string.slider_carrier_pitch),
                                                         style = MaterialTheme.typography.labelLarge,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                                     )
                                                     Text(
-                                                        text = "${carrierF0.toInt()} Hz",
+                                                        text = stringResource(R.string.format_hz, carrierF0.toInt()),
                                                         style = MaterialTheme.typography.labelLarge,
                                                         fontWeight = FontWeight.Bold,
                                                         color = MaterialTheme.colorScheme.secondary

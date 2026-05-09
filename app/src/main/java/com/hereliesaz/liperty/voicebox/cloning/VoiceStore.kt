@@ -150,8 +150,8 @@ class VoiceStore(private val context: Context) {
             }
 
             // Read averaged embedding
-            val averaged = DataOutputStream(File(dir, "averaged.bin").inputStream().buffered().let { DataInputStream(it) }).use { dis ->
-                FloatArray(embeddingDim) { (dis as DataInputStream).readFloat() }
+            val averaged = DataInputStream(File(dir, "averaged.bin").inputStream().buffered()).use { dis ->
+                FloatArray(embeddingDim) { dis.readFloat() }
             }
 
             val samples = (0 until samplesJson.length()).map { i ->

@@ -17,7 +17,8 @@
       "Bash(gh auth:*)",
       "Bash(gh release:*)",
       "WebSearch",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(xargs wc:*)"
     ]
   }
 }

@@ -16,10 +16,12 @@ object BluetoothLEAudioManager {
     private const val TAG = "BLEAudioManager"
     private var leAudioProxy: BluetoothLeAudio? = null
     private var previousMode: Int? = null
+    private var nativeLoaded = false
 
     init {
         try {
             System.loadLibrary("liperty_cv")
+            nativeLoaded = true
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to load native library 'liperty_cv'", e)
         }
@@ -28,6 +30,16 @@ object BluetoothLEAudioManager {
     private external fun initLC3(sampleRate: Int, frameDurationUs: Int)
     private external fun nativeEncodeLC3(pcm: ShortArray, outEncoded: ByteArray): Int
     private external fun nativeDecodeLC3(encoded: ByteArray, outPcm: ShortArray): Int
+
+    fun encodeLC3(pcm: ShortArray, outEncoded: ByteArray): Int {
+        if (!nativeLoaded) return -1
+        return nativeEncodeLC3(pcm, outEncoded)
+    }
+
+    fun decodeLC3(encoded: ByteArray, outPcm: ShortArray): Int {
+        if (!nativeLoaded) return -1
+        return nativeDecodeLC3(encoded, outPcm)
+    }
 
     /**
      * Initializes the LE Audio profile proxy.

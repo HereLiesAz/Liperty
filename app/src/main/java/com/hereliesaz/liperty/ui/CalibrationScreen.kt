@@ -15,6 +15,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.res.stringResource
+import com.hereliesaz.liperty.R
 import com.hereliesaz.liperty.ml.CalibrationViewModel
 
 @Composable
@@ -47,14 +49,14 @@ fun CalibrationScreen(
         )
 
         Text(
-            "Speaker Personalization",
+            stringResource(R.string.calibration_title),
             color = Color.White,
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold
         )
 
         Text(
-            "Mouth the following phrase clearly while pressing the phone against your throat (if using Voice Box).",
+            stringResource(R.string.calibration_instruction),
             color = Color(0xFFB0B0CC),
             fontSize = 14.sp,
             textAlign = TextAlign.Center
@@ -104,7 +106,7 @@ fun CalibrationScreen(
                     )
                 ) {
                     Text(
-                        if (state.isRecording) "STOP" else "START",
+                        if (state.isRecording) stringResource(R.string.common_stop) else stringResource(R.string.calibration_start),
                         fontWeight = FontWeight.Bold
                     )
                 }

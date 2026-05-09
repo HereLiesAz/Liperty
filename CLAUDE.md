@@ -4,10 +4,10 @@ This file provides guidance to Claude (and other AI coding assistants) when work
 
 ## Project Overview
 
-**Liperty** is a real-time, on-device Visual Speech Recognition (VSR) Android application. It uses deep learning to convert lip movements into text (lipreading) or synthesized speech (Silent Speech Interface). It targets Deaf, Hard-of-Hearing, and speech-impaired communities.
+**Liperty** is a real-time, on-device Visual Speech Recognition (VSR) Android application. It uses deep learning to convert lip movements into text (lipreading) or reconstructed speech (via Bone Conduction / Electrolarynx voice reconstruction). It targets Deaf, Hard-of-Hearing, and speech-impaired communities.
 
 ### Key Characteristics
-- **Platform**: Android (Kotlin-first, minSdk 26 / targetSdk 37)
+- **Platform**: Android (Kotlin-first, minSdk 26 / targetSdk 36)
 - **ML Stack**: TensorFlow Lite (LiteRT 2.17.0), MediaPipe Tasks Vision, OpenCV 4.10.0 (C++ via NDK)
 - **UI**: Jetpack Compose + Material 3
 - **Privacy**: Fully offline; zero cloud dependencies. Biometric data lives only in RAM.
@@ -33,7 +33,7 @@ Liperty/
 │       │   │   ├── camera/
 │       │   │   │   └── CameraManager.kt
 │       │   │   ├── dsp/
-│       │   │   │   └── VibraPhoneDSP.kt    # Experimental silent-speech DSP
+│       │   │   │   └── VibraPhoneDSP.kt    # BC/EL voice reconstruction DSP
 │       │   │   ├── ml/
 │       │   │   │   ├── ModelEngine.kt       # Interface for inference backends
 │       │   │   │   ├── TFLiteEngine.kt      # TFLite executor + GPU fallback
@@ -53,12 +53,27 @@ Liperty/
 │       │   │   │   ├── GestureListener.kt
 │       │   │   │   ├── SettingsActivity.kt
 │       │   │   │   └── TranscriptionManager.kt
+│       │   │   ├── voicebox/
+│       │   │   │   ├── VoiceManager.kt        # TTS orchestrator (system + cloned)
+│       │   │   │   ├── LaryngealSensor.kt     # BC/EL voice reconstruction sensor
+│       │   │   │   ├── AudioRouter.kt          # Audio device routing & full-duplex
+│       │   │   │   ├── ArtificialLarynx.kt    # BC carrier output management
+│       │   │   │   ├── GlottalCarrierGenerator.kt  # Glottal pulse waveform (80-200 Hz)
+│       │   │   │   ├── PocketTTSEngine.kt     # Voice cloning TTS engine
+│       │   │   │   ├── VoiceViewModel.kt      # Voice UI state management
+│       │   │   │   ├── BluetoothLEAudioManager.kt  # BLE Audio / LC3 codec
+│       │   │   │   ├── TrambaProcessor.kt     # Bandwidth expansion model
+│       │   │   │   └── cloning/
+│       │   │   │       ├── VoiceStore.kt       # Profile persistence (JSON + binary)
+│       │   │   │       ├── VoiceProfileBuilder.kt  # Builds profiles from samples
+│       │   │   │       ├── AudioPreprocessor.kt    # VAD, resampling, segmentation
+│       │   │   │       └── SpeakerClusterer.kt     # Multi-speaker identification
 │       │   │   └── utils/
 │       │   │       ├── ImageUtils.kt
 │       │   │       ├── BitmapPool.kt
 │       │   │       └── PerformanceMonitor.kt
 │       │   └── res/                   # Android resources
-│       ├── test/java/                 # Robolectric unit tests (14 files)
+│       ├── test/java/                 # Robolectric unit tests (23 files)
 │       └── androidTest/java/          # Espresso instrumented tests
 ├── VALLR/                             # Research model (Python, ICCV 2025)
 │   ├── Models/
@@ -87,7 +102,7 @@ Liperty/
 
 ### Prerequisites
 - **JDK 17** (enforced by CI/CD and `build.gradle.kts`)
-- **Android SDK** compileSdk 37, buildToolsVersion matching AGP 9.2.1
+- **Android SDK** compileSdk 36, buildToolsVersion matching AGP 9.2.1
 - **CMake 3.22.1+** and NDK (for C++ OpenCV integration)
 - **Python 3** (for `tools/` model scripts and `VALLR/`)
 
@@ -122,7 +137,7 @@ This script:
 ### 3. Device Testing Notes
 - **Physical device strongly preferred** — emulators lack NPU/GPU delegate support and CameraX telephoto lens enumeration.
 - Minimum API 26 (Android 8.0).
-- Camera and (optional) Microphone permissions are required at runtime.
+- Camera, Microphone, and Bluetooth Connect (API 31+) permissions are required at runtime.
 
 ---
 
@@ -214,6 +229,8 @@ TranscriptionManager  ──► displayed in OverlayView / Compose UI
 | `ml/` classes | Corresponding `*Test.kt` in `test/java/.../ml/` |
 | Camera pipeline | `CameraManagerTest` |
 | UI/transcription | `TranscriptionManagerTest` |
+| `voicebox/` classes | `VoiceManagerTest`, `LaryngealSensorTest`, `AudioRouterTest`, `VoiceStoreTest` |
+| `voicebox/cloning/` | `AudioPreprocessorTest`, `SpeakerClustererTest`, `VoiceProfileBuilderTest` |
 | Biometric data handling | `PrivacyTest` |
 | End-to-end | `IntegrationTest` |
 
@@ -285,6 +302,9 @@ All versions are centralized in `gradle/libs.versions.toml`. When adding or upgr
 | 1–2: Core infrastructure | Complete |
 | 3: Computer vision pipeline | Partial |
 | 4: ML / model optimization | In progress |
-| 5–8: Hardware opt, UI, privacy hardening | Pending |
+| 5–6: Hardware opt, UI/UX | Partial |
+| 7: Voice Reconstruction (BC/EL) | Complete |
+| 8: Bone Conduction hardware | Partial |
+| 9–13: Advanced modalities | Pending |
 
-See `docs/TODO.md` for the detailed 8-phase roadmap.
+See `docs/TODO.md` for the detailed roadmap.

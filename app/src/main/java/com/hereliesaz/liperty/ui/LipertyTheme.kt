@@ -2,6 +2,7 @@ package com.hereliesaz.liperty.ui
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
@@ -36,10 +37,41 @@ private val LipertyDarkColors = darkColorScheme(
     outlineVariant      = Color(0xFF25253B),
 )
 
+/** Material 3 light colour scheme for Liperty. */
+private val LipertyLightColors = lightColorScheme(
+    primary             = Color(0xFF006878),
+    onPrimary           = Color.White,
+    primaryContainer    = Color(0xFFB3ECFF),
+    onPrimaryContainer  = Color(0xFF001F26),
+    secondary           = Color(0xFF5B3ABF),
+    onSecondary         = Color.White,
+    secondaryContainer  = Color(0xFFE8DEFF),
+    onSecondaryContainer= Color(0xFF1A0050),
+    tertiary            = Color(0xFF2E6B1E),
+    onTertiary          = Color.White,
+    tertiaryContainer   = Color(0xFFB5F5A0),
+    onTertiaryContainer = Color(0xFF002200),
+    error               = Color(0xFFBA1A1A),
+    onError             = Color.White,
+    errorContainer      = Color(0xFFFFDAD6),
+    onErrorContainer    = Color(0xFF410002),
+    background          = Color(0xFFFBFCFE),
+    onBackground        = Color(0xFF191C1D),
+    surface             = Color(0xFFFBFCFE),
+    onSurface           = Color(0xFF191C1D),
+    surfaceVariant      = Color(0xFFDBE4E8),
+    onSurfaceVariant    = Color(0xFF3F484C),
+    surfaceContainerLow = Color(0xFFF3F4F6),
+    surfaceContainer    = Color(0xFFEDEEF0),
+    surfaceContainerHigh= Color(0xFFE7E8EA),
+    outline             = Color(0xFF6F797D),
+    outlineVariant      = Color(0xFFBFC8CC),
+)
+
 @Composable
-fun LipertyTheme(content: @Composable () -> Unit) {
+fun LipertyTheme(isDarkTheme: Boolean = true, content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = LipertyDarkColors,
+        colorScheme = if (isDarkTheme) LipertyDarkColors else LipertyLightColors,
         content     = content
     )
 }
