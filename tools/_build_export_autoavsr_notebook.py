@@ -294,32 +294,32 @@ import torch.nn.functional as F
 class VisualOnlyCTC(nn.Module):
     \"\"\"Wraps the ESPnet E2E model for visual-only CTC inference.
 
-    Mirrors Chaplin's pipelines/model.py:AVSR.infer for visual-only mode:
-        enc_feats = self.model.encode(data)
-    We then apply the CTC linear projection instead of beam search so the
-    whole graph is ONNX-traceable.
+    Bypasses model.encode() (which calls .unsqueeze(0) on its input,
+    re-adding a batch dim and breaking shape unpacking inside the conv3d
+    frontend). We call self.base.encoder() directly with already-batched
+    NCTHW input. Then apply the CTC linear projection so the whole graph
+    is ONNX-traceable.
     \"\"\"
     def __init__(self, base):
         super().__init__()
         self.base = base
 
     def forward(self, video):
-        # video: (B, T, 1, 88, 88) float32, pre-normalized to mean 0.421 std 0.165
-        feats = self.base.encode(video)
-        if isinstance(feats, tuple):
-            feats = feats[0]
-        logits = self.base.ctc.ctc_lo(feats)
+        # video: (B, C=1, T, 88, 88) float32 NCTHW, pre-normalized to mean 0.421 std 0.165
+        # Encoder returns (enc_out, masks). Call without a mask to skip pad-mask logic.
+        enc_out, _ = self.base.encoder(video, None)
+        logits = self.base.ctc.ctc_lo(enc_out)
         return F.log_softmax(logits, dim=-1)
 
 wrapper = VisualOnlyCTC(model).eval()
 
-# Dummy forward to confirm shapes. The encoder may downsample the time dim
-# (typically by 4x), so output time != input time.
-dummy = torch.randn(1, TRACE_TIME, 1, TRACE_HEIGHT, TRACE_WIDTH)
+# Dummy forward in NCTHW = (B, C, T, H, W). The encoder downsamples time
+# (typically 4x), so output time != input time.
+dummy = torch.randn(1, 1, TRACE_TIME, TRACE_HEIGHT, TRACE_WIDTH)
 with torch.no_grad():
     out = wrapper(dummy)
 print("Wrapper forward OK.")
-print("  input  shape:", tuple(dummy.shape))
+print("  input  shape:", tuple(dummy.shape), "NCTHW")
 print("  output shape:", tuple(out.shape), "(B, T_sub, vocab=" + str(odim) + ")")
 """))
 
@@ -338,7 +338,9 @@ with torch.no_grad():
         input_names=["video"],
         output_names=["log_probs"],
         dynamic_axes={
-            "video":     {0: "batch", 1: "time"},
+            # NCTHW: dim 2 is time. Output is (B, T_sub, V); dim 1 is the
+            # subsampled time.
+            "video":     {0: "batch", 2: "time"},
             "log_probs": {0: "batch", 1: "time_sub"},
         },
         opset_version=17,
@@ -374,7 +376,7 @@ else:
 
 # Also test with a different time length to confirm dynamic axis works
 T2 = 100
-dummy2 = torch.randn(1, T2, 1, TRACE_HEIGHT, TRACE_WIDTH)
+dummy2 = torch.randn(1, 1, T2, TRACE_HEIGHT, TRACE_WIDTH)  # NCTHW
 ort_out2 = session.run(["log_probs"], {"video": dummy2.numpy()})[0]
 print(f"Dynamic time test (T={T2}): output shape {ort_out2.shape}")
 """))
