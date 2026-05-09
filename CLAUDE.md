@@ -7,11 +7,12 @@ This file provides guidance to Claude (and other AI coding assistants) when work
 **Liperty** is a real-time, on-device Visual Speech Recognition (VSR) Android application. It uses deep learning to convert lip movements into text (lipreading) or reconstructed speech (via Bone Conduction / Electrolarynx voice reconstruction). It targets Deaf, Hard-of-Hearing, and speech-impaired communities.
 
 ### Key Characteristics
-- **Platform**: Android (Kotlin-first, minSdk 26 / targetSdk 36)
-- **ML Stack**: TensorFlow Lite (LiteRT 2.17.0), MediaPipe Tasks Vision, OpenCV 4.10.0 (C++ via NDK)
+- **Platform**: Android (Kotlin-first, minSdk 26 / targetSdk 37)
+- **ML Stack**: ONNX Runtime Mobile (primary; serves the Auto-AVSR Conformer encoder), TensorFlow Lite / LiteRT (secondary; legacy + small auxiliary models), MediaPipe Tasks Vision, OpenCV 4.10.0 (C++ via NDK)
 - **UI**: Jetpack Compose + Material 3
 - **Privacy**: Fully offline; zero cloud dependencies. Biometric data lives only in RAM.
-- **Hardware acceleration**: GPU Delegate (primary), NNAPI/Hexagon (fallback), CPU (last resort)
+- **Hardware acceleration**: ONNX Runtime CPU (XNNPACK), TFLite GPU Delegate (primary for TFLite path), NNAPI/Hexagon (fallback), CPU (last resort)
+- **Production VSR model**: `Amanvir/LRS3_V_WER19.1` (ESPnet visual-only Conformer + CTC head, 5050-token unigram SentencePiece vocab) exported to ONNX by `tools/export_autoavsr_to_onnx.ipynb` and pulled at runtime from `HereLiesAz/liperty-autoavsr-onnx`. Lineage: Auto-AVSR / Chaplin.
 
 ---
 
@@ -35,17 +36,23 @@ Liperty/
 │       │   │   ├── dsp/
 │       │   │   │   └── VibraPhoneDSP.kt    # BC/EL voice reconstruction DSP
 │       │   │   ├── ml/
-│       │   │   │   ├── ModelEngine.kt       # Interface for inference backends
-│       │   │   │   ├── TFLiteEngine.kt      # TFLite executor + GPU fallback
-│       │   │   │   ├── VSRInference.kt      # Pipeline orchestrator
-│       │   │   │   ├── FrameBuffer.kt       # Rolling frame window (capacity set at construction time)
-│       │   │   │   ├── FaceLandmarkerHelper.kt  # MediaPipe wrapper
-│       │   │   │   ├── BeamSearchDecoder.kt
-│       │   │   │   ├── GreedyDecoder.kt
+│       │   │   │   ├── ModelEngine.kt          # Interface for inference backends
+│       │   │   │   ├── TFLiteEngine.kt         # TFLite executor + GPU fallback (legacy/aux)
+│       │   │   │   ├── OnnxModelEngine.kt      # ONNX Runtime executor — Auto-AVSR backend
+│       │   │   │   ├── VSRInference.kt         # Pipeline orchestrator (parameterized: pixelMean, pixelStd, customDecoder)
+│       │   │   │   ├── FrameBuffer.kt          # Rolling frame window + slideAndGetFrames(retainCount)
+│       │   │   │   ├── FaceLandmarkerHelper.kt # MediaPipe wrapper
+│       │   │   │   ├── VocabularyLoader.kt     # Parses ESPnet unigram5000_units.txt
+│       │   │   │   ├── SubwordCTCDecoder.kt    # Greedy subword CTC
+│       │   │   │   ├── SubwordCtcBeamDecoder.kt# Beam-search subword CTC (logsumexp prefix merge)
+│       │   │   │   ├── GreedyDecoder.kt        # Phoneme greedy CTC (legacy)
+│       │   │   │   ├── BeamSearchDecoder.kt    # Phoneme beam search (legacy)
 │       │   │   │   ├── HomopheneCorrector.kt
 │       │   │   │   ├── LanguageModel.kt
-│       │   │   │   ├── LipReadingModel.kt
+│       │   │   │   ├── LlmTextCleaner.kt       # Opt-in 2nd-stage on-device LLM cleanup (MediaPipe Tasks GenAI)
 │       │   │   │   ├── HandGestureHelper.kt
+│       │   │   │   ├── MLConstants.kt
+│       │   │   │   ├── CalibrationManager.kt   # Per-user pre-deployment calibration
 │       │   │   │   └── OnDeviceTrainer.kt
 │       │   │   ├── ui/
 │       │   │   │   ├── LipertyApp.kt        # Compose root
@@ -85,7 +92,13 @@ Liperty/
 │   ├── USER_GUIDE.md
 │   ├── LEGAL.md
 │   └── MODEL_CONVERSION.md
-├── tools/                             # Python model-generation scripts
+├── tools/                             # Python notebook generators + .ipynb training/eval pipelines
+│   ├── _build_export_autoavsr_notebook.py / export_autoavsr_to_onnx.ipynb
+│   ├── _build_notebook.py             / train_grid_tcd_resumable.ipynb       # pixel V1
+│   ├── _build_landmark_notebook.py    / train_landmark_lrs3_resumable.ipynb  # landmark-only V2
+│   ├── _build_landmark_preprocess_notebook.py / preprocess_landmarks_resumable.ipynb
+│   ├── _build_personal_lora_notebook.py / train_personal_lora_resumable.ipynb # LoRA adaptation
+│   ├── _build_eval_notebook.py        / eval_autoavsr.ipynb                  # offline WER eval
 ├── gradle/
 │   └── libs.versions.toml            # Centralized version catalog
 ├── build.gradle.kts                   # Root Gradle config
@@ -116,7 +129,8 @@ OpenCV binaries and ML model files are **not committed to git**.
 This script:
 - Downloads OpenCV Android SDK v4.10.0 and patches its `build.gradle` for AGP 9 / Java 17 compatibility
 - Downloads the MediaPipe Face Landmarker `.task` file into `app/src/main/assets/`
-- Generates a dummy VSR TFLite stub if a real model is absent
+- Pulls the Auto-AVSR ONNX model + `unigram5000_units.txt` vocab from `HereLiesAz/liperty-autoavsr-onnx` (the output of `tools/export_autoavsr_to_onnx.ipynb`) into `app/src/main/assets/`. The on-device app loads these via `OnnxModelEngine` and `VocabularyLoader`.
+- Generates a dummy VSR TFLite stub if a real model is absent (only used by the legacy phoneme path)
 
 ### 2. Build Commands
 
@@ -143,6 +157,8 @@ This script:
 
 ## Inference Pipeline (Data Flow)
 
+The production path is the **Auto-AVSR backend**: ESPnet visual-only Conformer + CTC head exported to ONNX, decoded with subword CTC beam search, optionally cleaned by an on-device LLM. The legacy phoneme TFLite path is still wired in `VSRInference` and reachable for experiments.
+
 ```
 CameraX frame (25–30 FPS)
         │
@@ -150,35 +166,52 @@ CameraX frame (25–30 FPS)
 FaceLandmarkerHelper  ──► 468 MediaPipe landmarks
         │
         ▼
-ImageUtils.alignAndCropMouth()  ──► grayscale 96×96 mouth ROI
+extractLipBoundingBox + ImageUtils.alignAndCropMouth()  ──► grayscale 88×88 mouth ROI
+                                                            (Auto-AVSR; legacy 96×96 for the phoneme TFLite path)
         │
         ▼
-FrameBuffer  ──► rolling window of frames (~2 s at default capacity)
+FrameBuffer  ──► rolling window; slideAndGetFrames(retainCount=8) yields a copy
+                 of the last N frames + retains the tail for streaming inference
         │
         ▼
-TFLiteEngine  ──► .tflite model (GPU Delegate → CPU fallback)
+OnnxModelEngine (Auto-AVSR)        OR        TFLiteEngine (legacy phoneme path)
+        │                                              │
+        │  per-channel normalize                       │  greyscale normalize
+        │  (mean=0.421, std=0.165)                     │
+        ▼                                              ▼
+ONNX encoder + CTC head ─► (1, T_out, 5050)    .tflite ─► (1, T_out, V_phonemes)
+        │                                              │
+        ▼                                              ▼
+SubwordCtcBeamDecoder (beamWidth=8)            BeamSearchDecoder / GreedyDecoder
+SentencePiece (▁) → words                      phoneme probabilities → text
+        │                                              │
+        ▼                                              ▼
+                  HomopheneCorrector + LanguageModel (word-level)
         │
         ▼
-BeamSearchDecoder / GreedyDecoder  ──► phoneme probabilities → text
+TranscriptionManager  ──► getCurrentSentence() (raw assembled)
+                          getCleanedSentence() (after optional transformSentence,
+                                                e.g. LlmTextCleaner.clean wrapper —
+                                                cached, only re-runs on transcript change)
         │
         ▼
-HomopheneCorrector + LanguageModel  ──► post-processed transcript
-        │
-        ▼
-TranscriptionManager  ──► displayed in OverlayView / Compose UI
+OverlayView / Compose UI
 ```
 
 ---
 
 ## Key Coding Guidelines
 
-### Machine Learning & TFLite
+### Machine Learning (ONNX + TFLite)
 
-- **Delegate initialization** must be wrapped in `try-catch`. Device delegate support varies widely (GPU, NNAPI, Hexagon, CPU). `TFLiteEngine` cascades from GPU → CPU automatically.
-- **Memory**: Use `ByteBuffer.allocateDirect()` for model I/O to avoid GC pressure during camera callbacks. Reuse `Bitmap` objects through `BitmapPool`.
-- **Model interface**: New inference backends must implement the `ModelEngine` interface, not touch `TFLiteEngine` directly.
-- **Frame window**: `FrameBuffer` capacity is configurable at construction time and may vary based on the model's input shape. Do not change the capacity without retraining and converting the model to match.
-- **Input shape**: The VSR model's expected input shape depends on the loaded model; `[1, 50, 64, 128, 3]` (batch, frames, H, W, channels) are the fallback defaults. Preprocessing in `VSRInference` must produce the shape the loaded model declares.
+- **Backend selection**: `OnnxModelEngine` is the production backend (Auto-AVSR Conformer + CTC). `TFLiteEngine` is retained for the legacy phoneme path and small auxiliary models. Both implement `ModelEngine`; new backends must too — never touch a concrete engine class directly from `VSRInference`.
+- **Delegate initialization** for TFLite must be wrapped in `try-catch`. Device delegate support varies widely (GPU, NNAPI, Hexagon, CPU). `TFLiteEngine` cascades from GPU → CPU automatically. ONNX Runtime defaults to XNNPACK CPU.
+- **Memory**: Use `ByteBuffer.allocateDirect()` for TFLite I/O. ONNX I/O uses `OnnxTensor.createTensor` with NIO buffers. Reuse `Bitmap` objects through `BitmapPool`.
+- **Frame window**: `FrameBuffer` capacity is configurable at construction time. The Auto-AVSR backend uses streaming inference: `FrameBuffer.slideAndGetFrames(retainCount=8)` returns a copy of the current window and retains the last 8 frames as the seed for the next inference (continuity for the encoder).
+- **Input shape**: The model's expected input shape depends on the loaded model. The Auto-AVSR ONNX expects `(1, 1, T, 88, 88)` NCTHW float32. The legacy TFLite fallback defaults to `(1, 50, 64, 128, 3)` NTHWC. `VSRInference` accepts an `InputLayout` enum (NTHWC, NCTHW, NTCHW) and per-channel `pixelMean`/`pixelStd` so the same orchestrator handles both backends.
+- **Auto-AVSR constants** (in `MainActivity` companion): `AUTOAVSR_MODEL`, `AUTOAVSR_VOCAB`, `AUTOAVSR_CROP_SIZE=88`, `AUTOAVSR_PIXEL_MEAN=0.421f`, `AUTOAVSR_PIXEL_STD=0.165f`, `AUTOAVSR_SLIDE_RETAIN=8`. These mirror Chaplin's `pipelines/data/transforms.py:VideoTransform`. Changing them silently divorces deployment from the trained model.
+- **Decoders**: `SubwordCtcBeamDecoder` (beam width 8, prefix merge via logsumexp) is the production decoder for the Auto-AVSR backend. `SubwordCTCDecoder` is the greedy variant. Both consume the 5050-token list parsed by `VocabularyLoader` from `unigram5000_units.txt` (index 0 = `<blank>`, last = `<eos>`, SentencePiece `▁` = word boundary). `BeamSearchDecoder` / `GreedyDecoder` are the legacy phoneme decoders.
+- **Optional 2nd-stage cleanup**: `LlmTextCleaner` wraps a small on-device LLM (e.g. Gemma-2B-it via MediaPipe Tasks GenAI's `LlmInference`) to clean noisy CTC output. Wired into `TranscriptionManager` via the optional `transformSentence` constructor callback; result is cached against the assembled transcript so it only re-runs on new content. **Opt-in**: the model file is not bundled in the APK (~1.3 GB); cleaner falls back to raw text when absent.
 
 ### Camera & Computer Vision
 
@@ -213,8 +246,10 @@ TranscriptionManager  ──► displayed in OverlayView / Compose UI
 
 ### Unit Tests (`app/src/test/`)
 - Framework: **JUnit 4 + Robolectric 4.16.1**
-- Cover every class in `ml/` individually (see `TFLiteEngineTest`, `BeamSearchDecoderTest`, etc.)
-- Use mock TFLite models (stubs/fakes) — never load real `.tflite` assets in unit tests.
+- Cover every class in `ml/` individually (see `TFLiteEngineTest`, `SubwordCtcBeamDecoderTest`, `LlmTextCleanerTest`, `VocabularyLoaderTest`, `FrameBufferSlidingTest`, `VSRInferenceParamsTest`, etc.)
+- Use mock models (stubs/fakes) — never load real `.tflite` / `.onnx` assets in unit tests.
+- **Robolectric SDK 37 workaround**: `targetSdkVersion=37` confuses Robolectric. Tests that need an Android `Context` should use `@RunWith(AndroidJUnit4::class) + @Config(sdk=[34])` instead of the default RobolectricTestRunner. See `TranscriptionManagerTransformTest` and `LlmTextCleanerTest` for the pattern.
+- Pure-JVM tests (no Android `Context`) — like `LlmTextCleanerTest` — should avoid Android Log calls entirely; use silent failure paths instead.
 - Run without a device: `./gradlew testDebugUnitTest`
 
 ### Instrumented Tests (`app/src/androidTest/`)
@@ -228,7 +263,7 @@ TranscriptionManager  ──► displayed in OverlayView / Compose UI
 |---|---|
 | `ml/` classes | Corresponding `*Test.kt` in `test/java/.../ml/` |
 | Camera pipeline | `CameraManagerTest` |
-| UI/transcription | `TranscriptionManagerTest` |
+| UI/transcription | `TranscriptionManagerTest`, `TranscriptionManagerTransformTest` |
 | `voicebox/` classes | `VoiceManagerTest`, `LaryngealSensorTest`, `AudioRouterTest`, `VoiceStoreTest` |
 | `voicebox/cloning/` | `AudioPreprocessorTest`, `SpeakerClustererTest`, `VoiceProfileBuilderTest` |
 | Biometric data handling | `PrivacyTest` |
@@ -276,9 +311,15 @@ All versions are centralized in `gradle/libs.versions.toml`. When adding or upgr
 
 ## Architecture Decisions & Constraints
 
-- **Offline-only**: There is no network stack. Do not add `INTERNET` permission or HTTP clients.
-- **ModelEngine interface**: Keeps inference backends swappable (TFLite today, future ONNX/ExecuTorch).
-- **VALLR model** (`VALLR/`): Reference Python implementation of the ICCV 2025 paper used for training. Conversion to TFLite happens via `docs/MODEL_CONVERSION.md` tooling. Do not modify VALLR Python code without understanding the paper.
+- **Offline-only at runtime**: There is no network stack in the app. Do not add `INTERNET` permission or HTTP clients. (Training pipelines run off-device on Kaggle/Colab and use HuggingFace Hub as a cross-account state store: `HereLiesAz/liperty-autoavsr-onnx`, `HereLiesAz/liperty-grid-preprocessed`, `HereLiesAz/liperty-tcd-preprocessed`, `e1lephant/lrs3-landmark`. The Android app only consumes the resulting artifacts, embedded via `setup_libs.sh`.)
+- **ModelEngine interface**: Keeps inference backends swappable. Production: `OnnxModelEngine` (Auto-AVSR). Legacy/aux: `TFLiteEngine`. Future: ExecuTorch.
+- **Production training pipeline**: Auto-AVSR / Chaplin lineage. The deployed model is fine-tuned from `Amanvir/LRS3_V_WER19.1` (ESPnet visual-only Conformer + CTC head, 5050 unigram SentencePiece tokens). Headline 19.1% WER on LRS3 requires beam search with CTC + attention scorer + external LM — none of which exports cleanly to ONNX. The Android export uses encoder + CTC head only; greedy/beam CTC alone gives roughly 30-50% WER, recovered by the optional `LlmTextCleaner` pass.
+- **Training notebooks** in `tools/` (resumable, run on Kaggle P100 or Colab):
+  - `train_grid_tcd_resumable.ipynb` — pixel V1 baseline (GRID + TCD-TIMIT)
+  - `train_landmark_lrs3_resumable.ipynb` — landmark-only V2 (uses `e1lephant/lrs3-landmark` shards; the point of the LRS3 landmark releases is exactly that landmark-only training is competitive)
+  - `train_personal_lora_resumable.ipynb` — per-user LoRA adaptation on top of a pretrained encoder
+  - `eval_autoavsr.ipynb` — offline WER/CER evaluation against held-out shards, mirrors deployment exactly (same ONNX, vocab, mean/std, decoders)
+- **VALLR model** (`VALLR/`): Reference Python implementation of the ICCV 2025 paper. Initially explored as a deployment path; superseded by Auto-AVSR for the visual-only frontend. Kept as research scaffolding — do not modify VALLR Python code without understanding the paper. The `VideoMAEModel.from_pretrained("MCG-NJU/videomae-base", ...)` initialization (with explicit per-submodule init for downsampling/adapter/ctc_head only) is intentional for finetuning.
 - **OpenCV via NDK**: OpenCV is included as an Android module (not AAR) and linked into a shared library via CMake. The `settings.gradle.kts` dynamically includes it after `setup_libs.sh` runs.
 - **No cloud ML services**: ARCore API key is present for optional future AR overlays only, not for inference.
 
@@ -286,12 +327,15 @@ All versions are centralized in `gradle/libs.versions.toml`. When adding or upgr
 
 ## Common Pitfalls
 
-1. **Building without `setup_libs.sh`**: The OpenCV module won't exist; Gradle sync will fail.
+1. **Building without `setup_libs.sh`**: The OpenCV module won't exist; Gradle sync will fail. Also: the Auto-AVSR ONNX won't be in `assets/`, so the production VSR backend will fall back to the legacy TFLite path.
 2. **GPU delegate on emulator**: Will silently fall back to CPU; inference will be very slow. This is expected.
-3. **Frame count mismatch**: Changing `FrameBuffer` capacity without retraining and reconverting the TFLite model causes shape mismatch errors at runtime. The capacity must match the model's declared input shape.
+3. **Frame count / input shape mismatch**: Changing `FrameBuffer` capacity, the 88×88 crop size, or the per-channel mean/std without re-exporting the model causes silent quality cliffs (or shape errors). The Auto-AVSR pipeline is calibrated to Chaplin's `transforms.VideoTransform` — match those constants or retrain.
 4. **Bypassing consent dialog**: Will break BIPA/GDPR compliance and `PrivacyTest` will fail.
 5. **Writing landmarks to SharedPreferences**: Illegal under biometric data laws; `PrivacyTest` catches this.
 6. **Hardcoding back camera**: Breaks telephoto selection; use `CameraManager` API.
+7. **Robolectric SDK 37 trap**: Default `RobolectricTestRunner` chokes on `targetSdk=37`. New tests that need `Context` must use `AndroidJUnit4 + @Config(sdk=[34])` (see `TranscriptionManagerTransformTest`).
+8. **Pasting code from chat/markdown**: Copy-pasting code blocks from Claude/ChatGPT into a notebook can corrupt indentation (markdown auto-rendering of em-dashes, smart quotes, no-break spaces). When editing the notebook generators, sanitize ASCII-only and regenerate with `python tools/_build_*.py`.
+9. **Per-notebook Kaggle secrets**: `HF_TOKEN` is per-notebook on Kaggle, not account-global. Toggle it ON in the notebook's Add-ons → Secrets pane before running.
 
 ---
 
@@ -301,7 +345,7 @@ All versions are centralized in `gradle/libs.versions.toml`. When adding or upgr
 |---|---|
 | 1–2: Core infrastructure | Complete |
 | 3: Computer vision pipeline | Partial |
-| 4: ML / model optimization | In progress |
+| 4: ML / model optimization | Auto-AVSR backend wired (ONNX); subword CTC beam search + sliding-window inference live; LLM cleanup hook in place; offline eval notebook ready; training pipelines (GRID/TCD pixel, LRS3 landmark, personal LoRA) running on Kaggle |
 | 5–6: Hardware opt, UI/UX | Partial |
 | 7: Voice Reconstruction (BC/EL) | Complete |
 | 8: Bone Conduction hardware | Partial |
