@@ -31,7 +31,20 @@ Picks up these names from the kernel namespace (created by cells 4 + 5):
 
 # ---------------------------------------------------------------------------
 # Cell 8 — pull preprocessed shards
+#
+# Resource ceiling note: each preprocessed GRID shard at 224x224 uint8
+# x 16 frames x ~1000 clips is ~2.4 GB. Kaggle's /kaggle/working is
+# ~21 GB and the kernel container has ~33 GB RAM. Loading all 33
+# speakers (~80 GB) blows both. MAX_SPEAKERS caps the subset; default
+# 6 keeps total disk + RAM under ~15 GB which leaves headroom for
+# checkpoints, the VideoMAE weights, and gradient buffers. Override
+# via os.environ['LIPERTY_MAX_SPEAKERS'] before exec'ing this script
+# (e.g. '0' for "all available", which is fine on a bigger box).
 # ---------------------------------------------------------------------------
+import os as _os
+MAX_SPEAKERS = int(_os.environ.get("LIPERTY_MAX_SPEAKERS", "6"))
+
+
 def pull_preprocessed():
     grid_dir = Path(DATA_DIR) / "grid"   # noqa: F821
     tcd_dir  = Path(DATA_DIR) / "tcd"
@@ -39,18 +52,37 @@ def pull_preprocessed():
     tcd_dir.mkdir(parents=True, exist_ok=True)
 
     grid_files, tcd_files = [], []
+
+    # Decide which GRID shards to fetch.
+    try:
+        all_grid = sorted(api.list_repo_files(HF_DATA_REPO_GRID, repo_type="dataset"))   # noqa: F821
+    except Exception as e:
+        print(f"GRID list: {e}")
+        all_grid = []
+    grid_shards_remote = [f for f in all_grid if f.endswith(".pt")]
+    if MAX_SPEAKERS > 0:
+        wanted = grid_shards_remote[:MAX_SPEAKERS]
+        print(f"GRID: subsetting {len(wanted)} of {len(grid_shards_remote)} shards "
+              f"(MAX_SPEAKERS={MAX_SPEAKERS}). Override with "
+              f"os.environ['LIPERTY_MAX_SPEAKERS']='0' for all.")
+    else:
+        wanted = grid_shards_remote
+        print(f"GRID: pulling all {len(wanted)} shards.")
+
     try:
         snapshot_download(repo_id=HF_DATA_REPO_GRID, repo_type="dataset",   # noqa: F821
-                          local_dir=str(grid_dir), allow_patterns="*.pt")
-        grid_files = sorted(grid_dir.glob("*.pt"))
+                          local_dir=str(grid_dir), allow_patterns=wanted)
+        grid_files = sorted(p for p in grid_dir.glob("*.pt") if p.name in wanted)
     except Exception as e:
         print(f"GRID pull: {e}")
+
     try:
         snapshot_download(repo_id=HF_DATA_REPO_TCD, repo_type="dataset",   # noqa: F821
                           local_dir=str(tcd_dir), allow_patterns="*.pt")
         tcd_files = sorted(tcd_dir.glob("*.pt"))
     except Exception as e:
         print(f"TCD pull: {e}")
+
     print(f"Local GRID shards: {len(grid_files)}")
     print(f"Local TCD shards:  {len(tcd_files)}")
     return grid_files, tcd_files
