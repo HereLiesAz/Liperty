@@ -76,23 +76,11 @@ class VSRInference(private val engine: ModelEngine) {
             val inputShape = engine.getInputShape(0)
             val inputLayout = engine.getInputLayout()
             Log.d("VSRInference", "inputShape=${inputShape.contentToString()} layout=$inputLayout frames=${frames.size}")
-            if (inputShape.size >= 5) {
-                when (inputLayout) {
-                    InputLayout.NTHWC -> {
-                        // [N, T, H, W, C]
-                        numFrames = inputShape[1]
-                        inputHeight = inputShape[2]
-                        inputWidth = inputShape[3]
-                        numChannels = inputShape[4]
-                    }
-                    InputLayout.NCTHW -> {
-                        // [N, C, T, H, W]
-                        numChannels = inputShape[1]
-                        numFrames = inputShape[2]
-                        inputHeight = inputShape[3]
-                        inputWidth = inputShape[4]
-                    }
-                }
+            parseInputShape(inputShape, inputLayout)?.let { dims ->
+                numFrames = dims.numFrames
+                inputHeight = dims.inputHeight
+                inputWidth = dims.inputWidth
+                numChannels = dims.numChannels
             }
             Log.d("VSRInference", "using numFrames=$numFrames ${inputWidth}x${inputHeight} ch=$numChannels layout=$inputLayout")
 
@@ -176,6 +164,22 @@ class VSRInference(private val engine: ModelEngine) {
                             currentInputBuffer.putFloat(0f)
                         }
                     }
+                }
+                InputLayout.NTCHW -> {
+                    // Layout: for each frame T, write all channels' H×W pixels in
+                    // channel-major order. For grayscale (C=1) this is identical
+                    // byte order to NTHWC. For RGB (C=3) we write all R values
+                    // first, then all G, then all B for each frame.
+                    for (px in pixelsPerFrame) {
+                        for (c in 0 until numChannels) {
+                            val shift = if (numChannels == 1) 16 else (2 - c) * 8
+                            for (pixel in px) {
+                                currentInputBuffer.putFloat(((pixel shr shift) and 0xFF) / 255f)
+                            }
+                        }
+                    }
+                    val padFloats = paddingFrames * pixelsPerImage * numChannels
+                    repeat(padFloats) { currentInputBuffer.putFloat(0f) }
                 }
             }
 
