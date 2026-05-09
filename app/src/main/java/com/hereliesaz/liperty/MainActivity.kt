@@ -30,6 +30,7 @@ import com.hereliesaz.liperty.ml.HandGestureHelper
 import com.hereliesaz.liperty.voicebox.LaryngealSensor
 
 import com.hereliesaz.liperty.ml.FrameBuffer
+import com.hereliesaz.liperty.ml.OnnxModelEngine
 import com.hereliesaz.liperty.ml.TFLiteEngine
 import com.hereliesaz.liperty.ml.VSRInference
 import com.hereliesaz.liperty.ml.SSRInference
@@ -124,10 +125,11 @@ class MainActivity : ComponentActivity() {
             faceLandmarkerHelper = FaceLandmarkerHelper(this)
             handGestureHelper = HandGestureHelper(this)
             laryngealSensor = LaryngealSensor(this)
-            val vsrEngine = TFLiteEngine(this, "vallr_model.tflite")
+            val vsrEngine = OnnxModelEngine(this, "vallr_model.onnx")
             vsrInference = VSRInference(vsrEngine)
             ssrInference = SSRInference(TFLiteEngine(this, "ssr_model.tflite"))
-            frameBuffer = FrameBuffer(capacity = 50)
+            // VALLR VideoMAE expects 16 frames per inference window.
+            frameBuffer = FrameBuffer(capacity = 16)
         } catch (e: Exception) {
             Log.e("MainActivity", "Failed to initialize components", e)
             Toast.makeText(this, getString(R.string.common_init_error, e.message ?: ""), Toast.LENGTH_LONG).show()
@@ -529,25 +531,22 @@ class MainActivity : ComponentActivity() {
                  FaceLandmarkerHelper.calculateHeadPose(matrix)
             }
 
-            // Crop & Align — crop to 128x64 to match the model's native input size directly,
-            // avoiding a second redundant scale step inside VSRInference.
+            // Crop & Align — VALLR's VideoMAE checkpoint was trained on 224×224
+            // FACE crops (not lip crops) at [0,1] RGB. Lip landmarks remain on the
+            // overlay for UX, but the model input is the whole face.
+            val faceBox = faceLandmarkerHelper.extractFaceBoundingBox(result, bitmap.width, bitmap.height)
+                ?: lipBox  // fall back to lip box only if no face landmarks (very rare)
             val rotation = FaceLandmarkerHelper.calculateLipRotation(result)
-            val cropWidth = 128
-            val cropHeight = 64
-            val reusableBitmap = BitmapPool.get(cropWidth, cropHeight)
-            val alignedMouth = ImageUtils.alignAndCropMouth(bitmap, lipBox, rotation, cropWidth, cropHeight, reusableBitmap)
-
-            // Normalization bypassed: applyNormalizationNative (JNI) was modifying frames
-            // in-place in a way that may make all frames identical (histogram equalization
-            // collapses per-frame contrast; native implementation is opaque). Pass raw crop.
-            val processedMouth = alignedMouth
+            val cropSize = 224
+            val reusableBitmap = BitmapPool.get(cropSize, cropSize)
+            val processedMouth = ImageUtils.alignAndCropFace(bitmap, faceBox, rotation, cropSize, reusableBitmap)
 
             // Diagnostic: log mean pixel brightness of first frame in each batch to confirm input varies
             if (frameBuffer.size() == 0) {
-                val pixels = IntArray(cropWidth * cropHeight)
-                processedMouth.getPixels(pixels, 0, cropWidth, 0, 0, cropWidth, cropHeight)
+                val pixels = IntArray(cropSize * cropSize)
+                processedMouth.getPixels(pixels, 0, cropSize, 0, 0, cropSize, cropSize)
                 val mean = pixels.map { android.graphics.Color.red(it) }.average()
-                Log.d("VSRInput", "frame0 mean_brightness=%.1f lipBox=$rawLipBox".format(mean))
+                Log.d("VSRInput", "frame0 mean_brightness=%.1f faceBox=$faceBox".format(mean))
             }
 
             // Pass an explicitly copied bitmap to calibration to avoid lifecycle conflicts with FrameBuffer

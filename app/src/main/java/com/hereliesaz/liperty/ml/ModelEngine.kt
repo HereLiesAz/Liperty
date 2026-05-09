@@ -2,6 +2,13 @@ package com.hereliesaz.liperty.ml
 
 import java.nio.ByteBuffer
 
+enum class InputLayout {
+    /** Batch, Time, Height, Width, Channels — TFLite/Keras convention. */
+    NTHWC,
+    /** Batch, Channels, Time, Height, Width — PyTorch/HuggingFace convention. */
+    NCTHW
+}
+
 interface ModelEngine {
     fun initialize(): Boolean
     fun run(inputBuffer: ByteBuffer, outputBuffer: ByteBuffer)
@@ -16,5 +23,13 @@ interface ModelEngine {
     }
     fun getOutputShape(outputIndex: Int): IntArray
     fun getInputShape(inputIndex: Int): IntArray
+
+    /**
+     * The layout the engine expects for video input on input 0. Callers must
+     * write the input ByteBuffer in this order. Default is NTHWC for back-compat
+     * with the existing TFLite path.
+     */
+    fun getInputLayout(): InputLayout = InputLayout.NTHWC
+
     fun close()
 }

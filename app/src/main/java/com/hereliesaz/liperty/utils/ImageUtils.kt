@@ -150,6 +150,22 @@ object ImageUtils {
     }
 
     /**
+     * Aligns and crops a square face region from the input bitmap. Uses the same
+     * translate-rotate-scale-translate pipeline as [alignAndCropMouth], but with
+     * a single [targetSize] (square output) — matches the 224×224 face crops the
+     * VALLR/VideoMAE checkpoint was trained on.
+     */
+    fun alignAndCropFace(
+        bitmap: Bitmap,
+        faceRect: Rect,
+        rotationDegrees: Float,
+        targetSize: Int,
+        destBitmap: Bitmap
+    ): Bitmap = alignAndCropMouth(
+        bitmap, faceRect, rotationDegrees, targetSize, targetSize, destBitmap
+    )
+
+    /**
      * Aligns and crops the mouth region from the input bitmap.
      */
     @Deprecated(

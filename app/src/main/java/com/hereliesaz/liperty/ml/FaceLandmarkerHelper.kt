@@ -83,33 +83,70 @@ class FaceLandmarkerHelper(
         faceLandmarker = null
     }
 
-    fun extractLipBoundingBox(result: FaceLandmarkerResult, imageWidth: Int, imageHeight: Int): Rect? {
-        if (result.faceLandmarks().isEmpty()) return null
-        val landmarks = result.faceLandmarks()[0] // Use first face
+    /**
+     * Bounding box covering the whole face (all 468 landmarks), expanded by
+     * [marginPct] on each side and squared to the longest side. Matches the
+     * full-face crop used by VALLR's offline preprocessing pipeline, which is
+     * what the deployed VideoMAE checkpoint was trained on.
+     */
+    fun extractFaceBoundingBox(
+        result: FaceLandmarkerResult,
+        imageWidth: Int,
+        imageHeight: Int,
+        marginPct: Float = 0.15f
+    ): Rect? {
+        val bounds = landmarkBoundsNormalized(result) { _, _ -> true } ?: return null
+        val minX = bounds[0]; val minY = bounds[1]; val maxX = bounds[2]; val maxY = bounds[3]
+        val cx = ((minX + maxX) * 0.5f) * imageWidth
+        val cy = ((minY + maxY) * 0.5f) * imageHeight
+        val side = kotlin.math.max((maxX - minX) * imageWidth, (maxY - minY) * imageHeight) *
+            (1f + 2f * marginPct)
+        val half = side * 0.5f
+        val left = (cx - half).toInt().coerceAtLeast(0)
+        val top = (cy - half).toInt().coerceAtLeast(0)
+        val right = (cx + half).toInt().coerceAtMost(imageWidth)
+        val bottom = (cy + half).toInt().coerceAtMost(imageHeight)
+        if (right <= left || bottom <= top) return null
+        return Rect(left, top, right, bottom)
+    }
 
+    fun extractLipBoundingBox(result: FaceLandmarkerResult, imageWidth: Int, imageHeight: Int): Rect? {
+        val lipSet = LIP_INDICES.toHashSet()
+        val bounds = landmarkBoundsNormalized(result) { idx, _ -> idx in lipSet }
+            ?: return null
+        val left = (bounds[0] * imageWidth).toInt().coerceAtLeast(0)
+        val top = (bounds[1] * imageHeight).toInt().coerceAtLeast(0)
+        val right = (bounds[2] * imageWidth).toInt().coerceAtMost(imageWidth)
+        val bottom = (bounds[3] * imageHeight).toInt().coerceAtMost(imageHeight)
+        return Rect(left, top, right, bottom)
+    }
+
+    /**
+     * Returns `[minX, minY, maxX, maxY]` in normalized [0,1] coords over the
+     * first detected face's landmarks for which [include] returns true, or null
+     * if no face / no matching landmarks.
+     */
+    private inline fun landmarkBoundsNormalized(
+        result: FaceLandmarkerResult,
+        include: (index: Int, total: Int) -> Boolean
+    ): FloatArray? {
+        if (result.faceLandmarks().isEmpty()) return null
+        val landmarks = result.faceLandmarks()[0]
+        if (landmarks.isEmpty()) return null
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE
         var maxX = Float.NEGATIVE_INFINITY
         var maxY = Float.NEGATIVE_INFINITY
-
-        for (index in LIP_INDICES) {
-            if (index < landmarks.size) {
-                val landmark = landmarks[index]
-                minX = minOf(minX, landmark.x())
-                minY = minOf(minY, landmark.y())
-                maxX = maxOf(maxX, landmark.x())
-                maxY = maxOf(maxY, landmark.y())
-            }
+        for (i in landmarks.indices) {
+            if (!include(i, landmarks.size)) continue
+            val lm = landmarks[i]
+            if (lm.x() < minX) minX = lm.x()
+            if (lm.y() < minY) minY = lm.y()
+            if (lm.x() > maxX) maxX = lm.x()
+            if (lm.y() > maxY) maxY = lm.y()
         }
-
         if (minX == Float.MAX_VALUE) return null
-
-        val left = (minX * imageWidth).toInt().coerceAtLeast(0)
-        val top = (minY * imageHeight).toInt().coerceAtLeast(0)
-        val right = (maxX * imageWidth).toInt().coerceAtMost(imageWidth)
-        val bottom = (maxY * imageHeight).toInt().coerceAtMost(imageHeight)
-
-        return Rect(left, top, right, bottom)
+        return floatArrayOf(minX, minY, maxX, maxY)
     }
 
     fun extractFacialTransformationMatrix(result: FaceLandmarkerResult): FloatArray? {

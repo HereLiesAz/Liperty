@@ -172,8 +172,10 @@ else
     echo "[*] Tools already exist."
 fi
 
-# 3. Assets Bundle (Models)
-if [ ! -f "${TARGET_ASSETS}/vallr_model.tflite" ]; then
+# 3. Assets Bundle (Models — face/hand landmarkers, ssr/tramba/voice_converter stubs,
+#    homophones.json, etc). The VSR model itself is downloaded separately in step 4.
+ASSETS_BUNDLE_MARKER="${TARGET_ASSETS}/face_landmarker.task"
+if [ ! -f "$ASSETS_BUNDLE_MARKER" ]; then
     download_from_gdrive "$ASSETS_GD_ID" "assets.zip"
     if [ -f "assets.zip" ]; then
         if file "assets.zip" | grep -q "HTML"; then
@@ -193,22 +195,25 @@ else
     echo "[*] Assets (Models) already exist."
 fi
 
-# 4. ONNX Model (from GitHub Releases — too large for git)
+# 4. VSR ONNX Model (from GitHub Releases — too large for git).
+# Downloaded directly into app/src/main/assets/ so it's bundled in the APK and
+# loaded by OnnxModelEngine at runtime. Skipped if the asset already exists.
 ONNX_MODEL="vallr_model.onnx"
 ONNX_URL="https://github.com/HereLiesAz/Liperty/releases/download/v0.1.0-models/${ONNX_MODEL}"
-if [ ! -f "$ONNX_MODEL" ]; then
-    echo "[+] Downloading ${ONNX_MODEL} from GitHub Releases..."
+ONNX_DEST="${TARGET_ASSETS}/${ONNX_MODEL}"
+if [ ! -f "$ONNX_DEST" ]; then
+    echo "[+] Downloading ${ONNX_MODEL} from GitHub Releases into ${ONNX_DEST}..."
     if command -v curl &> /dev/null; then
-        curl -L -o "$ONNX_MODEL" "$ONNX_URL"
+        curl -L -o "$ONNX_DEST" "$ONNX_URL"
     elif command -v wget &> /dev/null; then
-        wget -O "$ONNX_MODEL" "$ONNX_URL"
+        wget -O "$ONNX_DEST" "$ONNX_URL"
     fi
-    if [ -f "$ONNX_MODEL" ] && file "$ONNX_MODEL" | grep -q "HTML"; then
+    if [ -f "$ONNX_DEST" ] && file "$ONNX_DEST" | grep -q "HTML"; then
         echo "ERROR: Downloaded ONNX file appears to be HTML. Download likely failed."
-        rm -f "$ONNX_MODEL"
+        rm -f "$ONNX_DEST"
     fi
 else
-    echo "[*] ${ONNX_MODEL} already exists."
+    echo "[*] ${ONNX_DEST} already exists."
 fi
 
 # --- TTS / Voice Cloning ONNX Models ---

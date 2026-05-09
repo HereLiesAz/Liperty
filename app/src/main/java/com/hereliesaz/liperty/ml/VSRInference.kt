@@ -23,9 +23,9 @@ class VSRInference(private val engine: ModelEngine) {
     private var useBeamSearch = true
 
     // Default Constants (overridden dynamically by model shape)
-    private var inputWidth = 128
-    private var inputHeight = 64
-    private var numFrames = 50
+    private var inputWidth = 224
+    private var inputHeight = 224
+    private var numFrames = 16
     private var numChannels = 3
 
     private var inputBuffer: ByteBuffer? = null
@@ -74,22 +74,32 @@ class VSRInference(private val engine: ModelEngine) {
 
         try {
             val inputShape = engine.getInputShape(0)
-            Log.d("VSRInference", "inputShape=${inputShape.contentToString()} frames=${frames.size}")
-            if (inputShape.isNotEmpty()) {
-                // Determine model type based on shape
-                if (inputShape.size >= 5) {
-                    numFrames = inputShape[1]
-                    inputHeight = inputShape[2]
-                    inputWidth = inputShape[3]
-                    numChannels = inputShape[4]
+            val inputLayout = engine.getInputLayout()
+            Log.d("VSRInference", "inputShape=${inputShape.contentToString()} layout=$inputLayout frames=${frames.size}")
+            if (inputShape.size >= 5) {
+                when (inputLayout) {
+                    InputLayout.NTHWC -> {
+                        // [N, T, H, W, C]
+                        numFrames = inputShape[1]
+                        inputHeight = inputShape[2]
+                        inputWidth = inputShape[3]
+                        numChannels = inputShape[4]
+                    }
+                    InputLayout.NCTHW -> {
+                        // [N, C, T, H, W]
+                        numChannels = inputShape[1]
+                        numFrames = inputShape[2]
+                        inputHeight = inputShape[3]
+                        inputWidth = inputShape[4]
+                    }
                 }
             }
-            Log.d("VSRInference", "using numFrames=$numFrames ${inputWidth}x${inputHeight} ch=$numChannels")
+            Log.d("VSRInference", "using numFrames=$numFrames ${inputWidth}x${inputHeight} ch=$numChannels layout=$inputLayout")
 
             val outputShape = engine.getOutputShape(0)
             val landmarkShape = try { engine.getInputShape(1) } catch (e: Exception) { intArrayOf() }
             
-            if (landmarks != null) {
+            if (landmarks != null && landmarkShape.isNotEmpty()) {
                 if (landmarkShape.size != 3 || landmarkShape[1] != 50 || landmarkShape[2] != 40) {
                     throw IllegalArgumentException("Landmarks provided but model second input shape ${landmarkShape.contentToString()} does not match expected [1, 50, 40].")
                 }
@@ -117,39 +127,56 @@ class VSRInference(private val engine: ModelEngine) {
                 frames
             }
 
-            for (bitmap in framesToProcess) {
-                // Resize if needed
-                val scaledBitmap = if (bitmap.width != inputWidth || bitmap.height != inputHeight) {
+            // Extract the pixel data once per frame so the NCTHW path doesn't
+            // need to re-decode bitmaps on each channel pass.
+            val pixelsPerFrame = framesToProcess.map { bitmap ->
+                val scaled = if (bitmap.width != inputWidth || bitmap.height != inputHeight) {
                     Bitmap.createScaledBitmap(bitmap, inputWidth, inputHeight, true)
                 } else {
                     bitmap
                 }
+                val px = IntArray(inputWidth * inputHeight)
+                scaled.getPixels(px, 0, inputWidth, 0, 0, inputWidth, inputHeight)
+                if (scaled !== bitmap) scaled.recycle()
+                px
+            }
+            val paddingFrames = numFrames - pixelsPerFrame.size
+            val pixelsPerImage = inputHeight * inputWidth
 
-                val pixels = IntArray(inputWidth * inputHeight)
-                scaledBitmap.getPixels(pixels, 0, inputWidth, 0, 0, inputWidth, inputHeight)
-                if (scaledBitmap !== bitmap) scaledBitmap.recycle()
-
-                for (pixel in pixels) {
-                    if (numChannels == 1) {
-                        // Extract Red channel for grayscale
-                        val r = (pixel shr 16) and 0xFF
-                        currentInputBuffer.putFloat(r / 255.0f)
-                    } else if (numChannels == 3) {
-                        // Extract RGB
-                        val r = (pixel shr 16) and 0xFF
-                        val g = (pixel shr 8) and 0xFF
-                        val b = pixel and 0xFF
-                        currentInputBuffer.putFloat(r / 255.0f)
-                        currentInputBuffer.putFloat(g / 255.0f)
-                        currentInputBuffer.putFloat(b / 255.0f)
+            when (inputLayout) {
+                InputLayout.NTHWC -> {
+                    for (px in pixelsPerFrame) {
+                        for (pixel in px) {
+                            when (numChannels) {
+                                1 -> currentInputBuffer.putFloat(((pixel shr 16) and 0xFF) / 255f)
+                                3 -> {
+                                    currentInputBuffer.putFloat(((pixel shr 16) and 0xFF) / 255f)
+                                    currentInputBuffer.putFloat(((pixel shr 8) and 0xFF) / 255f)
+                                    currentInputBuffer.putFloat((pixel and 0xFF) / 255f)
+                                }
+                            }
+                        }
+                    }
+                    val padFloats = paddingFrames * pixelsPerImage * numChannels
+                    repeat(padFloats) { currentInputBuffer.putFloat(0f) }
+                }
+                InputLayout.NCTHW -> {
+                    // Layout: for each channel C, write all T frames' pixels.
+                    // For ARGB packed ints: shift R=16, G=8, B=0 → shift = (2 - c) * 8
+                    // when numChannels == 3. For grayscale (numChannels == 1) we
+                    // use the red channel.
+                    for (c in 0 until numChannels) {
+                        val shift = if (numChannels == 1) 16 else (2 - c) * 8
+                        for (px in pixelsPerFrame) {
+                            for (pixel in px) {
+                                currentInputBuffer.putFloat(((pixel shr shift) and 0xFF) / 255f)
+                            }
+                        }
+                        repeat(paddingFrames * pixelsPerImage) {
+                            currentInputBuffer.putFloat(0f)
+                        }
                     }
                 }
-            }
-
-            // Pad with zeros if fewer frames
-            val paddingFrames = numFrames - framesToProcess.size
-            for (i in 0 until paddingFrames * inputHeight * inputWidth * numChannels) {
-                currentInputBuffer.putFloat(0f)
             }
 
             currentInputBuffer.rewind()
