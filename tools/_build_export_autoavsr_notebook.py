@@ -36,7 +36,7 @@ def code(text: str) -> dict:
 cells: list[dict] = []
 
 cells.append(md("""\
-# Export `Amanvir/LRS3_V_WER19.1` (Auto-AVSR / VSR-ML) → ONNX for Android
+# Export `Amanvir/LRS3_V_WER19.1` (Auto-AVSR / VSR-ML) -> ONNX for Android
 
 One-shot notebook to materialise an ONNX file the Liperty Android app can load via `OnnxModelEngine`.
 
@@ -183,45 +183,58 @@ cells.append(code("""\
 import argparse
 import json as _json
 
+# Auto-AVSR / VSR-ML model.json is one of:
+#   (a) a dict of args, or
+#   (b) a list [idim, odim, args_dict]   <-- the actual format for LRS3_V_WER19.1
+# Chaplin's pipelines/model.py uses: args = confs if isinstance(confs, dict) else confs[2]
 with open(model_json) as f:
-    cfg_dict = _json.load(f)
+    confs = _json.load(f)
 
-# Some ESPnet config dumps wrap args in a key like "model_conf" or "config".
-if not isinstance(cfg_dict, dict):
-    raise TypeError("Expected dict from model.json, got " + type(cfg_dict).__name__)
-for unwrap_key in ("config", "model_conf", "args"):
-    if unwrap_key in cfg_dict and isinstance(cfg_dict[unwrap_key], dict):
-        print("Unwrapping nested config key:", unwrap_key)
-        cfg_dict = cfg_dict[unwrap_key]
-        break
+if isinstance(confs, dict):
+    args_dict = confs
+    idim_hint, odim_hint = None, None
+elif isinstance(confs, list) and len(confs) >= 3 and isinstance(confs[2], dict):
+    idim_hint, odim_hint = confs[0], confs[1]
+    args_dict = confs[2]
+    print("model.json is a list of", len(confs), "elements:")
+    print("  confs[0] (idim hint):", idim_hint)
+    print("  confs[1] (odim hint):", odim_hint)
+else:
+    raise TypeError("Unexpected model.json structure: " + type(confs).__name__)
 
-print("Config keys (first 15):", list(cfg_dict.keys())[:15])
+print("Args keys (first 15):", list(args_dict.keys())[:15])
+train_args = argparse.Namespace(**args_dict)
 
-args = argparse.Namespace(**cfg_dict)
+# Token list resolution mirrors Chaplin's pipelines/model.py:AVSR.__init__
+labels_type = getattr(train_args, "labels_type", "char")
+print("labels_type:", labels_type)
+if labels_type == "char":
+    token_list = list(train_args.char_list)
+elif labels_type == "unigram5000":
+    token_list = (
+        ["<blank>"]
+        + [w.split()[0] for w in open(dst_vocab, encoding="utf-8").read().splitlines() if w.strip()]
+        + ["<eos>"]
+    )
+else:
+    raise ValueError("Unsupported labels_type: " + labels_type)
+
+odim = len(token_list)
+print("odim (resolved token list size):", odim)
+print("  first 10 tokens:", token_list[:10])
+print("  last 5 tokens:  ", token_list[-5:])
+
+# Persist the resolved token list so we can upload it alongside the ONNX.
+TOKEN_LIST_PATH = os.path.join(ckpt_dir, "token_list.txt")
+with open(TOKEN_LIST_PATH, "w", encoding="utf-8") as f:
+    for t in token_list:
+        f.write(t + "\\n")
+print("Saved token list:", TOKEN_LIST_PATH)
 
 from espnet.nets.pytorch_backend.e2e_asr_transformer_av import E2E
 
-odim = len(vocab_lines)
-print("odim (vocab size):", odim)
-
-# Try common ESPnet E2E constructor signatures in order.
-model = None
-last_err = None
-for sig_name, ctor in [
-    ("E2E(odim=, args=)",          lambda: E2E(odim=odim, args=args)),
-    ("E2E(idim=80, odim=, args=)", lambda: E2E(idim=80, odim=odim, args=args)),
-    ("E2E(80, odim, args)",        lambda: E2E(80, odim, args)),
-]:
-    try:
-        model = ctor()
-        print("Constructed via:", sig_name)
-        break
-    except Exception as e:
-        last_err = e
-        print("  " + sig_name + " failed:", type(e).__name__, str(e)[:200])
-
-if model is None:
-    raise RuntimeError("All E2E constructor signatures failed; last error: " + str(last_err))
+# Chaplin invokes E2E(odim, train_args) -- two positional args.
+model = E2E(odim, train_args)
 
 # Load weights. Checkpoints sometimes wrap state in 'state_dict' / 'model'.
 state = torch.load(model_pth, map_location="cpu", weights_only=False)
@@ -244,10 +257,10 @@ print("Model in eval mode.")
 cells.append(md("""\
 ## 5. Build a visual-only wrapper
 
-The full E2E model expects (audio, visual) input and runs encode → CTC + attention scorers → beam search. We want a single forward that:
+The full E2E model expects (audio, visual) input and runs encode -> CTC + attention scorers -> beam search. We want a single forward that:
 
 1. Takes only **video** input: `(B, T, 1, 88, 88) float32`, normalized per Chaplin's transforms (mean=0.421, std=0.165).
-2. Routes through the visual frontend (3D conv → ResNet → Conformer encoder).
+2. Routes through the visual frontend (3D conv -> ResNet -> Conformer encoder).
 3. Projects through the CTC head to get `(B, T_out, V)` log-softmax logits over the 5000-unit vocab.
 
 We do this by introspecting which submodules ESPnet exposes (`encoder`, `ctc`, `frontend`, `feature_extractor`) and threading the visual path manually. The exact attribute names vary by ESPnet version -- print the model and adjust if needed.
@@ -278,52 +291,33 @@ import torch.nn.functional as F
 class VisualOnlyCTC(nn.Module):
     \"\"\"Wraps the ESPnet AV E2E model for visual-only CTC inference.
 
-    Adapt the attribute lookups below if `model.named_children()` shows
-    different names. The pattern in modern ESPnet checkpoints is:
-        - model.frontend or model.feature_extractor   (3D conv + ResNet)
-        - model.encoder                                 (Conformer)
-        - model.ctc.ctc_lo                              (CTC linear projection)
-    Audio submodules (model.audio_*, model.frontend_audio) are ignored.
+    Mirrors Chaplin's pipelines/model.py:AVSR.infer for visual-only mode:
+        enc_feats = self.model.encode(data)
+    We then apply the CTC linear projection instead of beam search so the
+    whole graph is ONNX-traceable.
     \"\"\"
     def __init__(self, base):
         super().__init__()
-        # Best-effort attribute resolution -- print and adjust if needed.
-        self.frontend = (
-            getattr(base, "frontend", None)
-            or getattr(base, "feature_extractor", None)
-            or getattr(base, "visual_frontend", None)
-        )
-        self.encoder = base.encoder
-        self.ctc = base.ctc
+        self.base = base
 
     def forward(self, video):
-        # video: (B, T, 1, 88, 88) float32, pre-normalized
-        # ESPnet's conv3d frontend expects (B, T, C, H, W) and emits (B, T_sub, D)
-        feats = self.frontend(video)
-        # Some frontends return tuples (feats, lengths)
+        # video: (B, T, 1, 88, 88) float32, pre-normalized to mean 0.421 std 0.165
+        feats = self.base.encode(video)
         if isinstance(feats, tuple):
             feats = feats[0]
-        # Encoder
-        # ESPnet encoder takes (xs_pad, masks=None) and returns (xs, masks)
-        # We pass None mask to skip pad masking (not ONNX-friendly anyway).
-        try:
-            enc_out, _ = self.encoder(feats, None)
-        except Exception:
-            enc_out = self.encoder(feats)
-            if isinstance(enc_out, tuple):
-                enc_out = enc_out[0]
-        # CTC projection -- ESPnet's CTC has `ctc_lo` (Linear) → softmax
-        logits = self.ctc.ctc_lo(enc_out)
-        # Return log_softmax for stability (caller does argmax -- equivalent)
+        logits = self.base.ctc.ctc_lo(feats)
         return F.log_softmax(logits, dim=-1)
 
 wrapper = VisualOnlyCTC(model).eval()
 
-# Dummy forward to confirm shapes
+# Dummy forward to confirm shapes. The encoder may downsample the time dim
+# (typically by 4x), so output time != input time.
 dummy = torch.randn(1, TRACE_TIME, 1, TRACE_HEIGHT, TRACE_WIDTH)
 with torch.no_grad():
     out = wrapper(dummy)
-print(f"Wrapper forward OK. Output: {out.shape}  (expected (1, T_sub, {len(vocab_lines)}))")
+print("Wrapper forward OK.")
+print("  input  shape:", tuple(dummy.shape))
+print("  output shape:", tuple(out.shape), "(B, T_sub, vocab=" + str(odim) + ")")
 """))
 
 cells.append(md("""\
