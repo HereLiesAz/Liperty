@@ -331,10 +331,12 @@ cells.append(code("""\
 onnx_path = os.path.join(ckpt_dir, "autoavsr_lrs3_visual_ctc.onnx")
 
 with torch.no_grad():
-    torch.onnx.export(
-        wrapper,
-        dummy,
-        onnx_path,
+    # PyTorch 2.10's default exporter (TorchDynamo) has import paths that
+    # are broken in some Kaggle builds (`from torch.onnx._internal.exporter
+    # import _compat` fails). Force the legacy tracer-based exporter; it's
+    # the right path for ESPnet-style models anyway since the encoder has
+    # static control flow.
+    common_kwargs = dict(
         input_names=["video"],
         output_names=["log_probs"],
         dynamic_axes={
@@ -346,6 +348,13 @@ with torch.no_grad():
         opset_version=17,
         do_constant_folding=True,
     )
+    try:
+        torch.onnx.export(wrapper, dummy, onnx_path, dynamo=False, **common_kwargs)
+        print("Exported via legacy (tracer) onnx exporter.")
+    except TypeError:
+        # Older torch builds don't accept `dynamo` kwarg; fall back.
+        torch.onnx.export(wrapper, dummy, onnx_path, **common_kwargs)
+        print("Exported via default onnx exporter (no dynamo kwarg).")
 print(f"Exported: {onnx_path} ({os.path.getsize(onnx_path) / 1e6:.1f} MB)")
 """))
 
