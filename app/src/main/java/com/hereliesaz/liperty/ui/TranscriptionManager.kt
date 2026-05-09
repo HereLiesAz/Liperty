@@ -6,8 +6,18 @@ import com.hereliesaz.liperty.ml.LanguageModel
 
 /**
  * Manages the list of transcribed words, their confidences, and autocorrection logic.
+ *
+ * @param transformSentence Optional sentence-level post-processor invoked by
+ *   [getCleanedSentence] over the assembled transcript. Auto-AVSR backends
+ *   wire this to a synchronous wrapper around `LlmTextCleaner.clean()` to
+ *   apply a small LLM cleanup pass on top of the existing word-level
+ *   homophone+LM corrections. The result is cached and only re-evaluated
+ *   when the underlying transcript changes (appendText / clear / cycle).
  */
-class TranscriptionManager(private val context: Context) {
+class TranscriptionManager(
+    private val context: Context,
+    private val transformSentence: ((String) -> String)? = null,
+) {
 
     companion object {
         private val WHITESPACE_REGEX = "\\s+".toRegex()
@@ -19,6 +29,12 @@ class TranscriptionManager(private val context: Context) {
     // Each entry is (word, confidence) — confidence comes from the VSR model's softmax output.
     private val wordEntries = mutableListOf<Pair<String, Float>>()
     private var selectedWordIndex = -1
+
+    /** Cache of (signature, transformed-sentence) so the transformer doesn't
+     *  re-run on every read. The signature is a cheap stand-in for the
+     *  transcript content — content size + the assembled string itself —
+     *  invalidated automatically by every appendText / clear / cycle. */
+    private var cachedTransformed: Pair<String, String>? = null
 
     /**
      * Appends new words from an inference result.
@@ -88,6 +104,25 @@ class TranscriptionManager(private val context: Context) {
 
     @Synchronized
     fun getCurrentSentence(): String = wordEntries.joinToString(" ") { it.first }
+
+    /**
+     * Returns the assembled sentence after the optional [transformSentence]
+     * post-processor. When no transformer was supplied, returns
+     * [getCurrentSentence] unchanged. The transformed result is cached and
+     * only re-evaluated when the underlying assembled sentence changes.
+     */
+    @Synchronized
+    fun getCleanedSentence(): String {
+        val current = wordEntries.joinToString(" ") { it.first }
+        val transformer = transformSentence ?: return current
+
+        val cached = cachedTransformed
+        if (cached != null && cached.first == current) return cached.second
+
+        val transformed = transformer(current)
+        cachedTransformed = current to transformed
+        return transformed
+    }
 
     @Synchronized
     fun clear() {
