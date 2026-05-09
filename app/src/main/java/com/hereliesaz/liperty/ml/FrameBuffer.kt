@@ -55,4 +55,40 @@ class FrameBuffer(private val capacity: Int) {
         }
         buffer.clear()
     }
+
+    /**
+     * Sliding-window inference primitive. Returns a snapshot of all currently
+     * buffered frames (caller takes ownership and is responsible for recycling)
+     * while internally retaining COPIES of the most recent [retainCount] frames
+     * for the next inference window.
+     *
+     * The copies are necessary because the caller will recycle the snapshot's
+     * Bitmaps after inference completes; without copies, the retained tail
+     * would point at recycled memory and the next window's frames would be
+     * corrupted.
+     *
+     * @throws IllegalArgumentException if [retainCount] is negative or exceeds
+     *   the current buffer size.
+     */
+    @Synchronized
+    fun slideAndGetFrames(retainCount: Int): List<Pair<Bitmap, FloatArray?>> {
+        require(retainCount >= 0) { "retainCount must be non-negative, got $retainCount" }
+        require(retainCount <= buffer.size) {
+            "retainCount $retainCount exceeds buffer size ${buffer.size}"
+        }
+
+        val snapshot = buffer.toList()
+
+        val toRetainSnapshots = if (retainCount == 0) emptyList()
+                                else snapshot.takeLast(retainCount)
+        val retainedCopies = toRetainSnapshots.map { (bm, lm) ->
+            val copy = com.hereliesaz.liperty.utils.BitmapPool.get(bm.width, bm.height)
+            android.graphics.Canvas(copy).drawBitmap(bm, 0f, 0f, null)
+            Pair(copy, lm)
+        }
+        buffer.clear()
+        for (entry in retainedCopies) buffer.addLast(entry)
+
+        return snapshot
+    }
 }

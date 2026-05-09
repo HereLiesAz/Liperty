@@ -31,7 +31,7 @@ import com.hereliesaz.liperty.voicebox.LaryngealSensor
 
 import com.hereliesaz.liperty.ml.FrameBuffer
 import com.hereliesaz.liperty.ml.OnnxModelEngine
-import com.hereliesaz.liperty.ml.SubwordCTCDecoder
+import com.hereliesaz.liperty.ml.SubwordCtcBeamDecoder
 import com.hereliesaz.liperty.ml.TFLiteEngine
 import com.hereliesaz.liperty.ml.VSRInference
 import com.hereliesaz.liperty.ml.VocabularyLoader
@@ -61,6 +61,13 @@ class MainActivity : ComponentActivity() {
         const val AUTOAVSR_CROP_SIZE = 88
         const val AUTOAVSR_PIXEL_MEAN = 0.421f
         const val AUTOAVSR_PIXEL_STD = 0.165f
+
+        // Sliding-window inference: each call retains this many recent frames
+        // for the next window so the model gets overlapping context across
+        // utterance boundaries. With buffer capacity 16 and retain 8, we
+        // re-process the second half of each window with the first half of
+        // the next — every new frame is seen by exactly two inferences.
+        const val AUTOAVSR_SLIDE_RETAIN = 8
     }
 
     private lateinit var cameraManager: CameraManager
@@ -145,7 +152,12 @@ class MainActivity : ComponentActivity() {
             // emits log-softmax over 5049 SentencePiece subword tokens.
             val vsrEngine = OnnxModelEngine(this, AUTOAVSR_MODEL)
             val subwordVocab = VocabularyLoader.loadFromAssets(this, AUTOAVSR_VOCAB, blank = "<blank>")
-            val subwordDecoder = SubwordCTCDecoder(subwordVocab, blankIndex = 0)
+            // Beam search over the 5049-token vocabulary. Beam width 8 picked
+            // to match Chaplin's effective recognizer cost (Chaplin uses
+            // beam_size=40 at greedy LM-scoring, but we have no LM and a
+            // smaller-width search is enough to recover from greedy's
+            // path-collapse mistakes).
+            val subwordDecoder = SubwordCtcBeamDecoder(subwordVocab, beamWidth = 8, blankIndex = 0)
             vsrInference = VSRInference(
                 engine = vsrEngine,
                 pixelMean = AUTOAVSR_PIXEL_MEAN,
@@ -604,8 +616,12 @@ class MainActivity : ComponentActivity() {
             if (frameBuffer.isFull() && !isInferencing) {
                 isInferencing = true
                 Log.d("VSRPipeline", "buffer full — launching inference")
-                // Takes ownership of the frames
-                val bufferEntries = frameBuffer.clearAndGetFrames()
+                // Sliding window: caller takes ownership of the snapshot for
+                // inference + recycling, FrameBuffer retains COPIES of the most
+                // recent half (8 of 16) for the next window. Smooths output
+                // across utterance boundaries by giving the model overlapping
+                // context instead of dropping frames whole-window at a time.
+                val bufferEntries = frameBuffer.slideAndGetFrames(retainCount = AUTOAVSR_SLIDE_RETAIN)
                 val framesToProcess = bufferEntries.map { it.first }
                 val landmarksToProcess = FloatArray(bufferEntries.size * 40)
                 bufferEntries.forEachIndexed { index, entry ->
