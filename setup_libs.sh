@@ -128,69 +128,64 @@ download_from_gdrive() {
     fi
 }
 
-# 1. Vallr Bundle
+# Each Google Drive bundle below is a *convenience* artifact for local dev,
+# not a requirement for the Android build. Drive returns an HTML interstitial
+# for files >~100MB or when sharing permissions changed, and its file IDs
+# rot. Don't fail CI on a Drive miss — the things the APK actually needs
+# (Auto-AVSR ONNX, mediapipe .task files, TTS models) are pulled from
+# HuggingFace or GitHub Releases or a public mediapipe URL further down.
+
+try_extract_or_skip() {
+    # try_extract_or_skip <local_zip> <dest_dir> <human_name>
+    local zip_path="$1"
+    local dest_dir="$2"
+    local label="$3"
+    if [ ! -f "$zip_path" ]; then
+        echo "[!] ${label}: download produced no file. Skipping."
+        return 0
+    fi
+    if file "$zip_path" | grep -q "HTML"; then
+        echo "[!] ${label}: Drive returned an HTML page (interstitial / permissions / wrong ID). Skipping."
+        rm -f "$zip_path"
+        return 0
+    fi
+    echo "[+] Extracting $(basename "$zip_path")..."
+    if ! unzip -q -o "$zip_path" -d "$dest_dir"; then
+        echo "[!] ${label}: unzip failed. Skipping."
+        rm -f "$zip_path"
+        return 0
+    fi
+    rm -f "$zip_path"
+    return 0
+}
+
+# 1. Vallr Bundle (research scaffolding only — VALLR/ Python code is not
+#    compiled into the APK; superseded by the Auto-AVSR backend at runtime.)
 if [ ! -f "VALLR/VALLR.path" ]; then
     mkdir -p "VALLR"
     download_from_gdrive "$VALLR_GD_ID" "Vallr.zip"
-    if [ -f "Vallr.zip" ]; then
-        if file "Vallr.zip" | grep -q "HTML"; then
-            echo "ERROR: Downloaded file appears to be an HTML page, not a zip. Google Drive download likely failed."
-            rm -f "Vallr.zip"
-            exit 1
-        fi
-        echo "[+] Extracting Vallr.zip..."
-        unzip -o "Vallr.zip" -d "VALLR/"
-        if [ $? -ne 0 ]; then
-            echo "ERROR: Failed to unzip. Download may have failed."
-            exit 1
-        fi
-        rm "Vallr.zip"
-    fi
+    try_extract_or_skip "Vallr.zip" "VALLR/" "VALLR bundle"
 else
     echo "[*] VALLR data already exists."
 fi
 
-# 2. Tools Bundle
+# 2. Tools Bundle (offline notebook helpers — not consumed by the Android build.)
 if [ ! -d "tools/external" ]; then
     mkdir -p "tools"
     download_from_gdrive "$TOOLS_GD_ID" "tools.zip"
-    if [ -f "tools.zip" ]; then
-        if file "tools.zip" | grep -q "HTML"; then
-            echo "ERROR: Downloaded file appears to be an HTML page, not a zip. Google Drive download likely failed."
-            rm -f "tools.zip"
-            exit 1
-        fi
-        echo "[+] Extracting tools.zip..."
-        unzip -o "tools.zip" -d "tools/"
-        if [ $? -ne 0 ]; then
-            echo "ERROR: Failed to unzip. Download may have failed."
-            exit 1
-        fi
-        rm "tools.zip"
-    fi
+    try_extract_or_skip "tools.zip" "tools/" "tools bundle"
 else
     echo "[*] Tools already exist."
 fi
 
-# 3. Assets Bundle (Models — face/hand landmarkers, ssr/tramba/voice_converter stubs,
-#    homophones.json, etc). The VSR model itself is downloaded separately in step 4.
+# 3. Assets Bundle (face/hand landmarkers, ssr/tramba/voice_converter stubs,
+#    homophones.json, etc). The face/hand .task files have a public-URL
+#    fallback at the bottom of this script. The VSR model itself comes
+#    from HuggingFace in step 4. So a Drive miss here is non-fatal.
 ASSETS_BUNDLE_MARKER="${TARGET_ASSETS}/face_landmarker.task"
 if [ ! -f "$ASSETS_BUNDLE_MARKER" ]; then
     download_from_gdrive "$ASSETS_GD_ID" "assets.zip"
-    if [ -f "assets.zip" ]; then
-        if file "assets.zip" | grep -q "HTML"; then
-            echo "ERROR: Downloaded file appears to be an HTML page, not a zip. Google Drive download likely failed."
-            rm -f "assets.zip"
-            exit 1
-        fi
-        echo "[+] Extracting assets.zip..."
-        unzip -o "assets.zip" -d "$TARGET_ASSETS"
-        if [ $? -ne 0 ]; then
-            echo "ERROR: Failed to unzip. Download may have failed."
-            exit 1
-        fi
-        rm "assets.zip"
-    fi
+    try_extract_or_skip "assets.zip" "$TARGET_ASSETS" "assets bundle"
 else
     echo "[*] Assets (Models) already exist."
 fi
