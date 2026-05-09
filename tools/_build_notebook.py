@@ -128,7 +128,6 @@ cells.append(code("""\
     "datasets>=3.0,<4.0" \\
     "accelerate>=1.0,<2.0" \\
     "pronouncing>=0.2.0" \\
-    "mediapipe>=0.10.18" \\
     "decord>=0.6.0" \\
     "av>=12.0" \\
     "jiwer>=3.0"
@@ -260,7 +259,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader, ConcatDataset
 import cv2
-import mediapipe as mp
 import pronouncing
 from huggingface_hub import HfApi, create_repo, upload_file, hf_hub_download, snapshot_download
 
@@ -283,19 +281,28 @@ for repo_id, kind in [
     except Exception as e:
         print(f"create_repo({repo_id}): {e}")
 
-# MediaPipe face detection — faster than the full landmarker, good enough for cropping.
-_mp_face = mp.solutions.face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.4)
+# OpenCV Haar cascade face detection. Avoids mediapipe — Kaggle's Python 3.12
+# image was hitting `module 'mediapipe' has no attribute 'solutions'` even with
+# `mediapipe>=0.10.18` pinned, because the wheel that resolves there is missing
+# the legacy solutions module. Haar is good enough for a face *bounding box*
+# (which is all we need for face-crop preprocessing) and ships with every cv2.
+_haar_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+_face_cascade = cv2.CascadeClassifier(_haar_path)
+if _face_cascade.empty():
+    raise RuntimeError(f"Failed to load Haar cascade from {_haar_path}")
 
 def detect_face_bbox(frame_bgr):
     \"\"\"Square face bounding box with 30% margin, in pixel coords. Returns (x1,y1,x2,y2) or None.\"\"\"
     h, w = frame_bgr.shape[:2]
-    rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-    res = _mp_face.process(rgb)
-    if not res.detections:
+    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+    faces = _face_cascade.detectMultiScale(
+        gray, scaleFactor=1.2, minNeighbors=4, minSize=(60, 60)
+    )
+    if len(faces) == 0:
         return None
-    box = res.detections[0].location_data.relative_bounding_box
-    x1 = int(box.xmin * w); y1 = int(box.ymin * h)
-    x2 = int((box.xmin + box.width) * w); y2 = int((box.ymin + box.height) * h)
+    # Pick the largest face (Haar can find spurious small ones).
+    fx, fy, fw, fh = max(faces, key=lambda r: r[2] * r[3])
+    x1, y1, x2, y2 = fx, fy, fx + fw, fy + fh
     cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
     side = int(max(x2 - x1, y2 - y1) * 1.30)  # 30% margin
     half = side // 2
