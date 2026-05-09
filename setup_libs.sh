@@ -195,26 +195,45 @@ else
     echo "[*] Assets (Models) already exist."
 fi
 
-# 4. VSR ONNX Model (from GitHub Releases — too large for git).
-# Downloaded directly into app/src/main/assets/ so it's bundled in the APK and
-# loaded by OnnxModelEngine at runtime. Skipped if the asset already exists.
-ONNX_MODEL="vallr_model.onnx"
-ONNX_URL="https://github.com/HereLiesAz/Liperty/releases/download/v0.1.0-models/${ONNX_MODEL}"
-ONNX_DEST="${TARGET_ASSETS}/${ONNX_MODEL}"
-if [ ! -f "$ONNX_DEST" ]; then
-    echo "[+] Downloading ${ONNX_MODEL} from GitHub Releases into ${ONNX_DEST}..."
-    if command -v curl &> /dev/null; then
-        curl -L -o "$ONNX_DEST" "$ONNX_URL"
-    elif command -v wget &> /dev/null; then
-        wget -O "$ONNX_DEST" "$ONNX_URL"
+# 4. VSR ONNX Model: Auto-AVSR (Chaplin's LRS3_V_WER19.1 visual encoder + CTC head)
+# Pulled from a private HuggingFace model repo (HereLiesAz/liperty-autoavsr-onnx)
+# produced by tools/export_autoavsr_to_onnx.ipynb. Requires HF_TOKEN env var or a
+# `~/.cache/huggingface/token` file (run `huggingface-cli login` once).
+AUTOAVSR_MODEL="autoavsr_lrs3_visual_ctc.onnx"
+AUTOAVSR_VOCAB="unigram5000_units.txt"
+AUTOAVSR_HF_REPO="HereLiesAz/liperty-autoavsr-onnx"
+AUTOAVSR_DEST_MODEL="${TARGET_ASSETS}/${AUTOAVSR_MODEL}"
+AUTOAVSR_DEST_VOCAB="${TARGET_ASSETS}/${AUTOAVSR_VOCAB}"
+
+download_from_hf() {
+    local filename="$1"
+    local dest="$2"
+    if [ -f "$dest" ]; then
+        echo "[*] ${dest} already exists."
+        return 0
     fi
-    if [ -f "$ONNX_DEST" ] && file "$ONNX_DEST" | grep -q "HTML"; then
-        echo "ERROR: Downloaded ONNX file appears to be HTML. Download likely failed."
-        rm -f "$ONNX_DEST"
+    echo "[+] Downloading ${filename} from huggingface.co/${AUTOAVSR_HF_REPO}..."
+    if command -v huggingface-cli &> /dev/null; then
+        huggingface-cli download "$AUTOAVSR_HF_REPO" "$filename" \
+            --local-dir "$TARGET_ASSETS" --quiet 2>&1 | tail -2
+    elif command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; then
+        python -c "
+from huggingface_hub import hf_hub_download
+hf_hub_download(repo_id='$AUTOAVSR_HF_REPO', filename='$filename', local_dir='$TARGET_ASSETS')
+" 2>&1 | tail -2
+    else
+        echo "ERROR: Need either huggingface-cli or python+huggingface_hub installed."
+        echo "       pip install huggingface_hub  &&  huggingface-cli login"
+        return 1
     fi
-else
-    echo "[*] ${ONNX_DEST} already exists."
-fi
+    if [ ! -f "$dest" ]; then
+        echo "ERROR: ${dest} not present after download. Check your HF_TOKEN."
+        return 1
+    fi
+}
+
+download_from_hf "$AUTOAVSR_MODEL" "$AUTOAVSR_DEST_MODEL" || true
+download_from_hf "$AUTOAVSR_VOCAB" "$AUTOAVSR_DEST_VOCAB" || true
 
 # --- TTS / Voice Cloning ONNX Models ---
 # Pre-converted ONNX models for PocketTTSEngine (voice cloning pipeline).

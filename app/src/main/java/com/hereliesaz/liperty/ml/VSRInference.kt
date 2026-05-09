@@ -16,7 +16,21 @@ data class VSRResult(
     val processingTimeMs: Long
 )
 
-class VSRInference(private val engine: ModelEngine) {
+/**
+ * @property pixelMean Subtracted from `pixel/255` before division by [pixelStd].
+ *   Defaults to 0 (i.e. plain `pixel/255`) for the legacy VideoMAE backend.
+ *   Auto-AVSR uses 0.421.
+ * @property pixelStd Divisor applied to `pixel/255 - pixelMean`. Defaults to 1.
+ *   Auto-AVSR uses 0.165.
+ * @property customDecoder If non-null, replaces the default ARPABET phoneme
+ *   greedy/beam decoders. Receives `(T_out, V)` softmax probabilities.
+ */
+class VSRInference(
+    private val engine: ModelEngine,
+    private val pixelMean: Float = 0f,
+    private val pixelStd: Float = 1f,
+    private val customDecoder: ((Array<FloatArray>) -> String)? = null,
+) {
 
     private val greedyDecoder = GreedyDecoder()
     private val beamDecoder = BeamSearchDecoder()
@@ -131,16 +145,21 @@ class VSRInference(private val engine: ModelEngine) {
             val paddingFrames = numFrames - pixelsPerFrame.size
             val pixelsPerImage = inputHeight * inputWidth
 
+            // Per-channel normalization: the model wants `(pixel/255 - mean) / std`.
+            // For the legacy VideoMAE backend mean=0 std=1 → just pixel/255.
+            // For Auto-AVSR mean=0.421 std=0.165.
+            fun norm(raw255: Int): Float = (raw255 / 255f - pixelMean) / pixelStd
+
             when (inputLayout) {
                 InputLayout.NTHWC -> {
                     for (px in pixelsPerFrame) {
                         for (pixel in px) {
                             when (numChannels) {
-                                1 -> currentInputBuffer.putFloat(((pixel shr 16) and 0xFF) / 255f)
+                                1 -> currentInputBuffer.putFloat(norm((pixel shr 16) and 0xFF))
                                 3 -> {
-                                    currentInputBuffer.putFloat(((pixel shr 16) and 0xFF) / 255f)
-                                    currentInputBuffer.putFloat(((pixel shr 8) and 0xFF) / 255f)
-                                    currentInputBuffer.putFloat((pixel and 0xFF) / 255f)
+                                    currentInputBuffer.putFloat(norm((pixel shr 16) and 0xFF))
+                                    currentInputBuffer.putFloat(norm((pixel shr 8) and 0xFF))
+                                    currentInputBuffer.putFloat(norm(pixel and 0xFF))
                                 }
                             }
                         }
@@ -157,7 +176,7 @@ class VSRInference(private val engine: ModelEngine) {
                         val shift = if (numChannels == 1) 16 else (2 - c) * 8
                         for (px in pixelsPerFrame) {
                             for (pixel in px) {
-                                currentInputBuffer.putFloat(((pixel shr shift) and 0xFF) / 255f)
+                                currentInputBuffer.putFloat(norm((pixel shr shift) and 0xFF))
                             }
                         }
                         repeat(paddingFrames * pixelsPerImage) {
@@ -174,7 +193,7 @@ class VSRInference(private val engine: ModelEngine) {
                         for (c in 0 until numChannels) {
                             val shift = if (numChannels == 1) 16 else (2 - c) * 8
                             for (pixel in px) {
-                                currentInputBuffer.putFloat(((pixel shr shift) and 0xFF) / 255f)
+                                currentInputBuffer.putFloat(norm((pixel shr shift) and 0xFF))
                             }
                         }
                     }
@@ -238,11 +257,8 @@ class VSRInference(private val engine: ModelEngine) {
                 softmax(logits)
             }
 
-            val decodedText = if (useBeamSearch) {
-                beamDecoder.decode(probabilities)
-            } else {
-                greedyDecoder.decode(probabilities)
-            }
+            val decodedText = customDecoder?.invoke(probabilities)
+                ?: if (useBeamSearch) beamDecoder.decode(probabilities) else greedyDecoder.decode(probabilities)
 
             // Compute confidence as mean max-softmax probability across all timesteps.
             // This reflects how "peaked" the model's output distribution was — a well-trained

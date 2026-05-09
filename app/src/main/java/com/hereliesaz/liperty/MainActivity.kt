@@ -31,8 +31,10 @@ import com.hereliesaz.liperty.voicebox.LaryngealSensor
 
 import com.hereliesaz.liperty.ml.FrameBuffer
 import com.hereliesaz.liperty.ml.OnnxModelEngine
+import com.hereliesaz.liperty.ml.SubwordCTCDecoder
 import com.hereliesaz.liperty.ml.TFLiteEngine
 import com.hereliesaz.liperty.ml.VSRInference
+import com.hereliesaz.liperty.ml.VocabularyLoader
 import com.hereliesaz.liperty.ml.SSRInference
 import com.hereliesaz.liperty.ui.LipertyApp
 import com.hereliesaz.liperty.ui.OverlayView
@@ -48,6 +50,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
+
+    private companion object AutoAvsrConfig {
+        // Asset filenames bundled by setup_libs.sh.
+        const val AUTOAVSR_MODEL = "autoavsr_lrs3_visual_ctc.onnx"
+        const val AUTOAVSR_VOCAB = "unigram5000_units.txt"
+
+        // Mouth-ROI crop pulled from Chaplin's pipelines/data/transforms.py:
+        //     CenterCrop(88), Normalize(mean=0.421, std=0.165)  (grayscale)
+        const val AUTOAVSR_CROP_SIZE = 88
+        const val AUTOAVSR_PIXEL_MEAN = 0.421f
+        const val AUTOAVSR_PIXEL_STD = 0.165f
+    }
 
     private lateinit var cameraManager: CameraManager
     private lateinit var faceLandmarkerHelper: FaceLandmarkerHelper
@@ -125,10 +139,22 @@ class MainActivity : ComponentActivity() {
             faceLandmarkerHelper = FaceLandmarkerHelper(this)
             handGestureHelper = HandGestureHelper(this)
             laryngealSensor = LaryngealSensor(this)
-            val vsrEngine = OnnxModelEngine(this, "vallr_model.onnx")
-            vsrInference = VSRInference(vsrEngine)
+            // Auto-AVSR (Chaplin's LRS3_V_WER19.1, exported via
+            // tools/export_autoavsr_to_onnx.ipynb) is the active backend.
+            // 88x88 grayscale mouth ROI, normalized to mean=0.421 std=0.165,
+            // emits log-softmax over 5049 SentencePiece subword tokens.
+            val vsrEngine = OnnxModelEngine(this, AUTOAVSR_MODEL)
+            val subwordVocab = VocabularyLoader.loadFromAssets(this, AUTOAVSR_VOCAB, blank = "<blank>")
+            val subwordDecoder = SubwordCTCDecoder(subwordVocab, blankIndex = 0)
+            vsrInference = VSRInference(
+                engine = vsrEngine,
+                pixelMean = AUTOAVSR_PIXEL_MEAN,
+                pixelStd = AUTOAVSR_PIXEL_STD,
+                customDecoder = subwordDecoder::decode,
+            )
             ssrInference = SSRInference(TFLiteEngine(this, "ssr_model.tflite"))
-            // VALLR VideoMAE expects 16 frames per inference window.
+            // Auto-AVSR's encoder accepts variable T; 16 frames keeps cadence
+            // close to the legacy VideoMAE pipeline.
             frameBuffer = FrameBuffer(capacity = 16)
         } catch (e: Exception) {
             Log.e("MainActivity", "Failed to initialize components", e)
@@ -531,22 +557,24 @@ class MainActivity : ComponentActivity() {
                  FaceLandmarkerHelper.calculateHeadPose(matrix)
             }
 
-            // Crop & Align — VALLR's VideoMAE checkpoint was trained on 224×224
-            // FACE crops (not lip crops) at [0,1] RGB. Lip landmarks remain on the
-            // overlay for UX, but the model input is the whole face.
-            val faceBox = faceLandmarkerHelper.extractFaceBoundingBox(result, bitmap.width, bitmap.height)
-                ?: lipBox  // fall back to lip box only if no face landmarks (very rare)
+            // Crop & Align — Auto-AVSR was trained on 88×88 grayscale MOUTH crops
+            // (Chaplin pipelines/data/transforms.py: CenterCrop(88) + Normalize).
+            // VSRInference reads only the R channel when numChannels==1, so the
+            // bitmap can stay ARGB_8888 here; the grayscale conversion happens at
+            // the byte-write stage.
             val rotation = FaceLandmarkerHelper.calculateLipRotation(result)
-            val cropSize = 224
+            val cropSize = AUTOAVSR_CROP_SIZE
             val reusableBitmap = BitmapPool.get(cropSize, cropSize)
-            val processedMouth = ImageUtils.alignAndCropFace(bitmap, faceBox, rotation, cropSize, reusableBitmap)
+            val processedMouth = ImageUtils.alignAndCropMouth(
+                bitmap, lipBox, rotation, cropSize, cropSize, reusableBitmap
+            )
 
             // Diagnostic: log mean pixel brightness of first frame in each batch to confirm input varies
             if (frameBuffer.size() == 0) {
                 val pixels = IntArray(cropSize * cropSize)
                 processedMouth.getPixels(pixels, 0, cropSize, 0, 0, cropSize, cropSize)
                 val mean = pixels.map { android.graphics.Color.red(it) }.average()
-                Log.d("VSRInput", "frame0 mean_brightness=%.1f faceBox=$faceBox".format(mean))
+                Log.d("VSRInput", "frame0 mean_brightness=%.1f lipBox=$lipBox".format(mean))
             }
 
             // Pass an explicitly copied bitmap to calibration to avoid lifecycle conflicts with FrameBuffer
