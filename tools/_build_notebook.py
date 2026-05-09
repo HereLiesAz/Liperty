@@ -31,42 +31,56 @@ def code(text: str) -> dict:
 cells: list[dict] = []
 
 cells.append(md("""\
-# Liperty VSR — Resumable Colab Training (GRID + TCD-TIMIT)
+# Liperty VSR — Resumable Training (GRID + TCD-TIMIT)
 
-A free-tier-Colab-friendly training pipeline for the VALLR-style VSR model.
+A training pipeline for the VALLR-style VSR model designed to survive session kicks and resume across accounts. Runs on **Kaggle Notebooks** (recommended) or **Google Colab** — auto-detects which.
+
+**Why Kaggle is the recommended platform**
+
+| | Free Colab | Kaggle (free) |
+|---|---|---|
+| Hours / week / account | Rationed, unpredictable | 30 hrs hard guarantee |
+| Session length | ~4h before kick | 9h GPU, 12h CPU |
+| Background execution | Browser must stay open | Set running, walk away |
+| GPU | T4 (shared, throttled) | P100 16GB or T4×2 |
+
+A single Kaggle account is roughly equivalent to all 5 free Colab accounts in steady-state throughput. With 5 Kaggle accounts you can do 150 hrs/week guaranteed.
 
 **Design goals**
 
-1. **Survive session kicks.** Free Colab disconnects at ~4h, plus random idle kicks. All durable state lives on the HuggingFace Hub: checkpoints, optimizer state, RNG, run metadata, preprocessed datasets. Local disk is treated as a cache.
-2. **Account-agnostic resume.** A single HF token (one HF account) drives the whole pipeline. Any of your 5 Google accounts that opens this notebook with the same HF token will pick up exactly where the last session stopped.
-3. **Idempotent preprocessing.** GRID preprocessing is per-speaker. If a speaker's preprocessed shard already exists on HF, the cell skips it. Re-running the preprocess cell after a kick just resumes.
-4. **Time-budgeted training.** The training loop watches its wallclock and flushes a final checkpoint before Colab kicks. No data loss between sessions.
+1. **Survive session kicks.** All durable state lives on the HuggingFace Hub: checkpoints, optimizer state, RNG, run metadata, preprocessed datasets. Local disk is treated as a cache. Works identically on Kaggle and Colab.
+2. **Account-agnostic resume.** A single HF token drives the whole pipeline. Any account on any platform that opens this notebook with the same HF token resumes from where the last session stopped.
+3. **Idempotent preprocessing.** Per-speaker shards. Already-uploaded speakers are skipped on re-run.
+4. **Time-budgeted training.** The training loop flushes a final checkpoint before the platform kicks.
 """))
 
 cells.append(md("""\
 ## How to use this
 
-**One-time setup (do once across all your accounts):**
+**One-time setup:**
 
-1. Create one HuggingFace account (free). Create three repos under that account:
-   - Dataset repo `<you>/liperty-grid-preprocessed` (private)
-   - Dataset repo `<you>/liperty-tcd-preprocessed` (private)
-   - Model repo `<you>/liperty-vsr-checkpoints` (private)
-   - Don't worry about contents — the notebook will create them if missing.
-2. Create an HF token at https://huggingface.co/settings/tokens with **write** scope.
-3. In each Google account you'll use: open this notebook, then `Tools → Settings → Secrets`, add a secret named `HF_TOKEN` with the token value. (Or paste it interactively each time.)
+1. Create one HuggingFace account (free). Generate a token at https://huggingface.co/settings/tokens with **write** scope.
+2. The notebook creates three private HF repos on first run if they don't exist:
+   - `<you>/liperty-grid-preprocessed`  (dataset)
+   - `<you>/liperty-tcd-preprocessed`   (dataset)
+   - `<you>/liperty-vsr-checkpoints`    (model)
+3. Add the HF token as a secret in each environment you'll use:
+   - **Kaggle:** `Add-ons → Secrets`, add label `HF_TOKEN` with the token value.
+   - **Colab:** `Tools → Settings → Secrets`, name `HF_TOKEN`.
 
-**Recurring sessions:**
+**Recurring sessions (Kaggle, recommended):**
 
-- Open the notebook in any of your Google accounts.
-- `Runtime → Run all` (or step through). Cells 3-9 are setup; cell 10 is the meat.
-- The training loop will stop on its own well before Colab's 4h kick. Take the kick, switch accounts, run again. Resume is automatic.
+- Open this notebook on Kaggle. Set runtime: GPU P100 (or T4×2). Internet: ON.
+- `Run All` once, then **`Save Version → Save & Run All (Commit)`** to run headless in the background. Close the tab; the notebook keeps training.
+- 9 hours later the session ends; the most recent checkpoint is on HF. Switch accounts, repeat.
+
+**Recurring sessions (Colab):**
+
+- Open the notebook, `Runtime → Run all`. Stays alive while the browser is open. Time budget defaults to 200 min for Colab's 4h kick.
 
 **Switching accounts mid-day:**
 
-- Just open the notebook in the next Google account and run all cells. The HF token is the same; the checkpoint is on HF; it just continues.
-
-There is no real "automation across Google accounts" because each account login is a manual interactive step. Selenium-driving five Chrome profiles is theoretically possible but fragile and against Colab's spirit. The real win here is making the *resume* robust enough that the manual switch is one click + run-all.
+Same notebook, same HF token, different account. The state store is HF Hub, so any platform/account picks up the same checkpoint. There's no automation for the manual login itself — Selenium-driving multiple Chrome profiles is fragile and against the spirit of both platforms. The thing this notebook automates is making the *resume* clean enough that a switch is one click + Run All.
 """))
 
 cells.append(md("""\
@@ -74,11 +88,23 @@ cells.append(md("""\
 """))
 
 cells.append(code("""\
+import os, sys, platform
+import torch
+
+# Environment detection — drives all path/secret decisions later.
+IS_KAGGLE = os.path.exists("/kaggle/working") or "KAGGLE_KERNEL_RUN_TYPE" in os.environ
+try:
+    import google.colab  # noqa
+    IS_COLAB = True
+except ImportError:
+    IS_COLAB = False
+ENV = "kaggle" if IS_KAGGLE else "colab" if IS_COLAB else "local"
+print(f"Environment: {ENV}")
+
 !nvidia-smi
 print()
 !free -h
 print()
-import sys, platform, torch
 print(f"Python:   {sys.version.split()[0]}")
 print(f"Platform: {platform.platform()}")
 print(f"PyTorch:  {torch.__version__}")
@@ -120,7 +146,13 @@ import os
 from huggingface_hub import login, whoami
 
 token = os.environ.get("HF_TOKEN")
-if not token:
+if not token and IS_KAGGLE:
+    try:
+        from kaggle_secrets import UserSecretsClient
+        token = UserSecretsClient().get_secret("HF_TOKEN")
+    except Exception as e:
+        print(f"Kaggle Secrets lookup: {e}")
+if not token and IS_COLAB:
     try:
         from google.colab import userdata
         token = userdata.get("HF_TOKEN")
@@ -154,9 +186,10 @@ HF_CKPT_REPO      = f"{HF_USER}/liperty-vsr-checkpoints"
 
 RUN_NAME = "vmae-base-grid-tcd-v1"
 
-# Stop training and flush this many minutes after the cell starts. Free Colab
-# kicks at ~4h; leave 30 min buffer for the final checkpoint upload.
-TIME_BUDGET_MIN = 200
+# Stop training and flush this many minutes after the cell starts.
+# Kaggle GPU sessions cap at ~9h, Colab free at ~4h. Leave 30 min buffer for
+# the final checkpoint upload.
+TIME_BUDGET_MIN = 480 if IS_KAGGLE else 200
 
 # Model input shape — must match what Liperty's Android pipeline produces.
 NUM_FRAMES = 16
@@ -181,10 +214,17 @@ CKPT_EVERY_STEPS = 200
 LOG_EVERY_STEPS  = 20
 KEEP_LAST_CKPTS  = 3     # how many recent checkpoints to keep on HF Hub
 
-# Local working dirs (ephemeral on Colab)
-WORK_DIR = "/content/work"
-DATA_DIR = "/content/data"
-CKPT_DIR = "/content/ckpt"
+# Local working dirs. On Kaggle, /kaggle/working is auto-versioned to a Dataset
+# at session end (a useful belt-and-braces backup on top of the HF Hub uploads).
+# On Colab, /content is straight ephemeral.
+if IS_KAGGLE:
+    WORK_DIR = "/kaggle/working/work"
+    DATA_DIR = "/kaggle/working/data"
+    CKPT_DIR = "/kaggle/working/ckpt"
+else:
+    WORK_DIR = "/content/work"
+    DATA_DIR = "/content/data"
+    CKPT_DIR = "/content/ckpt"
 
 # 39 ARPABET phonemes + blank at index 0 — same vocab as the Android decoder
 # at app/src/main/java/com/hereliesaz/liperty/ml/MLConstants.kt
@@ -316,13 +356,18 @@ print("Utilities ready.")
 cells.append(md("""\
 ## 6. GRID preprocessing (resumable, per-speaker)
 
-Each GRID speaker → one `s<N>.pt` file on HF Hub. The cell scans HF first; speakers already uploaded are skipped. Safe to re-run after a session kick — it resumes from where the previous session stopped.
+Each GRID speaker → one `s<N>.pt` file on HF Hub. The cell scans HF first; speakers already uploaded are skipped. Safe to re-run after a session kick.
 
-**One speaker takes ~5–10 min on a T4.** The whole GRID corpus (33 speakers, no s21) is 3–5 hours of preprocessing — you'll likely split this across 2 sessions.
+**Before running this cell, consider the shortcut.** Two community Kaggle datasets may have already done this work for you:
 
-**Source:** Zenodo record [3625687](https://zenodo.org/records/3625687). The `s<N>.zip` files are direct-download, no auth.
+- [`mohamedbentalb/lipreading-dataset`](https://www.kaggle.com/datasets/mohamedbentalb/lipreading-dataset) — claims GRID preprocessed to `.npy` mouth-frame arrays. If it covers all 34 speakers, you can skip this cell entirely.
+- [`awatefchiha/grid-lip-reading-s10-preprocessed3`](https://www.kaggle.com/datasets/awatefchiha/grid-lip-reading-s10-preprocessed3) — speaker 10 only. The author may have similar datasets for other speakers (check their profile).
 
-**Verify the URL pattern** below if Zenodo changes its layout (the pattern has been stable since 2018).
+If those work for you, write a quick adapter cell that loads the `.npy` files and uploads them as `s<N>.pt` shards in your HF dataset repo. Then skip the cell below.
+
+**Source for from-scratch:** Zenodo record [3625687](https://zenodo.org/records/3625687). The `s<N>.zip` files are direct-download, no auth.
+
+**One speaker takes ~5–10 min on a T4 / P100.** The whole GRID corpus (33 speakers, no s21) is 3–5 hours of preprocessing.
 """))
 
 cells.append(code("""\
@@ -982,7 +1027,11 @@ cells.append(md("""\
 
 **"Loss is NaN / model output is uniform."** This is the prior-collapse failure mode you saw in the deployed app. With pretrained VideoMAE weights loaded (cell 10) and proper input normalization (`pixel/255` matching VALLR's training pipeline), this should not happen. If it does: (a) reduce LR to `5e-5`, (b) check that your phoneme vocabulary in the dataset matches `MLConstants.PHONEME_VOCAB`, (c) verify input frames look like faces by saving a few to disk.
 
-**"GRID download is slow."** Zenodo rate-limits per-IP. Different Colab sessions get different IPs, so re-running in a new account is often faster. Each `s<N>.zip` is ~750 MB.
+**"GRID download is slow."** Zenodo rate-limits per-IP. Different sessions get different IPs, so re-running in a new account is often faster. Each `s<N>.zip` is ~750 MB. Or skip Zenodo entirely and use the Kaggle preprocessed datasets noted in cell 6.
+
+**"On Kaggle, the session ended but I lost the dataset."** Kaggle auto-saves `/kaggle/working/` as a versioned Dataset output when you `Save Version`. But if the kernel was killed via timeout without a Save Version, recent state may not have been published. The HF Hub uploads done by the training loop *are* durable regardless — pull the latest `<run>-latest.pt` from `liperty-vsr-checkpoints` and resume.
+
+**"How do I run a Kaggle notebook headless?"** `Save Version → Save & Run All (Commit)` rather than the interactive `Run All` button. The kernel runs in the background after browser close; you get an email when it finishes or fails. This is the killer feature — it removes the entire idle-disconnect problem.
 
 **"Session kicks before checkpoint flush."** Lower `CKPT_EVERY_STEPS` from 200 to 100 (more frequent checkpoints, more upload overhead but smaller blast radius from a kick).
 
