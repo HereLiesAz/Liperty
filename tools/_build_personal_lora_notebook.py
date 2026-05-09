@@ -356,30 +356,47 @@ try:
 except Exception as e:
     print(f"create_repo: {e}")
 
-# SentencePiece encoder for the unigram5000 vocab.
-import sentencepiece as spm
-# The Auto-AVSR vocab is unigram5000_units.txt; we don't have the original
-# .model file but we can fake an encoder by greedy longest-match against
-# the token list. Good enough for short personal sentences.
 TOKEN_TO_ID = {tok: i for i, tok in enumerate(token_list)}
-def text_to_token_ids(text):
-    text = re.sub(r"[^A-Za-z' ]", "", text.upper().strip()).strip()
+
+def _text_to_char_ids(text):
+    \"\"\"Char-level: each character mapped to its vocab index. ESPnet char_list
+    typically uses uppercase letters + space + apostrophe.\"\"\"
+    text = re.sub(r\"[^A-Za-z' ]\", \"\", text.strip().upper())
+    return [TOKEN_TO_ID[c] for c in text if c in TOKEN_TO_ID]
+
+def _text_to_subword_ids(text):
+    \"\"\"unigram5000 (SentencePiece-style): greedy longest-match against the
+    token list, with words prefixed by the SentencePiece word-boundary
+    marker. Best-effort; the proper SentencePiece .model isn't bundled
+    with the Auto-AVSR checkpoint so we approximate.\"\"\"
+    text = re.sub(r\"[^A-Za-z' ]\", \"\", text.strip().upper())
     if not text:
         return []
     pieces = []
-    cursor = "▁" + text.replace(" ", "▁")  # SentencePiece word-boundary marker
+    cursor = \"▁\" + text.replace(\" \", \"▁\")
     while cursor:
         match = None
         for ln in range(min(len(cursor), 30), 0, -1):
             if cursor[:ln] in TOKEN_TO_ID:
-                match = cursor[:ln]
-                break
+                match = cursor[:ln]; break
         if match is None:
-            cursor = cursor[1:]
-            continue
+            cursor = cursor[1:]; continue
         pieces.append(TOKEN_TO_ID[match])
         cursor = cursor[len(match):]
     return pieces
+
+# Pick the right encoder for the checkpoint's labels_type.
+if labels_type == \"char\":
+    text_to_token_ids = _text_to_char_ids
+elif labels_type == \"unigram5000\":
+    text_to_token_ids = _text_to_subword_ids
+else:
+    raise ValueError(f\"Unsupported labels_type: {labels_type}\")
+# Smoke-test the encoder so a misconfigured vocab fails loudly.
+sample = text_to_token_ids(\"the quick brown fox\")
+assert sample, f\"Encoder returned empty for sample text; labels_type={labels_type} likely mismatched. \" \\
+               f\"First 5 vocab tokens: {token_list[:5]}\"
+print(f\"Encoder smoke-test OK: 'the quick brown fox' -> {len(sample)} tokens\")
 
 # MediaPipe lip box.
 _face_lms = mp.solutions.face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.4)
