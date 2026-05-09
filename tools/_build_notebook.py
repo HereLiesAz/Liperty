@@ -455,8 +455,10 @@ def preprocess_grid_speaker(sp):
     return True
 
 # === Run preprocessing now ===
-# Set RUN_GRID_PREPROCESS = True to actually do work. Time-budget aware.
-RUN_GRID_PREPROCESS = False
+# Set RUN_GRID_PREPROCESS = False to skip. Time-budget aware. Defaults to True
+# so a fresh `Run All` actually does the GRID download + preprocessing without
+# requiring a manual edit to the cell.
+RUN_GRID_PREPROCESS = True
 
 if RUN_GRID_PREPROCESS:
     target = [s for s in range(1, 35) if s != 21]   # s21 has no audio in GRID
