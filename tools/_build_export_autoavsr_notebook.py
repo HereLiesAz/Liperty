@@ -42,11 +42,11 @@ One-shot notebook to materialise an ONNX file the Liperty Android app can load v
 
 **The trade we're making:**
 
-The headline 19.1% WER on LRS3 is achieved with **beam search using both the CTC and attention decoder scorers, plus an external language model**. None of that is going to ONNX cleanly — the attention decoder uses dynamic control flow, beam search is non-traceable, and the external LM is a separate beast.
+The headline 19.1% WER on LRS3 is achieved with **beam search using both the CTC and attention decoder scorers, plus an external language model**. None of that is going to ONNX cleanly -- the attention decoder uses dynamic control flow, beam search is non-traceable, and the external LM is a separate beast.
 
-So this notebook exports **only the encoder + CTC projection head**. On Android we'll decode greedily over the 5000-unit subword vocabulary. Expected WER on LRS3 with greedy CTC alone: roughly **30–50%** (vs 19.1% headline). That's the price of fitting it on a phone.
+So this notebook exports **only the encoder + CTC projection head**. On Android we'll decode greedily over the 5000-unit subword vocabulary. Expected WER on LRS3 with greedy CTC alone: roughly **30-50%** (vs 19.1% headline). That's the price of fitting it on a phone.
 
-A small on-device LLM cleanup pass (Chaplin's actual innovation, using Qwen-3:4B via Ollama) recovers a lot of that lost accuracy. Out of scope for this notebook — we just need the ONNX file + vocab first.
+A small on-device LLM cleanup pass (Chaplin's actual innovation, using Qwen-3:4B via Ollama) recovers a lot of that lost accuracy. Out of scope for this notebook -- we just need the ONNX file + vocab first.
 """))
 
 cells.append(md("""\
@@ -137,7 +137,7 @@ HF_EXPORT_REPO = f"{HF_USER}/liperty-autoavsr-onnx"   # private model repo
 # Source checkpoint
 SRC_REPO = "Amanvir/LRS3_V_WER19.1"
 
-# Export shape — the model accepts variable-length time axis. We pick a
+# Export shape -- the model accepts variable-length time axis. We pick a
 # representative T for tracing; ONNX dynamic_axes makes T flexible at runtime.
 TRACE_TIME = 60          # 2.4 s @ 25 fps
 TRACE_HEIGHT = 88
@@ -183,45 +183,62 @@ cells.append(code("""\
 import argparse
 import json as _json
 
-# Load the config
 with open(model_json) as f:
     cfg_dict = _json.load(f)
 
-# ESPnet's E2E classes expect args as an argparse.Namespace
+# Some ESPnet config dumps wrap args in a key like "model_conf" or "config".
+if not isinstance(cfg_dict, dict):
+    raise TypeError("Expected dict from model.json, got " + type(cfg_dict).__name__)
+for unwrap_key in ("config", "model_conf", "args"):
+    if unwrap_key in cfg_dict and isinstance(cfg_dict[unwrap_key], dict):
+        print("Unwrapping nested config key:", unwrap_key)
+        cfg_dict = cfg_dict[unwrap_key]
+        break
+
+print("Config keys (first 15):", list(cfg_dict.keys())[:15])
+
 args = argparse.Namespace(**cfg_dict)
 
-# Patch the rotary embedding cache size if needed for ONNX trace
-# (Some ESPnet builds use dynamic-shape rotary tables; we'll discover at trace.)
 from espnet.nets.pytorch_backend.e2e_asr_transformer_av import E2E
 
-# Instantiate
-# Some ESPnet E2E inits expect (idim, odim, args). idim is input feature dim;
-# for visual+audio it's typically (audio_idim, visual_idim_shape).
-# Try the most common signature; the code in chaplin/pipelines/model.py is
-# the canonical reference if this fails.
-try:
-    odim = len(vocab_lines)
-    model = E2E(odim=odim, args=args)
-except Exception as e1:
-    print(f"E2E(odim=, args=) failed: {e1}")
-    try:
-        # Some versions: E2E(idim, odim, args)
-        model = E2E(80, len(vocab_lines), args)
-    except Exception as e2:
-        print(f"E2E(idim, odim, args) failed: {e2}")
-        raise
+odim = len(vocab_lines)
+print("odim (vocab size):", odim)
 
-# Load weights (some checkpoints wrap state in 'state_dict' or 'model')
+# Try common ESPnet E2E constructor signatures in order.
+model = None
+last_err = None
+for sig_name, ctor in [
+    ("E2E(odim=, args=)",          lambda: E2E(odim=odim, args=args)),
+    ("E2E(idim=80, odim=, args=)", lambda: E2E(idim=80, odim=odim, args=args)),
+    ("E2E(80, odim, args)",        lambda: E2E(80, odim, args)),
+]:
+    try:
+        model = ctor()
+        print("Constructed via:", sig_name)
+        break
+    except Exception as e:
+        last_err = e
+        print("  " + sig_name + " failed:", type(e).__name__, str(e)[:200])
+
+if model is None:
+    raise RuntimeError("All E2E constructor signatures failed; last error: " + str(last_err))
+
+# Load weights. Checkpoints sometimes wrap state in 'state_dict' / 'model'.
 state = torch.load(model_pth, map_location="cpu", weights_only=False)
-if isinstance(state, dict) and "state_dict" in state:
-    state = state["state_dict"]
-elif isinstance(state, dict) and "model" in state:
-    state = state["model"]
+if isinstance(state, dict):
+    for outer_key in ("state_dict", "model", "model_state_dict"):
+        if outer_key in state and isinstance(state[outer_key], dict):
+            print("Unwrapping checkpoint key:", outer_key)
+            state = state[outer_key]
+            break
+
 missing, unexpected = model.load_state_dict(state, strict=False)
-print(f"loaded checkpoint. missing={len(missing)} unexpected={len(unexpected)}")
-if missing[:5]:    print(f"  first missing:    {missing[:5]}")
-if unexpected[:5]: print(f"  first unexpected: {unexpected[:5]}")
+print()
+print("Loaded checkpoint. missing=" + str(len(missing)) + " unexpected=" + str(len(unexpected)))
+if missing[:5]:    print("  first missing:   ", missing[:5])
+if unexpected[:5]: print("  first unexpected:", unexpected[:5])
 model.eval()
+print("Model in eval mode.")
 """))
 
 cells.append(md("""\
@@ -233,7 +250,7 @@ The full E2E model expects (audio, visual) input and runs encode → CTC + atten
 2. Routes through the visual frontend (3D conv → ResNet → Conformer encoder).
 3. Projects through the CTC head to get `(B, T_out, V)` log-softmax logits over the 5000-unit vocab.
 
-We do this by introspecting which submodules ESPnet exposes (`encoder`, `ctc`, `frontend`, `feature_extractor`) and threading the visual path manually. The exact attribute names vary by ESPnet version — print the model and adjust if needed.
+We do this by introspecting which submodules ESPnet exposes (`encoder`, `ctc`, `frontend`, `feature_extractor`) and threading the visual path manually. The exact attribute names vary by ESPnet version -- print the model and adjust if needed.
 """))
 
 cells.append(code("""\
@@ -270,7 +287,7 @@ class VisualOnlyCTC(nn.Module):
     \"\"\"
     def __init__(self, base):
         super().__init__()
-        # Best-effort attribute resolution — print and adjust if needed.
+        # Best-effort attribute resolution -- print and adjust if needed.
         self.frontend = (
             getattr(base, "frontend", None)
             or getattr(base, "feature_extractor", None)
@@ -295,9 +312,9 @@ class VisualOnlyCTC(nn.Module):
             enc_out = self.encoder(feats)
             if isinstance(enc_out, tuple):
                 enc_out = enc_out[0]
-        # CTC projection — ESPnet's CTC has `ctc_lo` (Linear) → softmax
+        # CTC projection -- ESPnet's CTC has `ctc_lo` (Linear) → softmax
         logits = self.ctc.ctc_lo(enc_out)
-        # Return log_softmax for stability (caller does argmax — equivalent)
+        # Return log_softmax for stability (caller does argmax -- equivalent)
         return F.log_softmax(logits, dim=-1)
 
 wrapper = VisualOnlyCTC(model).eval()
@@ -354,9 +371,9 @@ print(f"max abs diff: {diff.max():.6f}")
 print(f"mean abs diff: {diff.mean():.6f}")
 print()
 if diff.max() < 1e-3:
-    print("OK — exports match within 1e-3.")
+    print("OK -- exports match within 1e-3.")
 else:
-    print("WARNING — diff is larger than 1e-3. Inspect the wrapper's forward path.")
+    print("WARNING -- diff is larger than 1e-3. Inspect the wrapper's forward path.")
 
 # Also test with a different time length to confirm dynamic axis works
 T2 = 100
@@ -399,11 +416,11 @@ print("Android-side integration plan.")
 """))
 
 cells.append(md("""\
-## 9. Android-side integration — what changes
+## 9. Android-side integration -- what changes
 
 Once the ONNX is in `app/src/main/assets/autoavsr_lrs3_visual_ctc.onnx`, the deployed Android pipeline needs the following changes. Each of these is a separate diff worth committing on its own.
 
-### 9.1 Preprocessing — different from VideoMAE
+### 9.1 Preprocessing -- different from VideoMAE
 
 | Stage | Current (VideoMAE) | Auto-AVSR target |
 |---|---|---|
@@ -414,9 +431,9 @@ Once the ONNX is in `app/src/main/assets/autoavsr_lrs3_visual_ctc.onnx`, the dep
 | Normalization | `pixel / 255` | **`(pixel/255 - 0.421) / 0.165`** |
 
 Concrete changes:
-- `MainActivity.kt:535-538` — `cropSize = 88`, switch back to `extractLipBoundingBox` and `alignAndCropMouth`. Convert to grayscale (R channel only).
-- `VSRInference.kt` allocateBuffersIfNeeded — `numChannels = 1`, fixed-size grayscale buffer.
-- `VSRInference.kt` input-write loop — apply Auto-AVSR normalization stats instead of `pixel/255`.
+- `MainActivity.kt:535-538` -- `cropSize = 88`, switch back to `extractLipBoundingBox` and `alignAndCropMouth`. Convert to grayscale (R channel only).
+- `VSRInference.kt` allocateBuffersIfNeeded -- `numChannels = 1`, fixed-size grayscale buffer.
+- `VSRInference.kt` input-write loop -- apply Auto-AVSR normalization stats instead of `pixel/255`.
 
 ### 9.2 New `ModelEngine` class
 
@@ -424,14 +441,14 @@ Concrete changes:
 
 A simpler path: keep `OnnxModelEngine`, just point at the Auto-AVSR ONNX, and treat the input as NTHWC where C=1 (grayscale). VSRInference already handles `numChannels==1` in the NTHWC branch.
 
-### 9.3 Decoder — drop ARPABET, use subword units
+### 9.3 Decoder -- drop ARPABET, use subword units
 
 `MLConstants.PHONEME_VOCAB` no longer applies. New:
 
-- `MLConstants.AUTOAVSR_VOCAB` — load `unigram5000_units.txt` from assets at startup, parse to `List<String>` with index 0 = blank.
-- `BeamSearchDecoder` and `GreedyDecoder` — they take a vocab list as a parameter already; just pass the new vocab.
-- `HomopheneCorrector`, `LanguageModel`, `G2PConverter` — these all assume ARPABET phonemes. **Disable them** when the Auto-AVSR engine is active. Add a config flag in `MainActivity` that selects between the phoneme pipeline (existing VideoMAE / future landmark model) and the subword pipeline (Auto-AVSR).
-- Detokenization — subword units use `▁` (U+2581) as a word-boundary marker. After greedy-CTC produces a sequence of subword indices, join into a single string and replace `▁` with space, then trim.
+- `MLConstants.AUTOAVSR_VOCAB` -- load `unigram5000_units.txt` from assets at startup, parse to `List<String>` with index 0 = blank.
+- `BeamSearchDecoder` and `GreedyDecoder` -- they take a vocab list as a parameter already; just pass the new vocab.
+- `HomopheneCorrector`, `LanguageModel`, `G2PConverter` -- these all assume ARPABET phonemes. **Disable them** when the Auto-AVSR engine is active. Add a config flag in `MainActivity` that selects between the phoneme pipeline (existing VideoMAE / future landmark model) and the subword pipeline (Auto-AVSR).
+- Detokenization -- subword units use `▁` (U+2581) as a word-boundary marker. After greedy-CTC produces a sequence of subword indices, join into a single string and replace `▁` with space, then trim.
 
 ### 9.4 Expected effective output quality
 
