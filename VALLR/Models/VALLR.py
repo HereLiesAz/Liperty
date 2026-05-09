@@ -3,12 +3,34 @@ import torch.nn as nn
 import torch.nn.init as init
 from transformers import VideoMAEConfig, Wav2Vec2Config, Wav2Vec2ForCTC, VideoMAEModel
 
+# HuggingFace ID of the VideoMAE-base checkpoint pretrained on Kinetics-400
+# (~240 hrs of diverse video). Loading these weights is the difference between
+# the encoder having a useful spatial/temporal prior vs being random noise --
+# which previously caused our CTC head to collapse to its argmax-over-prior
+# instead of learning. ~88M params, ~360 MB download on first use.
+_VIDEOMAE_PRETRAINED = "MCG-NJU/videomae-base"
+
+
 class VALLR(nn.Module):
-    def __init__(self, videomae_config: VideoMAEConfig, wav2vec_config: Wav2Vec2Config, adapter_dim: int):
+    def __init__(self, videomae_config: VideoMAEConfig, wav2vec_config: Wav2Vec2Config, adapter_dim: int,
+                 pretrained_videomae: str | None = _VIDEOMAE_PRETRAINED):
         super(VALLR, self).__init__()
 
-        # Initialize the VideoMAE model for feature extraction
-        self.videomae = VideoMAEModel(videomae_config) 
+        # Initialize the VideoMAE encoder. Default loads pretrained weights
+        # from HuggingFace; pass pretrained_videomae=None to fall back to
+        # random init (config-only) -- only useful for unit tests.
+        if pretrained_videomae is None:
+            self.videomae = VideoMAEModel(videomae_config)
+        else:
+            # `from_pretrained` uses the supplied config to override the
+            # pretrained config's input shape (num_frames, image_size, etc.)
+            # while keeping the trained weight tensors. ignore_mismatched_sizes
+            # lets us swap the default 224x224x16 input for our 88x88x16 etc.
+            self.videomae = VideoMAEModel.from_pretrained(
+                pretrained_videomae,
+                config=videomae_config,
+                ignore_mismatched_sizes=True,
+            )
 
         # VideoMAE feature size
         videomae_feature_size = videomae_config.hidden_size  # Typically 768 for VideoMAE
@@ -52,8 +74,14 @@ class VALLR(nn.Module):
         for param in self.ctc_head.parameters():
             param.requires_grad = True
 
-        # Apply weight initialization
-        self.apply(self._init_weights)
+        # Apply weight init ONLY to the freshly-built submodules. We must
+        # NOT walk the whole self with self.apply -- that would overwrite
+        # every Linear layer inside the VideoMAE encoder we just loaded
+        # from pretrained weights, undoing the load and putting us right
+        # back into the prior-collapse failure mode.
+        self.downsampling.apply(self._init_weights)
+        self.adapter.apply(self._init_weights)
+        self.ctc_head.apply(self._init_weights)
 
     def _init_weights(self, module):
         if isinstance(module, nn.Conv1d):
