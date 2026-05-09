@@ -3,7 +3,7 @@
 A Colab/Kaggle notebook that:
 1. Clones Chaplin (vendors ESPnet) for the model definition.
 2. Downloads `Amanvir/LRS3_V_WER19.1` model.json + model.pth from HuggingFace.
-3. Loads the espnet E2E audio-visual transformer with the checkpoint.
+3. Loads the espnet E2E visual-only transformer with the checkpoint.
 4. Wraps it so visual-only input flows through encoder + CTC head only
    (drops the attention decoder + beam search; Android deploys greedy CTC).
 5. Traces and exports the wrapper to ONNX with dynamic time axis.
@@ -176,7 +176,7 @@ cells.append(md("""\
 
 Mirrors Chaplin's loading path (`pipelines/model.py:AVSR`). The ESPnet E2E model takes a YAML/JSON config of hyperparams, instantiates the transformer encoder + decoder + CTC head, and we then `load_state_dict` from the .pth file.
 
-The model is audio-visual; we're going to use ONLY the visual branch via a wrapper.
+The LRS3_V_WER19.1 checkpoint is **visual-only** (the "V" in the name). Despite Chaplin shipping an audio-visual variant of E2E, this checkpoint uses the visual-only `e2e_asr_transformer.E2E` -- the args don't have audio (aux_*) parameters.
 """))
 
 cells.append(code("""\
@@ -231,7 +231,13 @@ with open(TOKEN_LIST_PATH, "w", encoding="utf-8") as f:
         f.write(t + "\\n")
 print("Saved token list:", TOKEN_LIST_PATH)
 
-from espnet.nets.pytorch_backend.e2e_asr_transformer_av import E2E
+# Despite the "AV" in the path next door, the LRS3_V_* checkpoints are
+# VISUAL-ONLY -- they use e2e_asr_transformer.E2E (no aux audio encoder).
+# Chaplin's pipelines/model.py picks the class based on `modality`:
+#     if modality == "audiovisual": ...e2e_asr_transformer_av...
+#     else:                          ...e2e_asr_transformer...
+# The _V_ filename = visual-only.
+from espnet.nets.pytorch_backend.e2e_asr_transformer import E2E
 
 # Chaplin invokes E2E(odim, train_args) -- two positional args.
 model = E2E(odim, train_args)
@@ -289,7 +295,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class VisualOnlyCTC(nn.Module):
-    \"\"\"Wraps the ESPnet AV E2E model for visual-only CTC inference.
+    \"\"\"Wraps the ESPnet E2E model for visual-only CTC inference.
 
     Mirrors Chaplin's pipelines/model.py:AVSR.infer for visual-only mode:
         enc_feats = self.model.encode(data)
