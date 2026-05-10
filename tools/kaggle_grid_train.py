@@ -309,11 +309,23 @@ def load_checkpoint_if_available(model, optimizer, scheduler, scaler):
         scheduler.load_state_dict(payload["scheduler"])
     if scaler is not None and payload.get("scaler") is not None:
         scaler.load_state_dict(payload["scaler"])
-    torch.set_rng_state(payload["rng_torch"])
-    if torch.cuda.is_available() and payload.get("rng_cuda") is not None:
-        torch.cuda.set_rng_state_all(payload["rng_cuda"])
-    np.random.set_state(payload["rng_numpy"])
-    _random.setstate(payload["rng_python"])
+    # RNG restore is best-effort. PyTorch 2.10 changed the Generator state
+    # representation and refuses to load older ByteTensor states with
+    # `TypeError: RNG state must be a torch.ByteTensor`. Losing RNG
+    # continuity costs us deterministic data shuffling but doesn't affect
+    # convergence — and it would otherwise abort an otherwise-fine resume.
+    for _label, _fn, _val in [
+        ("rng_torch",  torch.set_rng_state,            payload.get("rng_torch")),
+        ("rng_cuda",   lambda v: torch.cuda.set_rng_state_all(v) if torch.cuda.is_available() else None,
+         payload.get("rng_cuda")),
+        ("rng_numpy",  np.random.set_state,            payload.get("rng_numpy")),
+        ("rng_python", _random.setstate,               payload.get("rng_python")),
+    ]:
+        if _val is None: continue
+        try:
+            _fn(_val)
+        except Exception as _e:
+            print(f"[ckpt] {_label} restore skipped ({type(_e).__name__}): {_e}")
     print(f"[ckpt] resumed step={payload['step']} epoch={payload['epoch']}")
     return payload["step"], payload["epoch"]
 
