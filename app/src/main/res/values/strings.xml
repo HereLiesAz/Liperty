@@ -13,6 +13,7 @@
     <string name="common_stop">STOP</string>
     <string name="common_permissions_denied">Permissions denied: %1$s</string>
     <string name="common_init_error">Initialization error: %1$s</string>
+    <string name="common_voice_unavailable">Voice features unavailable — TTS and voice cloning disabled.</string>
     <string name="common_calibration_prompt">Please personalize the model for better accuracy.</string>
     <string name="format_percent">%1$d%%</string>
     <string name="format_hz">%1$d Hz</string>

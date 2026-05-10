@@ -206,6 +206,7 @@ class MainActivity : ComponentActivity() {
             }
         } catch (t: Throwable) {
             Log.e("MainActivity", "VoiceManager construction failed — TTS/voice cloning disabled", t)
+            Toast.makeText(this, getString(R.string.common_voice_unavailable), Toast.LENGTH_LONG).show()
         }
 
         setContent {

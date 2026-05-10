@@ -54,6 +54,14 @@ object BluetoothLEAudioManager {
      */
     @SuppressLint("MissingPermission")
     fun initialize(context: Context) {
+        // BluetoothProfile.LE_AUDIO and the BluetoothLeAudio class were both
+        // added in API 33. Skip outright on older devices — the cast to
+        // BluetoothLeAudio inside the listener would otherwise NoClassDefFoundError
+        // on a binder thread (where the outer try/catch can't reach it).
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            Log.i(TAG, "Pre-API 33 — LE Audio not available, skipping init")
+            return
+        }
         try {
             val bluetoothManager =
                 context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager ?: return
@@ -75,9 +83,8 @@ object BluetoothLEAudioManager {
                 }
             }, BluetoothProfile.LE_AUDIO)
         } catch (t: Throwable) {
-            // SecurityException (no BLUETOOTH_CONNECT), IllegalArgumentException
-            // (LE_AUDIO unsupported pre-API 33), NoClassDefFoundError on very
-            // old devices — none of them should crash the app.
+            // SecurityException (no BLUETOOTH_CONNECT) is the most common; also
+            // catches NoClassDefFoundError / IllegalArgumentException defensively.
             Log.w(TAG, "LE Audio proxy init failed; continuing without LE Audio routing", t)
         }
     }
