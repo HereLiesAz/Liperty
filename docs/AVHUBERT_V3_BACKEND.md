@@ -84,7 +84,51 @@ a concrete WER improvement on real Liperty input on real hardware.
 
 ## Attempt log
 
-### 2026-05: first ONNX export attempt blocked at fairseq install
+### 2026-05 (second): cascading dep rot, not just torch
+
+After the first attempt's docs/fixes, retried in the same warm
+Liperty kernel. Force-reinstalled torch 2.2.2 (the oldest torch
+with cu118 wheels for Python 3.12), did `del sys.modules['torch']`
++ re-import, and fairseq's editable install was redone.
+
+Two new failure layers came up in sequence:
+
+1. **fairseq `__file__ = None` even with torch 2.2.2.** The pip
+   `--editable` install registers the *outer repo directory*
+   (`av_hubert/fairseq/`) on sys.path, but the actual fairseq
+   Python package is at `av_hubert/fairseq/fairseq/`. So Python
+   loads the outer dir as a PEP 420 namespace package and never
+   finds an `__init__.py`. **Fix:** manually
+   `sys.path.insert(0, '/kaggle/working/work/av_hubert/fairseq')`
+   so the inner `fairseq/__init__.py` gets resolved.
+
+2. **omegaconf API drift.** With fairseq finally importing,
+   `from omegaconf import II` fails — `II` (interpolation
+   indicator) was renamed/removed in omegaconf 2.1+. Kaggle's
+   image has omegaconf 2.x; fairseq's vendored commit needs
+   omegaconf<2.1.
+
+This is the canonical "old research repo on a 2026 image"
+cascade — each fix unblocks the next failure layer (next would
+likely be hydra-core, then numpy 2.x ABI breaks). Fighting this
+incrementally in a notebook console burns 15+ minutes per layer.
+
+**Verdict:** the V3 export is not just blocked on "torch too new"
+— it needs the **entire 2022 dependency stack** that fairseq
+commit `afc77bdf` was tested against. Kaggle's base-image churn
+makes in-place install fights pointless. Future attempts must
+either:
+
+- (a) Build a Docker container starting from `nvcr.io/nvidia/pytorch:23.04-py3`
+  or similar circa-2022 image and run the export there.
+- (b) Use Kaggle's "Add Container" feature to pin a known-working
+  base image with locked dep versions.
+- (c) Use Conda environment isolation: `conda create -n v3 python=3.10`
+  then `pip install -r av_hubert/fairseq/requirements.txt`
+  before the editable install. Kaggle does support conda envs but
+  switching the kernel to use one is non-trivial via the UI.
+
+### 2026-05 (first): first ONNX export attempt blocked at fairseq install
 
 Ran `tools/kaggle_avhubert_export.py` against a Kaggle T4 session
 with torch 2.10.0+cu128. The script cloned `av_hubert`,
