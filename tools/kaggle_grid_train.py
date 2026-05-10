@@ -218,6 +218,23 @@ CKPT_FILENAME = f"{RUN_NAME}-latest.pt"   # noqa: F821
 CKPT_HISTORY_PREFIX = f"{RUN_NAME}-step"
 
 
+def _prune_local_checkpoints(keep=None):
+    """Mirror prune_old_checkpoints for local disk. The original notebook
+    only pruned from HF, leaving a 1 GB step file on /kaggle/working every
+    CKPT_EVERY_STEPS. With shards already eating ~15 GB, the 21 GB working
+    volume fills after ~5 checkpoint cycles and the next torch.save
+    truncates mid-write -> RuntimeError("inline_container.cc:668. unexpected
+    pos X vs Y"). Hence this prune."""
+    if keep is None: keep = KEEP_LAST_CKPTS
+    import glob as _glob
+    history = sorted(_glob.glob(str(Path(CKPT_DIR) / f"{CKPT_HISTORY_PREFIX}*.pt")))
+    for old in history[:-keep] if len(history) > keep else []:
+        try:
+            os.remove(old)
+        except Exception as e:
+            print(f"    [prune-local] {old}: {e}")
+
+
 def save_checkpoint(model, optimizer, scheduler, scaler, step, epoch, extra=None):
     payload = {
         "model": model.state_dict(),
@@ -240,6 +257,11 @@ def save_checkpoint(model, optimizer, scheduler, scaler, step, epoch, extra=None
     local_latest = Path(CKPT_DIR) / CKPT_FILENAME
     local_step   = Path(CKPT_DIR) / f"{CKPT_HISTORY_PREFIX}{step:08d}.pt"
     tmp = local_latest.with_suffix(".pt.tmp")
+
+    # Prune local history BEFORE writing this one so the new file always has
+    # disk room. Saves ~(N-keep) * 1 GB on disk per checkpoint cycle.
+    _prune_local_checkpoints(keep=KEEP_LAST_CKPTS - 1)
+
     torch.save(payload, tmp)
     tmp.rename(local_latest)
     shutil.copy2(local_latest, local_step)
@@ -402,9 +424,17 @@ def train_loop(start_step, start_epoch, budget_min):
                               f"lr={lr_now:.2e} t={elapsed:.1f}min")
 
                     if step - last_ckpt_step >= CKPT_EVERY_STEPS:
-                        save_checkpoint(model, optimizer, scheduler, scaler, step, epoch)
-                        last_ckpt_step = step
-                        prune_old_checkpoints(KEEP_LAST_CKPTS)
+                        # Don't let a transient save error (truncated torch.save
+                        # from a full disk, HF rate-limit, etc.) kill an
+                        # otherwise-healthy run. The next cycle re-attempts.
+                        try:
+                            save_checkpoint(model, optimizer, scheduler, scaler, step, epoch)
+                            last_ckpt_step = step
+                            prune_old_checkpoints(KEEP_LAST_CKPTS)
+                        except Exception as _e:
+                            print(f"    [ckpt] save FAILED at step={step}: {type(_e).__name__}: {_e}")
+                            print(f"           continuing; will retry at step {step + CKPT_EVERY_STEPS}.")
+                            last_ckpt_step = step
 
             epoch += 1
             print(f"[epoch] completed epoch {epoch}")
