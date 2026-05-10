@@ -110,6 +110,12 @@ class MainActivity : ComponentActivity() {
     @Volatile private var frameCount = 0
     @Volatile private var calibrationCallback: ((Bitmap) -> Unit)? = null
 
+    // True only when the try block in onCreate completed without throwing.
+    // Gates every code path that touches the ML/camera lateinit fields so the
+    // app can still launch (and show the init-error Toast) when assets are
+    // missing instead of force-closing.
+    @Volatile private var coreInitialized = false
+
     // Tracks whether BC/EL was active before onPause so we can restore on resume
     @Volatile private var wasBCActiveBeforePause = false
     @Volatile private var wasELActiveBeforePause = false
@@ -168,15 +174,20 @@ class MainActivity : ComponentActivity() {
             // Auto-AVSR's encoder accepts variable T; 16 frames keeps cadence
             // close to the legacy VideoMAE pipeline.
             frameBuffer = FrameBuffer(capacity = 16)
+            coreInitialized = true
         } catch (e: Exception) {
             Log.e("MainActivity", "Failed to initialize components", e)
             Toast.makeText(this, getString(R.string.common_init_error, e.message ?: ""), Toast.LENGTH_LONG).show()
         }
 
-        // Initialize TFLite in background
-        lifecycleScope.launch(Dispatchers.Default) {
-            vsrInference.initialize()
-            ssrInference.initialize()
+        // Initialize TFLite in background — only if the lateinit fields above
+        // were successfully constructed. Touching them otherwise would throw
+        // UninitializedPropertyAccessException and crash the activity.
+        if (coreInitialized) {
+            lifecycleScope.launch(Dispatchers.Default) {
+                vsrInference.initialize()
+                ssrInference.initialize()
+            }
         }
 
         // Initialize VoiceManager
@@ -205,7 +216,7 @@ class MainActivity : ComponentActivity() {
                 onClearTranscript = {
                     transcriptionManager.clear()
                     updateTranscriptionUI()
-                    frameBuffer.clearAndRecycle()
+                    if (coreInitialized) frameBuffer.clearAndRecycle()
                 },
                 onSpeak = { speakText() },
                 onToggleBC = { toggleBCMode() },
@@ -219,17 +230,17 @@ class MainActivity : ComponentActivity() {
                 vsrSensitivity = vsrSensitivity.value,
                 onVsrSensitivityChange = { value ->
                     vsrSensitivity.value = value
-                    faceLandmarkerHelper.updateConfidence(value, value)
+                    if (coreInitialized) faceLandmarkerHelper.updateConfidence(value, value)
                 },
                 larynxSensitivity = larynxSensitivity.value,
                 onLarynxSensitivityChange = {
                     larynxSensitivity.value = it
-                    laryngealSensor.setSensitivity(it)
+                    if (coreInitialized) laryngealSensor.setSensitivity(it)
                 },
                 carrierF0 = carrierF0State.value,
                 onCarrierF0Change = { hz ->
                     carrierF0State.value = hz
-                    laryngealSensor.setCarrierF0(hz)
+                    if (coreInitialized) laryngealSensor.setCarrierF0(hz)
                 },
                 isDarkTheme = isDarkTheme.value,
                 onRegisterCalibrationCallback = { cb ->
@@ -254,6 +265,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
+        if (!coreInitialized) return
         // Stop audio resources — camera stops automatically via CameraX lifecycle binding
         wasBCActiveBeforePause = isBCModeState.value
         wasELActiveBeforePause = isELModeState.value
@@ -267,6 +279,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (!coreInitialized) return
         applySettings()
         // Restart camera if consent was previously granted
         val consentGranted = getSharedPreferences("LipertyPrefs", Context.MODE_PRIVATE)
@@ -302,6 +315,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkConsentAndStart() {
+        if (!coreInitialized) return
         val sharedPrefs = getSharedPreferences("LipertyPrefs", Context.MODE_PRIVATE)
         val consentGranted = sharedPrefs.getBoolean("consent_granted", false)
         val calibrationDone = sharedPrefs.getBoolean("calibration_complete", false)
@@ -339,6 +353,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun toggleCamera() {
+        if (!coreInitialized) return
         currentLensFacing = if (currentLensFacing == CameraSelector.LENS_FACING_BACK) {
             CameraSelector.LENS_FACING_FRONT
         } else {
@@ -348,6 +363,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun toggleBCMode() {
+        if (!coreInitialized) return
         if (isELModeState.value) {
             isBCModeState.value = false
             toggleELMode() // Mutually exclusive
@@ -386,6 +402,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun toggleELMode() {
+        if (!coreInitialized) return
         if (isBCModeState.value) {
             isELModeState.value = false
             toggleBCMode() // Mutually exclusive
@@ -409,6 +426,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun speakText() {
+        if (!::voiceManager.isInitialized) return
         // Use the text from the manager
         val text = transcriptionManager.getCurrentSentence()
         if (text.isNotEmpty()) {
@@ -417,6 +435,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startCamera() {
+        if (!coreInitialized) return
         // We reuse the programmatically created previewView
         val analyzer = ImageAnalysis.Analyzer { imageProxy ->
             PerformanceMonitor.logFrame()
@@ -672,14 +691,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        cameraManager.shutdown()
-        faceLandmarkerHelper.close()
-        handGestureHelper.close()
-        laryngealSensor.stop()
-        vsrInference.close()
-        ssrInference.close()
-        voiceManager.stop()
-        voiceManager.shutdown()
+        if (coreInitialized) {
+            cameraManager.shutdown()
+            faceLandmarkerHelper.close()
+            handGestureHelper.close()
+            laryngealSensor.stop()
+            vsrInference.close()
+            ssrInference.close()
+        }
+        if (::voiceManager.isInitialized) {
+            voiceManager.stop()
+            voiceManager.shutdown()
+        }
     }
 
     // Removed: onInit(status: Int) is now handled by VoiceManager
