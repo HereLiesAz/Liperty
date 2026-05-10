@@ -190,13 +190,22 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Initialize VoiceManager
-        voiceManager = VoiceManager(this) { ready ->
-            if (ready) {
-                Log.i("MainActivity", "VoiceManager initialized.")
-            } else {
-                Log.e("MainActivity", "VoiceManager initialization failed.")
+        // Initialize VoiceManager. PocketTTSEngine's ctor calls
+        // OrtEnvironment.getEnvironment() as a property initializer, which
+        // triggers ONNX Runtime native-lib loading and throws RuntimeException
+        // if the .so isn't packaged. Without this guard, that takes down the
+        // whole activity — onDestroy already tolerates voiceManager being
+        // uninitialized (::voiceManager.isInitialized).
+        try {
+            voiceManager = VoiceManager(this) { ready ->
+                if (ready) {
+                    Log.i("MainActivity", "VoiceManager initialized.")
+                } else {
+                    Log.e("MainActivity", "VoiceManager initialization failed.")
+                }
             }
+        } catch (t: Throwable) {
+            Log.e("MainActivity", "VoiceManager construction failed — TTS/voice cloning disabled", t)
         }
 
         setContent {
@@ -375,7 +384,9 @@ class MainActivity : ComponentActivity() {
             isLipReadModeState.value = false
             laryngealSensor.setCarrierF0(carrierF0State.value)
             laryngealSensor.startBCMode(
-                onProcessedAudio = { pcmSamples -> voiceManager.playAudio(pcmSamples) },
+                onProcessedAudio = { pcmSamples ->
+                    if (::voiceManager.isInitialized) voiceManager.playAudio(pcmSamples)
+                },
                 onVoicingState = { isVoicing ->
                     // Visual feedback for voice activity could be added here
                 },
@@ -388,7 +399,7 @@ class MainActivity : ComponentActivity() {
                                 withContext(Dispatchers.Main) {
                                     transcriptionManager.appendText(result.text, result.confidence)
                                     updateTranscriptionUI()
-                                    voiceManager.speakStreaming(result.text)
+                                    if (::voiceManager.isInitialized) voiceManager.speakStreaming(result.text)
                                 }
                             }
                         }
@@ -412,7 +423,9 @@ class MainActivity : ComponentActivity() {
         
         if (newMode) {
             isLipReadModeState.value = false
-            laryngealSensor.startELMode { pcmSamples -> voiceManager.playAudio(pcmSamples) }
+            laryngealSensor.startELMode { pcmSamples ->
+                if (::voiceManager.isInitialized) voiceManager.playAudio(pcmSamples)
+            }
             // Badge UI shows "EL" state
         } else {
             laryngealSensor.stop()

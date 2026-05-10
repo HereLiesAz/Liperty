@@ -43,27 +43,43 @@ object BluetoothLEAudioManager {
 
     /**
      * Initializes the LE Audio profile proxy.
+     *
+     * Called from [com.hereliesaz.liperty.LipertyApplication.onCreate], which
+     * runs before any runtime permission has been granted on a fresh install.
+     * `getProfileProxy(LE_AUDIO)` requires BLUETOOTH_CONNECT on API 31+ and
+     * will throw SecurityException without it — taking the whole process down
+     * before MainActivity ever runs. We swallow every Throwable here so the
+     * absence of LE Audio routing degrades gracefully into "no LE Audio
+     * routing" instead of a force-close.
      */
     @SuppressLint("MissingPermission")
     fun initialize(context: Context) {
-        val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-        val adapter = bluetoothManager.adapter ?: return
+        try {
+            val bluetoothManager =
+                context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager ?: return
+            val adapter = bluetoothManager.adapter ?: return
 
-        adapter.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
-            override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-                if (profile == BluetoothProfile.LE_AUDIO) {
-                    leAudioProxy = proxy as BluetoothLeAudio
-                    Log.i(TAG, "LE Audio Profile connected")
+            adapter.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
+                override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
+                    if (profile == BluetoothProfile.LE_AUDIO) {
+                        leAudioProxy = proxy as BluetoothLeAudio
+                        Log.i(TAG, "LE Audio Profile connected")
+                    }
                 }
-            }
 
-            override fun onServiceDisconnected(profile: Int) {
-                if (profile == BluetoothProfile.LE_AUDIO) {
-                    leAudioProxy = null
-                    Log.i(TAG, "LE Audio Profile disconnected")
+                override fun onServiceDisconnected(profile: Int) {
+                    if (profile == BluetoothProfile.LE_AUDIO) {
+                        leAudioProxy = null
+                        Log.i(TAG, "LE Audio Profile disconnected")
+                    }
                 }
-            }
-        }, BluetoothProfile.LE_AUDIO)
+            }, BluetoothProfile.LE_AUDIO)
+        } catch (t: Throwable) {
+            // SecurityException (no BLUETOOTH_CONNECT), IllegalArgumentException
+            // (LE_AUDIO unsupported pre-API 33), NoClassDefFoundError on very
+            // old devices — none of them should crash the app.
+            Log.w(TAG, "LE Audio proxy init failed; continuing without LE Audio routing", t)
+        }
     }
 
     /**
