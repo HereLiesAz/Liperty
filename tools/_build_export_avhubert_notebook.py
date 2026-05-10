@@ -72,7 +72,22 @@ This is the experimental gate for the V3 backend (see `docs/AVHUBERT_V3_BACKEND.
 """))
 
 cells.append(md("""\
-## 1. Environment detection
+## 1. Environment + torch downgrade
+
+**Required before fairseq install.** The vendored fairseq commit AV-HuBERT pins (`afc77bdf...`) does not finish its editable install on torch 2.5+, leaving `fairseq.__file__ = None` (PEP 420 namespace package). Downgrade torch FIRST, then restart the kernel before continuing.
+
+If you skip this and run the notebook end-to-end, it will fail at the `import avhubert` step with `ImportError: cannot import name 'utils' from 'fairseq'`.
+"""))
+
+cells.append(code("""\
+%%capture
+!pip install -q torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 \\
+    --index-url https://download.pytorch.org/whl/cu118
+print("torch downgraded. RESTART THE KERNEL NOW (Run -> Restart Session) before continuing.")
+"""))
+
+cells.append(md("""\
+## 2. Environment detection (after restart)
 """))
 
 cells.append(code("""\
@@ -126,17 +141,22 @@ print("Deps installed.")
 """))
 
 cells.append(code("""\
-# Add the av_hubert/avhubert directory to PYTHONPATH so 'avhubert'
-# is importable as a module (the model classes live there).
-sys.path.insert(0, os.path.join(AVHUBERT_DIR, "avhubert"))
+# Add the av_hubert/ parent directory (NOT av_hubert/avhubert/) to
+# PYTHONPATH so `import avhubert` resolves the package directory.
+sys.path.insert(0, AVHUBERT_DIR)
 
-import importlib
-try:
-    import avhubert  # noqa: F401
-    print("avhubert package importable.")
-except Exception as e:
-    print("avhubert import FAILED:", e)
-    print("Inspect:", os.listdir(os.path.join(AVHUBERT_DIR, "avhubert"))[:20])
+# Sanity-check that fairseq is a proper package (not a namespace package).
+import fairseq
+if fairseq.__file__ is None:
+    raise RuntimeError(
+        "fairseq imported as a namespace package. The editable install "
+        "didn't finish, almost always because torch is too new for the "
+        "vendored fairseq commit. Did you skip the torch downgrade in "
+        "cell 1? Restart the kernel and start over."
+    )
+
+import avhubert  # noqa: F401
+print(f"avhubert package importable. fairseq.__file__ = {fairseq.__file__}")
 """))
 
 cells.append(md("""\

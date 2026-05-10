@@ -82,31 +82,78 @@ a concrete WER improvement on real Liperty input on real hardware.
 
 ---
 
+## Attempt log
+
+### 2026-05: first ONNX export attempt blocked at fairseq install
+
+Ran `tools/kaggle_avhubert_export.py` against a Kaggle T4 session
+with torch 2.10.0+cu128. The script cloned `av_hubert`,
+`pip install --editable`'d its vendored fairseq submodule (commit
+`afc77bdf4bb51453ce76f1572ef2ee6ddcda8eeb`), and tried to
+`import avhubert.hubert`. Hit:
+
+```
+File "/kaggle/working/work/av_hubert/avhubert/hubert.py", line 16, in <module>
+    from fairseq import utils
+ImportError: cannot import name 'utils' from 'fairseq' (unknown location)
+```
+
+Probing `fairseq.__file__` after the editable install returned
+`None`. That means Python loaded `fairseq` as a **PEP 420 namespace
+package**, not as a regular package — `__init__.py` was either not
+written or not located on the path. The vendored fairseq commit was
+tested against torch 1.10ish and its setup machinery doesn't quite
+finish on torch 2.10.
+
+The encoder-trace risk (transformer with dynamic control flow not
+ONNX-able) is downstream of this — we never even reached it.
+
+**Verdict:** the warm-kernel `fetch+exec` pattern that works for
+Liperty's other Kaggle scripts doesn't work here because the
+existing kernel's torch 2.10 is incompatible with the vendored
+fairseq commit. Future attempts need a **fresh Kaggle kernel with
+deliberate torch downgrade** before installing fairseq:
+
+```bash
+# Required first step in any V3 export attempt:
+pip install -q torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 \
+    --index-url https://download.pytorch.org/whl/cu118
+# Then: clone av_hubert, pip install --editable its fairseq, retry.
+```
+
+The mirror at `HereLiesAz/liperty-avhubert-encoder` and the export
+artifacts (`tools/_build_export_avhubert_notebook.py`,
+`tools/export_avhubert_to_onnx.ipynb`,
+`tools/kaggle_avhubert_export.py`) are durable — only the *running*
+of them is blocked.
+
 ## Next steps (in rough order, not committed to a schedule)
 
-1. **Export the encoder to ONNX in a Kaggle notebook.** Mirror the
-   approach in `tools/export_autoavsr_to_onnx.ipynb` — bypass the
-   fairseq inference wrapper, trace just `encoder.forward(video, padding_mask)`.
-   This is the riskiest step; if fairseq's transformer doesn't trace
-   cleanly, V3 stops here until someone finds a workaround (e.g. via
-   torch.export.export with dynamic shapes, or via a manual model-class
-   reimplementation in plain PyTorch).
+1. **Open `tools/export_avhubert_to_onnx.ipynb` in a fresh Kaggle
+   kernel** (not the long-lived Liperty training session). Edit cell 2
+   to prepend `pip install -q torch==2.0.1 ...` before the fairseq
+   editable install. Run All. If fairseq imports cleanly, proceed.
+2. **Trace the encoder.** This is the *next* risky step; if fairseq's
+   transformer doesn't trace cleanly, V3 stops here until someone
+   finds a workaround (e.g. via torch.export.export with dynamic
+   shapes, or via a manual model-class reimplementation in plain
+   PyTorch).
 
-2. **Validate the exported ONNX matches PyTorch on a sample.** Same
+3. **Validate the exported ONNX matches PyTorch on a sample.** Same
    parity-check pattern as the Auto-AVSR export — feed a dummy video
    tensor through both and confirm max abs diff < 1e-3.
 
-3. **Build a 96×96 mouth-crop pipeline.** Either adapt
+4. **Build a 96×96 mouth-crop pipeline.** Either adapt
    `ImageUtils.alignAndCropMouth` to use AV-HuBERT's mean face, or run
    the AV-HuBERT preparation pipeline's `align_mouth.py` on Liperty's
    incoming frames.
 
-4. **Score the encoder + a simple CTC head** on held-out GRID. This
+5. **Score the encoder + a simple CTC head** on held-out GRID. This
    gives a lower bound on V3 quality. If the CTC-only result is no
-   better than V2, the LMDecoder must be exported too — back to step 1
+   better than V2, the LMDecoder must be exported too — back to step 2
    for the decoder.
 
-5. **Decide on V3 viability based on real numbers.** No production swap
+6. **Decide on V3 viability based on real numbers.** No production swap
    without (a) proven WER improvement on Liperty-style input and
    (b) all required pieces (encoder + decoder + preprocessing) cleanly
    exporting to ONNX and running within the existing app's RAM/latency

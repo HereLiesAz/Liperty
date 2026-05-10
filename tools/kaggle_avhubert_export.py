@@ -1,8 +1,25 @@
 """In-kernel AV-HuBERT large -> ONNX export.
 
-This is the runnable counterpart to tools/export_avhubert_to_onnx.ipynb.
-The notebook is self-contained for a fresh Kaggle session; this script
-is for iterating in a warm kernel via fetch+exec:
+**REQUIRES A FRESH KAGGLE KERNEL.** The 2026-05 attempt against a
+warm kernel with torch 2.10 hit:
+
+  ImportError: cannot import name 'utils' from 'fairseq' (unknown location)
+  fairseq.__file__ = None
+
+i.e. fairseq's editable install left a PEP 420 namespace package
+instead of a real package, because the vendored fairseq commit
+(afc77bdf...) doesn't finish setup on torch 2.10. See
+docs/AVHUBERT_V3_BACKEND.md "Attempt log" section.
+
+The fix is to downgrade torch BEFORE installing fairseq. Open a
+fresh Kaggle session and run this at the top of the kernel,
+*before* fetching this script:
+
+    !pip install -q torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 \\
+        --index-url https://download.pytorch.org/whl/cu118
+    # restart the kernel here (Kaggle UI: Runtime -> Restart)
+
+Then in the new kernel:
 
     import urllib.request
     exec(urllib.request.urlopen(
@@ -12,7 +29,8 @@ is for iterating in a warm kernel via fetch+exec:
 Sets up:
 - Clones facebookresearch/av_hubert (vendors fairseq as a submodule)
 - pip install --editable on the vendored fairseq
-- adds av_hubert/avhubert to PYTHONPATH so the model class is importable
+- adds av_hubert/ to PYTHONPATH so `import avhubert` resolves the
+  package directory (NOT av_hubert/avhubert/ which would shadow it)
 - pulls large_vox_iter5.pt from the public mirror (or uses an existing
   /kaggle/working/large_vox_iter5.pt if present)
 - loads via fairseq.checkpoint_utils.load_model_ensemble_and_task
@@ -20,12 +38,6 @@ Sets up:
 - exports to ONNX with dynamic time axis
 - runs a parity check (PyTorch vs ONNX) on a dummy tensor
 - uploads the ONNX back to HereLiesAz/liperty-avhubert-encoder
-
-Risk: AV-HuBERT was developed against fairseq 0.12 + torch 1.10. On
-Kaggle's torch 2.10 image, fairseq's vendored copy may either work as
-a no-op editable install, or fail on torch API changes. If install
-fails, this script aborts loudly and the user knows to either
-downgrade torch or use a different Kaggle base image.
 """
 
 import os
@@ -110,10 +122,27 @@ for pkg, args in [
 # -------------------------------------------------------------------------
 # 3. Make avhubert importable
 # -------------------------------------------------------------------------
-AVHUBERT_PKG_DIR = os.path.join(AVHUBERT_DIR, "avhubert")
-if AVHUBERT_PKG_DIR not in sys.path:
-    sys.path.insert(0, AVHUBERT_PKG_DIR)
-print(f"Added to sys.path: {AVHUBERT_PKG_DIR}")
+# Add the av_hubert/ directory itself (NOT av_hubert/avhubert/) so that
+# `import avhubert` resolves to av_hubert/avhubert/__init__.py as a real
+# package. The 2026-05 attempt accidentally added the inner directory,
+# making `import avhubert` see the package's *files* as top-level
+# modules instead of treating the directory as a package.
+if AVHUBERT_DIR not in sys.path:
+    sys.path.insert(0, AVHUBERT_DIR)
+print(f"Added to sys.path: {AVHUBERT_DIR}")
+
+# Sanity-check that fairseq is a proper package (not a namespace package).
+# fairseq.__file__ = None means PEP 420 namespace package, which is what
+# happens when torch>=2.5 breaks the vendored fairseq commit's setup.
+import fairseq                                                  # noqa: E402
+if fairseq.__file__ is None:
+    raise RuntimeError(
+        "fairseq imported as a namespace package (no __init__.py loaded). "
+        "This means the editable install didn't finish — almost always "
+        "because torch is too new for the vendored fairseq commit. "
+        "Downgrade torch to 2.0.1 in a fresh kernel before retrying. "
+        "See docs/AVHUBERT_V3_BACKEND.md attempt log."
+    )
 
 try:
     import avhubert  # noqa: F401
