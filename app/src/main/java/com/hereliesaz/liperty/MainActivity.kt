@@ -691,14 +691,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        if (coreInitialized) {
-            cameraManager.shutdown()
-            faceLandmarkerHelper.close()
-            handGestureHelper.close()
-            laryngealSensor.stop()
-            vsrInference.close()
-            ssrInference.close()
-        }
+        // Per-field guards (not a single coreInitialized check): the try block
+        // in onCreate may throw partway through, leaving an arbitrary prefix of
+        // these fields initialized. Skipping them all would leak the ones that
+        // did get constructed.
+        if (::cameraManager.isInitialized) cameraManager.shutdown()
+        if (::faceLandmarkerHelper.isInitialized) faceLandmarkerHelper.close()
+        if (::handGestureHelper.isInitialized) handGestureHelper.close()
+        if (::laryngealSensor.isInitialized) laryngealSensor.stop()
+        if (::vsrInference.isInitialized) vsrInference.close()
+        if (::ssrInference.isInitialized) ssrInference.close()
+        if (::frameBuffer.isInitialized) frameBuffer.clearAndRecycle()
         if (::voiceManager.isInitialized) {
             voiceManager.stop()
             voiceManager.shutdown()
