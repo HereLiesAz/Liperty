@@ -93,15 +93,27 @@ if token:
     login(token, add_to_git_credential=True)
     print(f"HF user:   {whoami().get('name', '?')}")
 
+CKPT_FILENAME = os.environ.get("V3_CKPT_FILENAME", "large_vox_iter5.pt")
+
 if not os.path.exists(LOCAL_PT):
-    # In Docker, the .pt won't be there yet. Fetch from HF.
-    print(f"{LOCAL_PT} not found locally; pulling from {HF_REPO}...")
-    from huggingface_hub import hf_hub_download
-    LOCAL_PT = hf_hub_download(
-        repo_id=HF_REPO,
-        filename="large_vox_iter5.pt",
-        local_dir=os.path.dirname(LOCAL_PT) or "/work",
-    )
+    # In Docker, the .pt won't be there yet. Try the HF mirror first
+    # (where large_vox_iter5.pt has been rehosted), then fall back to
+    # Meta's CDN for the base model (which we haven't mirrored).
+    print(f"{LOCAL_PT} not found locally; fetching {CKPT_FILENAME}...")
+    try:
+        from huggingface_hub import hf_hub_download
+        LOCAL_PT = hf_hub_download(
+            repo_id=HF_REPO,
+            filename=CKPT_FILENAME,
+            local_dir=os.path.dirname(LOCAL_PT) or "/work",
+        )
+    except Exception as e:
+        # Not on HF; fall back to Meta's public CDN.
+        meta_url = ("https://dl.fbaipublicfiles.com/avhubert/model/lrs3_vox/clean-pretrain/"
+                    + CKPT_FILENAME)
+        print(f"  HF fetch failed ({type(e).__name__}); trying Meta CDN: {meta_url}")
+        import urllib.request
+        urllib.request.urlretrieve(meta_url, LOCAL_PT)
 print(f"ckpt:      {LOCAL_PT}  ({os.path.getsize(LOCAL_PT) / 1e9:.2f} GB)")
 
 

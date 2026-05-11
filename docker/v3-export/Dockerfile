@@ -114,10 +114,22 @@ ENV V3_ENV_PREFIX=/usr \
     V3_WORK_DIR=/work \
     V3_AVHUBERT_DIR=/work/av_hubert \
     V3_FAIRSEQ_DIR=/work/av_hubert/fairseq \
-    V3_CKPT_PATH=/work/large_vox_iter5.pt \
+    V3_CKPT_FILENAME=base_vox_iter5.pt \
+    V3_CKPT_PATH=/work/base_vox_iter5.pt \
     V3_ONNX_OUT=/work/out/avhubert_visual_encoder.onnx \
     V3_HF_REPO=HereLiesAz/liperty-avhubert-encoder \
     PYTHONPATH=/work/av_hubert:/work/av_hubert/fairseq \
     HUGGINGFACE_HUB_CACHE=/work/.hf
+
+# NOTE: Default checkpoint is AV-HuBERT *base* (95M params, ~100 MB on
+# disk, ~400 MB loaded) so the image runs on consumer GPUs with <=4 GB
+# VRAM. To export AV-HuBERT *large* instead:
+#   docker run --rm --gpus all \
+#       -e HF_TOKEN=$HF_TOKEN \
+#       -e V3_CKPT_FILENAME=large_vox_iter5.pt \
+#       -e V3_CKPT_PATH=/work/large_vox_iter5.pt \
+#       -v $(pwd)/out:/work/out \
+#       liperty-v3-export
+# But large needs ~8 GB VRAM during the trace; budget accordingly.
 
 ENTRYPOINT ["python", "/work/export.py"]
