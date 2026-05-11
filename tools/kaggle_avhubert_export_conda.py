@@ -122,9 +122,17 @@ if not os.path.exists(LOCAL_PT):
             local_dir=os.path.dirname(LOCAL_PT) or "/work",
         )
     except Exception as e:
-        # Not on HF; fall back to Meta's public CDN.
-        meta_url = ("https://dl.fbaipublicfiles.com/avhubert/model/lrs3_vox/clean-pretrain/"
-                    + CKPT_FILENAME)
+        # Not on HF; fall back to Meta's public CDN. Pretrained
+        # checkpoints live under clean-pretrain/, VSR fine-tunes
+        # under vsr/. Caller can override via V3_META_URL.
+        meta_url = os.environ.get("V3_META_URL")
+        if not meta_url:
+            if "iter5" in CKPT_FILENAME:
+                subdir = "clean-pretrain"
+            else:
+                subdir = "vsr"  # base_vox_433h, large_vox_433h, etc.
+            meta_url = (f"https://dl.fbaipublicfiles.com/avhubert/model/lrs3_vox/{subdir}/"
+                        + CKPT_FILENAME)
         print(f"  HF fetch failed ({type(e).__name__}); trying Meta CDN: {meta_url}")
         import urllib.request
         urllib.request.urlretrieve(meta_url, LOCAL_PT)
@@ -203,13 +211,32 @@ class AvHubertVisualEncoder(nn.Module):
 
     def __init__(self, full_model):
         super().__init__()
-        # Borrow the trained sub-modules. We don't subclass them, just
-        # reference them so the state dict transfers transparently.
-        self.feature_extractor_audio = full_model.feature_extractor_audio
-        self.feature_extractor_video = full_model.feature_extractor_video
-        self.layer_norm = full_model.layer_norm
-        self.post_extract_proj = full_model.post_extract_proj  # may be None
-        self.encoder = full_model.encoder
+        # Three checkpoint shapes to handle:
+        #  - Pretrained (base_vox_iter5.pt): full_model IS the
+        #    AVHubertModel; sub-modules at top level.
+        #  - Fine-tuned seq2seq (base_vox_433h.pt etc.): full_model
+        #    is an AVHubertSeq2Seq with .encoder = HubertEncoderWrapper
+        #    (NOT AVHubertModel itself). The real AVHubertModel sits at
+        #    .encoder.w2v_model — fairseq's standard naming.
+        #  - Defensive: any other s2s wrapper pattern.
+        if hasattr(full_model, "feature_extractor_audio"):
+            avhm = full_model
+        elif hasattr(full_model, "encoder") and hasattr(full_model.encoder, "w2v_model") \
+                and hasattr(full_model.encoder.w2v_model, "feature_extractor_audio"):
+            avhm = full_model.encoder.w2v_model
+        elif hasattr(full_model, "encoder") and hasattr(full_model.encoder, "feature_extractor_audio"):
+            avhm = full_model.encoder
+        else:
+            raise RuntimeError(
+                f"Cannot locate AVHubertModel inside {type(full_model).__name__}. "
+                f"Top-level attrs: {sorted([a for a in dir(full_model) if not a.startswith('_')])[:30]}"
+            )
+        print(f"AVHubertModel found at: {type(avhm).__name__}")
+        self.feature_extractor_audio = avhm.feature_extractor_audio
+        self.feature_extractor_video = avhm.feature_extractor_video
+        self.layer_norm = avhm.layer_norm
+        self.post_extract_proj = avhm.post_extract_proj  # may be None
+        self.encoder = avhm.encoder
 
     def forward(self, video):
         # video: (B, 1, T, 88, 88) float32
