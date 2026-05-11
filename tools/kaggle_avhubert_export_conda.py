@@ -25,12 +25,14 @@ import subprocess
 import time
 
 ENV_PREFIX = os.environ.get("V3_ENV_PREFIX", "/kaggle/working/v3_env")
-WORK_DIR = "/kaggle/working/work"
-AVHUBERT_DIR = os.path.join(WORK_DIR, "av_hubert")
-FAIRSEQ_DIR = os.path.join(AVHUBERT_DIR, "fairseq")
+# Default for Kaggle; override via env vars in the Docker entrypoint.
+WORK_DIR = os.environ.get("V3_WORK_DIR", "/kaggle/working/work")
+AVHUBERT_DIR = os.environ.get("V3_AVHUBERT_DIR", os.path.join(WORK_DIR, "av_hubert"))
+FAIRSEQ_DIR = os.environ.get("V3_FAIRSEQ_DIR", os.path.join(AVHUBERT_DIR, "fairseq"))
 
-LOCAL_PT = "/kaggle/working/large_vox_iter5.pt"
-HF_REPO = "HereLiesAz/liperty-avhubert-encoder"
+LOCAL_PT = os.environ.get("V3_CKPT_PATH", "/kaggle/working/large_vox_iter5.pt")
+ONNX_OUT = os.environ.get("V3_ONNX_OUT", os.path.join(WORK_DIR, "avhubert_visual_encoder.onnx"))
+HF_REPO = os.environ.get("V3_HF_REPO", "HereLiesAz/liperty-avhubert-encoder")
 
 print(f"Python:    {sys.executable}")
 print(f"Version:   {sys.version.split()[0]}")
@@ -92,9 +94,13 @@ if token:
     print(f"HF user:   {whoami().get('name', '?')}")
 
 if not os.path.exists(LOCAL_PT):
-    raise RuntimeError(
-        f"{LOCAL_PT} not found. Download from HF mirror first; this script "
-        f"assumes the .pt is already on disk to avoid re-downloading 3.91 GB."
+    # In Docker, the .pt won't be there yet. Fetch from HF.
+    print(f"{LOCAL_PT} not found locally; pulling from {HF_REPO}...")
+    from huggingface_hub import hf_hub_download
+    LOCAL_PT = hf_hub_download(
+        repo_id=HF_REPO,
+        filename="large_vox_iter5.pt",
+        local_dir=os.path.dirname(LOCAL_PT) or "/work",
     )
 print(f"ckpt:      {LOCAL_PT}  ({os.path.getsize(LOCAL_PT) / 1e9:.2f} GB)")
 
@@ -171,7 +177,8 @@ print(f"  PyTorch output: {tuple(out_pt.shape)}  in {time.time()-t0:.1f}s")
 # -------------------------------------------------------------------------
 # 7. ONNX export
 # -------------------------------------------------------------------------
-ONNX_PATH = os.path.join(WORK_DIR, "avhubert_visual_encoder.onnx")
+ONNX_PATH = ONNX_OUT
+os.makedirs(os.path.dirname(ONNX_PATH) or ".", exist_ok=True)
 print("Tracing to ONNX (this is the risky step)...")
 t0 = time.time()
 torch.onnx.export(

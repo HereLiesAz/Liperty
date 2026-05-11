@@ -119,12 +119,14 @@ Where it died:
 So three independent attempts now hit three different walls in the
 same dep stack. The 2022-era research stack's transitive dep graph
 genuinely doesn't compose anymore on a modern PyPI index. **The
-remaining viable path is Docker** starting from a 2022-vintage
-NVIDIA PyTorch image (e.g. `nvcr.io/nvidia/pytorch:22.12-py3`) where
-the entire stack was tested and frozen at build time, not
-re-resolved by pip. Kaggle supports custom-container kernels through
-its Datasets feature for paid tiers, or this can be done locally /
-on a separate cloud machine.
+remaining viable path is Docker, and the Dockerfile + run
+instructions for it live at [`docker/v3-export/`](../docker/v3-export/README.md)**.
+It starts from a 2022-vintage NVIDIA PyTorch image
+(`nvcr.io/nvidia/pytorch:22.12-py3`) where the entire stack
+was tested and frozen at build time, not re-resolved by pip.
+Kaggle supports custom-container kernels through its Datasets
+feature for paid tiers; alternatively this can be done locally
+or on a separate cloud machine with Docker + an NVIDIA GPU.
 
 ### 2026-05 (second): cascading dep rot, not just torch
 
