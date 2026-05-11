@@ -84,6 +84,48 @@ a concrete WER improvement on real Liperty input on real hardware.
 
 ## Attempt log
 
+### 2026-05 (third): conda env path also blocked at omegaconf
+
+After the first two warm-kernel pip attempts failed at fairseq import,
+the docs recommended a conda env with the pinned 2022 stack. Tried
+exactly that. Got further but hit a different unresolvable wall.
+
+What worked:
+- Bootstrapped Miniconda inline (Kaggle's /usr/local/bin/mamba is an
+  unrelated Python script, not the conda mamba — verified via
+  `head -3` and missing `which conda` / `which micromamba`. So
+  downloaded https://repo.anaconda.com/miniconda/Miniconda3-py39_24.7.1-0-Linux-x86_64.sh
+  and ran it into /kaggle/working/miniconda3 with `-b -p`).
+- `conda create -p /kaggle/working/v3_env -y -c conda-forge python=3.9 pip`
+- `pip install torch==1.13.1+cu117 torchvision==0.14.1+cu117 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu117`
+- `pip install --editable /kaggle/working/work/av_hubert/fairseq --no-deps`
+- `pip install "numpy==1.23.5"` (essential — `np.float` was removed in 1.24)
+
+Where it died:
+- `pip install "omegaconf==2.0.6"` → "No matching distribution found for omegaconf==2.0.6 (from versions: 1.0.3, ..., 1.0.13, ..., 2.4.0.dev8 Requires-Python >=3.10, ...)"
+  - omegaconf 2.0.6's PyPI metadata excludes Python 3.9. Hard.
+- `pip install "omegaconf>=2.0,<2.1"` → picks 2.0.0 (the *only* 2.0.x stable available for py39)
+- omegaconf 2.0.0 has a known `issubclass()` bug on Python 3.9+:
+  ```
+  File "/kaggle/working/v3_env/lib/python3.9/site-packages/omegaconf/omegaconf.py", line 642, in _node_wrap
+      elif issubclass(type_, Enum):
+  TypeError: issubclass() arg 1 must be a class
+  ```
+  fixed in 2.0.5+, but those don't install on py39.
+- Plus a separate constraint conflict: hydra-core 1.0.4 wants
+  omegaconf>=2.0.5, while fairseq wants omegaconf<2.1. The narrow
+  intersection [2.0.5, 2.1) is exactly what PyPI doesn't ship for py39.
+
+So three independent attempts now hit three different walls in the
+same dep stack. The 2022-era research stack's transitive dep graph
+genuinely doesn't compose anymore on a modern PyPI index. **The
+remaining viable path is Docker** starting from a 2022-vintage
+NVIDIA PyTorch image (e.g. `nvcr.io/nvidia/pytorch:22.12-py3`) where
+the entire stack was tested and frozen at build time, not
+re-resolved by pip. Kaggle supports custom-container kernels through
+its Datasets feature for paid tiers, or this can be done locally /
+on a separate cloud machine.
+
 ### 2026-05 (second): cascading dep rot, not just torch
 
 After the first attempt's docs/fixes, retried in the same warm
