@@ -81,21 +81,37 @@ RUN pip install --no-cache-dir \
         "onnx>=1.16" \
         "onnxruntime>=1.18"
 
-# Install fairseq editable from the vendored submodule. --no-deps so
-# pip doesn't try to re-pull modern omegaconf etc.
-RUN pip install --editable /work/av_hubert/fairseq --no-deps
+# DON'T pip install fairseq. The vendored commit's setup.py tries to
+# Cython-build .pyx files (data_utils_fast etc.) and C++-compile a
+# CUDA extension (libnat_cuda) that includes THC/THC.h — a header
+# REMOVED in PyTorch 1.11+. The 22.12 base image has torch 1.14, so
+# the install fails no matter what we do with extensions.
+#
+# Workaround: fairseq is fully importable via PYTHONPATH alone, and
+# the Cython/CUDA extensions are only used for fast dataset loading
+# and training-specific ops. AV-HuBERT inference (checkpoint load +
+# forward pass + ONNX export) doesn't touch any of them.
+#
+# We tell fairseq to use pure-Python fallbacks via the documented
+# env var, and rely on the ENV PYTHONPATH below to make `import
+# fairseq` find the source tree directly.
+ENV NO_FAIRSEQ_EXTENSIONS=1 \
+    BUILD_NO_CUDA_EXTENSIONS=1 \
+    PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 
 # Smoke test at build time. If this fails, the image build fails
 # loudly rather than producing a broken image that errors out at
-# `docker run`.
+# `docker run`. We import explicitly the modules the export script
+# touches; if any of them require the missing C/Cython extensions
+# we'd find out HERE, not at run time.
 RUN python -c "import sys; \
-sys.path.insert(0, '/work/av_hubert'); \
-sys.path.insert(0, '/work/av_hubert/fairseq'); \
+sys.path[:0] = ['/work/av_hubert/avhubert', '/work/av_hubert/fairseq']; \
 import fairseq; assert fairseq.__file__, 'fairseq is a namespace package'; \
 print('fairseq:', fairseq.__file__); \
 from omegaconf import II; print('II OK'); \
-import avhubert; print('avhubert OK'); \
-from fairseq import checkpoint_utils; print('checkpoint_utils OK')"
+import hubert_pretraining, hubert, hubert_asr; print('avhubert flat-imports OK'); \
+from fairseq import checkpoint_utils; print('checkpoint_utils OK'); \
+import torch; print('torch:', torch.__version__)"
 
 # Copy the export script into the image. The script handles:
 # - downloading the .pt from HereLiesAz/liperty-avhubert-encoder if not mounted
@@ -118,7 +134,7 @@ ENV V3_ENV_PREFIX=/usr \
     V3_CKPT_PATH=/work/base_vox_iter5.pt \
     V3_ONNX_OUT=/work/out/avhubert_visual_encoder.onnx \
     V3_HF_REPO=HereLiesAz/liperty-avhubert-encoder \
-    PYTHONPATH=/work/av_hubert:/work/av_hubert/fairseq \
+    PYTHONPATH=/work/av_hubert/avhubert:/work/av_hubert/fairseq \
     HUGGINGFACE_HUB_CACHE=/work/.hf
 
 # NOTE: Default checkpoint is AV-HuBERT *base* (95M params, ~100 MB on

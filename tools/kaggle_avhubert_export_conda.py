@@ -46,9 +46,15 @@ print(f"Env:       {ENV_PREFIX}")
 # (the outer repo dir). Manually prepend the right one.
 if FAIRSEQ_DIR not in sys.path:
     sys.path.insert(0, FAIRSEQ_DIR)
-# And put av_hubert/ on sys.path so `import avhubert` finds the package
-if AVHUBERT_DIR not in sys.path:
-    sys.path.insert(0, AVHUBERT_DIR)
+# Put av_hubert/avhubert/ (the inner directory) on sys.path so that the
+# avhubert modules import each other via bare imports like
+# `from hubert_pretraining import ...`. DON'T also put av_hubert/ on
+# sys.path: doing so makes `import avhubert` AND `import hubert` both
+# load hubert.py, which double-runs the @register_model decorator and
+# raises ValueError("Cannot register duplicate model (av_hubert)").
+AVHUBERT_PKG_DIR = os.path.join(AVHUBERT_DIR, "avhubert")
+if AVHUBERT_PKG_DIR not in sys.path:
+    sys.path.insert(0, AVHUBERT_PKG_DIR)
 
 
 # -------------------------------------------------------------------------
@@ -78,9 +84,15 @@ print(f"omegaconf: {omegaconf.__version__}")
 from omegaconf import II  # noqa: F401, E402
 print("  II imports OK")
 
-import avhubert                                                 # noqa: E402
+# Import the avhubert modules as TOP-LEVEL modules (not as a package).
+# This is how Meta's own avhubert/infer_s2s.py does it. The
+# @register_model side-effects fire on import and register the avhubert
+# classes with fairseq's model registry so checkpoint_utils can find them.
+import hubert_pretraining   # noqa: E402, F401
+import hubert               # noqa: E402, F401
+import hubert_asr           # noqa: E402, F401
 
-print(f"avhubert:  {avhubert.__file__}")
+print(f"avhubert:  {hubert.__file__}")
 
 
 # -------------------------------------------------------------------------
