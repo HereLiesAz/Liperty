@@ -92,6 +92,8 @@ token = os.environ.get("HF_TOKEN")
 if token:
     login(token, add_to_git_credential=True)
     print(f"HF user:   {whoami().get('name', '?')}")
+else:
+    print("HF user:   (no HF_TOKEN set; will skip upload at end)")
 
 CKPT_FILENAME = os.environ.get("V3_CKPT_FILENAME", "large_vox_iter5.pt")
 
@@ -232,14 +234,18 @@ if diff.max() >= 1e-2:
 # -------------------------------------------------------------------------
 # 9. Upload
 # -------------------------------------------------------------------------
-print("Uploading ONNX to HF mirror...")
-upload_file(
-    path_or_fileobj=ONNX_PATH,
-    path_in_repo="avhubert_visual_encoder.onnx",
-    repo_id=HF_REPO,
-    repo_type="model",
-    commit_message="ONNX-exported visual encoder (conda env, 2022 dep stack)",
-)
-print(f"Uploaded -> https://huggingface.co/{HF_REPO}/blob/main/avhubert_visual_encoder.onnx")
+if token:
+    print("Uploading ONNX to HF mirror...")
+    upload_file(
+        path_or_fileobj=ONNX_PATH,
+        path_in_repo="avhubert_visual_encoder.onnx",
+        repo_id=HF_REPO,
+        repo_type="model",
+        commit_message="ONNX-exported visual encoder (conda env, 2022 dep stack)",
+    )
+    print(f"Uploaded -> https://huggingface.co/{HF_REPO}/blob/main/avhubert_visual_encoder.onnx")
+else:
+    print(f"Upload skipped (no HF_TOKEN). ONNX is at {ONNX_PATH} on disk; upload manually with:")
+    print(f"  huggingface-cli upload {HF_REPO} {ONNX_PATH} avhubert_visual_encoder.onnx")
 print()
 print("AV-HuBERT V3 encoder export complete.")
