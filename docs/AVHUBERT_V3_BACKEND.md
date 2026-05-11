@@ -84,6 +84,27 @@ a concrete WER improvement on real Liperty input on real hardware.
 
 ## Attempt log
 
+### 2026-05-11 (fifth): parity passed (apex FusedLayerNorm was the culprit)
+
+After the fourth attempt produced an ONNX with all-zero output, layer-by-layer parity bisect identified the divergence: `feat_a` and `feat_v` (the frontends) matched perfectly, but `feats_ln` (the post-transpose layer norm) was all zeros in ONNX vs `[-2.86, 1.98]` in PyTorch.
+
+Root cause: fairseq's `LayerNorm()` factory returns `apex.normalization.FusedLayerNorm` when CUDA + apex are available (both true on the NGC `pytorch:22.12-py3` base image). The fused CUDA kernel has no ONNX equivalent, so the legacy tracer silently emits zeros for it. fairseq has an `export=True` flag on the factory that disables the fused path, but it's not engaged by `torch.onnx.export` automatically.
+
+Fix: after loading the checkpoint, walk the model and replace any `apex.normalization.FusedLayerNorm` instance with `torch.nn.LayerNorm` of matching shape/eps/elementwise_affine, copying the weight + bias parameters (they're directly compatible). 26 modules got swapped on AV-HuBERT base.
+
+Result with the swap (run #9):
+```
+features     PT [-1.181, 1.129]   ORT [-1.181, 1.129]   max_diff=0.000410   ← MAIN OUTPUT
+feat_a       diff=0.000000   feat_v diff=0.000088
+feats_ln     diff=0.001823   feats_proj diff=0.006467
+```
+
+All within fp32 numerical noise. **The ONNX is valid and ready for V3 backend integration.**
+
+Artifact: `out/avhubert_visual_encoder.onnx` (391.7 MB, AV-HuBERT base
+visual encoder, sm_70+ compatible, dynamic time axis, input
+`(1, 1, T, 88, 88)` float32, output `(1, T_out, 768)` features).
+
 ### 2026-05-11 (fourth): Docker route succeeds at build + trace,
 ### fails at parity
 

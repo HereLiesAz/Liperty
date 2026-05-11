@@ -170,50 +170,105 @@ import torch.nn as nn                                           # noqa: E402
 
 
 class AvHubertVisualEncoder(nn.Module):
-    """Video-only wrapper around AVHubertModel.
+    """Video-only wrapper that explicitly composes the minimal encoder
+    forward, bypassing AVHubertModel.forward()'s conditional branches.
 
-    AV-HuBERT's forward() requires both 'audio' and 'video' keys in
-    its source dict. The audio tensor goes through a conv frontend
-    and gets concat'd with the video features before the encoder.
-    To run video-only, we synthesize a zero audio tensor of the
-    expected shape.
+    The default extract_features -> forward() path goes through:
+      - apply_input_mask (skipped when mask=False but the tracer still
+        bakes the `if` decision in)
+      - np.random.random() calls for modality dropout (in eval these
+        do nothing but the random values still get captured as
+        constants by the tracer)
+      - forward_targets (skipped but conditional)
+      - feature masking
+      - target/loss computation
 
-    Audio frontend expects (B, audio_feat_dim, T_audio) where
-    audio_feat_dim=104 and T_audio = 4 * T_video (stack_order_audio=4,
-    audio rate 100Hz vs video rate 25Hz).
+    For ONNX export we want a clean, branch-free forward:
+      audio = zeros
+      feat_a = feature_extractor_audio(audio)
+      feat_v = feature_extractor_video(video)
+      feats = cat([feat_a, feat_v], dim=1).transpose(1, 2)
+      feats = layer_norm(feats)
+      feats = post_extract_proj(feats)
+      x, _ = encoder(feats)
+      return x
 
-    Modality dropout during training (modality_dropout=0.5,
-    audio_dropout=0.5) means the model has been trained on zero-audio
-    examples, so this isn't pathological.
+    Run #6 produced all-zero ONNX output despite a clean PyTorch
+    forward, suggesting one of the conditionals in the AVHubertModel.
+    forward() path was traced incorrectly. This rewrite eliminates the
+    suspect paths.
     """
 
     AUDIO_FEAT_DIM = 104
-    # stack_order_audio=4 is applied at PREPROCESSING (4 raw mel
-    # frames @ 100Hz are concatenated into one 104-dim token at 25Hz,
-    # matching the video frame rate). So the audio tensor fed to the
-    # model has T_audio = T_video, NOT T_video * 4.
 
     def __init__(self, full_model):
         super().__init__()
-        self.full = full_model
+        # Borrow the trained sub-modules. We don't subclass them, just
+        # reference them so the state dict transfers transparently.
+        self.feature_extractor_audio = full_model.feature_extractor_audio
+        self.feature_extractor_video = full_model.feature_extractor_video
+        self.layer_norm = full_model.layer_norm
+        self.post_extract_proj = full_model.post_extract_proj  # may be None
+        self.encoder = full_model.encoder
 
     def forward(self, video):
         # video: (B, 1, T, 88, 88) float32
-        B, C, T, H, W = video.shape
+        B = video.shape[0]
+        T = video.shape[2]
         zero_audio = torch.zeros(
             B, self.AUDIO_FEAT_DIM, T,
             dtype=video.dtype, device=video.device,
         )
-        src = {"video": video, "audio": zero_audio}
-        feats, _ = self.full.extract_features(
-            source=src,
-            padding_mask=None,
-            mask=False,
-            ret_conv=False,
-            output_layer=None,
-        )
-        return feats
+        feat_a = self.feature_extractor_audio(zero_audio)
+        feat_v = self.feature_extractor_video(video)
+        feats_cat = torch.cat([feat_a, feat_v], dim=1)
+        feats_t = feats_cat.transpose(1, 2)
+        feats_ln = self.layer_norm(feats_t)
+        if self.post_extract_proj is not None:
+            feats_proj = self.post_extract_proj(feats_ln)
+        else:
+            feats_proj = feats_ln
+        x, _ = self.encoder(feats_proj, padding_mask=None, layer=None)
+        # Multiple outputs let the parity check bisect the divergence
+        # point: feat_a (audio frontend), feat_v (video frontend),
+        # feats_ln (layer norm), feats_proj (linear proj), x (encoder).
+        return x, feat_a, feat_v, feats_ln, feats_proj
 
+
+# Replace any apex FusedLayerNorm in the loaded model with stock
+# torch.nn.LayerNorm. apex's CUDA-fused layer norm has no ONNX
+# equivalent so the legacy tracer silently emits zero outputs for it
+# (this was the exact divergence point in run #8: feat_a/feat_v
+# matched perfectly, the post-transpose layer_norm produced [0, 0]
+# in ONNX vs [-2.89, 1.98] in PyTorch). stock LayerNorm is
+# parameter-compatible (same weight/bias names + shapes) so we
+# transplant in-place.
+try:
+    from apex.normalization import FusedLayerNorm as _ApexFLN
+
+    def _swap_fused_layernorm(m: nn.Module) -> nn.Module:
+        replaced = 0
+        for name, child in list(m.named_children()):
+            if isinstance(child, _ApexFLN):
+                stock = nn.LayerNorm(
+                    child.normalized_shape,
+                    eps=child.eps,
+                    elementwise_affine=child.elementwise_affine,
+                )
+                if child.elementwise_affine:
+                    stock.weight.data.copy_(child.weight.data)
+                    stock.bias.data.copy_(child.bias.data)
+                stock.to(next(child.parameters()).device)
+                setattr(m, name, stock)
+                replaced += 1
+            else:
+                replaced += _swap_fused_layernorm(child)
+        return replaced
+
+    n = _swap_fused_layernorm(model)
+    print(f"Swapped {n} apex FusedLayerNorm modules for torch.nn.LayerNorm.")
+except ImportError:
+    print("apex not installed; assuming stock LayerNorm everywhere.")
 
 wrapper = AvHubertVisualEncoder(model).eval()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -225,8 +280,11 @@ dummy_video = torch.randn(1, 1, T_DUMMY, 88, 88, device=device, dtype=torch.floa
 print("Smoke-testing PyTorch forward...")
 t0 = time.time()
 with torch.no_grad():
-    out_pt = wrapper(dummy_video)
-print(f"  PyTorch output: {tuple(out_pt.shape)}  in {time.time()-t0:.1f}s")
+    pt_outs = wrapper(dummy_video)
+out_pt = pt_outs[0]  # The encoder output is the primary return
+print(f"  PyTorch encoder output: {tuple(out_pt.shape)}  in {time.time()-t0:.1f}s")
+for name, t in zip(["feat_a", "feat_v", "feats_ln", "feats_proj"], pt_outs[1:]):
+    print(f"  PyTorch {name}: shape={tuple(t.shape)}  range=[{t.min():.3f}, {t.max():.3f}]")
 
 
 # -------------------------------------------------------------------------
@@ -241,18 +299,17 @@ torch.onnx.export(
     dummy_video,
     ONNX_PATH,
     input_names=["video"],
-    output_names=["features"],
+    output_names=["features", "feat_a", "feat_v", "feats_ln", "feats_proj"],
     opset_version=17,
     do_constant_folding=True,
     dynamic_axes={
         "video":    {2: "T"},
         "features": {1: "T_out"},
+        "feat_a":   {2: "T"},
+        "feat_v":   {2: "T"},
+        "feats_ln": {1: "T"},
+        "feats_proj": {1: "T"},
     },
-    # Run #5 produced an ONNX where the all-zero output divergence
-    # vs PyTorch suggested some control-flow path got baked in wrong
-    # by the default tracer's dropout/layerdrop handling. Force EVAL
-    # explicitly so all stochastic modules (encoder_layerdrop=0.05,
-    # input dropout, etc) are deterministically off at trace time.
     training=torch.onnx.TrainingMode.EVAL,
 )
 print(f"  ONNX written: {ONNX_PATH}  ({os.path.getsize(ONNX_PATH) / 1e6:.0f} MB)  in {time.time()-t0:.0f}s")
@@ -266,16 +323,23 @@ import numpy as np                                              # noqa: E402
 
 sess = ort.InferenceSession(ONNX_PATH, providers=["CPUExecutionProvider"])
 dummy_np = dummy_video.detach().cpu().numpy().astype(np.float32)
-ort_out = sess.run(["features"], {"video": dummy_np})[0]
-pt_out = out_pt.detach().cpu().numpy()
+all_ort_names = ["features", "feat_a", "feat_v", "feats_ln", "feats_proj"]
+ort_outs = sess.run(all_ort_names, {"video": dummy_np})
+pt_outs_np = [t.detach().cpu().numpy() for t in pt_outs]
 
-diff = np.abs(pt_out - ort_out)
-print(f"PyTorch out: {pt_out.shape}  range=[{pt_out.min():.3f}, {pt_out.max():.3f}]")
-print(f"ONNX out:    {ort_out.shape}  range=[{ort_out.min():.3f}, {ort_out.max():.3f}]")
-print(f"Max abs diff: {diff.max():.6f}")
-print(f"Mean abs diff: {diff.mean():.6f}")
-if diff.max() >= 1e-2:
-    print("WARNING: ONNX diverges from PyTorch by >=1e-2. Export may be subtly broken.")
+print()
+print("=== Layer-by-layer parity ===")
+for name, pt_np, ort_np in zip(all_ort_names, pt_outs_np, ort_outs):
+    diff = np.abs(pt_np - ort_np)
+    print(f"{name:12s} PT range=[{pt_np.min():.3f},{pt_np.max():.3f}]  "
+          f"ORT range=[{ort_np.min():.3f},{ort_np.max():.3f}]  "
+          f"max_diff={diff.max():.6f}  mean_diff={diff.mean():.6f}")
+
+primary_diff = np.abs(pt_outs_np[0] - ort_outs[0])
+if primary_diff.max() >= 1e-2:
+    print()
+    print("WARNING: ONNX 'features' diverges from PyTorch by >=1e-2.")
+    print("Look at the first layer above with non-trivial max_diff to localize.")
 
 
 # -------------------------------------------------------------------------
