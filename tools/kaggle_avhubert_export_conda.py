@@ -170,17 +170,46 @@ import torch.nn as nn                                           # noqa: E402
 
 
 class AvHubertVisualEncoder(nn.Module):
+    """Video-only wrapper around AVHubertModel.
+
+    AV-HuBERT's forward() requires both 'audio' and 'video' keys in
+    its source dict. The audio tensor goes through a conv frontend
+    and gets concat'd with the video features before the encoder.
+    To run video-only, we synthesize a zero audio tensor of the
+    expected shape.
+
+    Audio frontend expects (B, audio_feat_dim, T_audio) where
+    audio_feat_dim=104 and T_audio = 4 * T_video (stack_order_audio=4,
+    audio rate 100Hz vs video rate 25Hz).
+
+    Modality dropout during training (modality_dropout=0.5,
+    audio_dropout=0.5) means the model has been trained on zero-audio
+    examples, so this isn't pathological.
+    """
+
+    AUDIO_FEAT_DIM = 104
+    # stack_order_audio=4 is applied at PREPROCESSING (4 raw mel
+    # frames @ 100Hz are concatenated into one 104-dim token at 25Hz,
+    # matching the video frame rate). So the audio tensor fed to the
+    # model has T_audio = T_video, NOT T_video * 4.
+
     def __init__(self, full_model):
         super().__init__()
         self.full = full_model
 
     def forward(self, video):
-        src = {"video": video, "audio": None}
+        # video: (B, 1, T, 88, 88) float32
+        B, C, T, H, W = video.shape
+        zero_audio = torch.zeros(
+            B, self.AUDIO_FEAT_DIM, T,
+            dtype=video.dtype, device=video.device,
+        )
+        src = {"video": video, "audio": zero_audio}
         feats, _ = self.full.extract_features(
             source=src,
             padding_mask=None,
             mask=False,
-            features_only=True,
+            ret_conv=False,
             output_layer=None,
         )
         return feats
@@ -219,6 +248,12 @@ torch.onnx.export(
         "video":    {2: "T"},
         "features": {1: "T_out"},
     },
+    # Run #5 produced an ONNX where the all-zero output divergence
+    # vs PyTorch suggested some control-flow path got baked in wrong
+    # by the default tracer's dropout/layerdrop handling. Force EVAL
+    # explicitly so all stochastic modules (encoder_layerdrop=0.05,
+    # input dropout, etc) are deterministically off at trace time.
+    training=torch.onnx.TrainingMode.EVAL,
 )
 print(f"  ONNX written: {ONNX_PATH}  ({os.path.getsize(ONNX_PATH) / 1e6:.0f} MB)  in {time.time()-t0:.0f}s")
 

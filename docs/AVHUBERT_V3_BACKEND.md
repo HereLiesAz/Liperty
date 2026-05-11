@@ -84,6 +84,78 @@ a concrete WER improvement on real Liperty input on real hardware.
 
 ## Attempt log
 
+### 2026-05-11 (fourth): Docker route succeeds at build + trace,
+### fails at parity
+
+After the conda env attempt died on omegaconf 2.0.x py3.9
+unavailability, switched to Docker (`docker/v3-export/`) based on
+`nvcr.io/nvidia/pytorch:22.12-py3`. The Docker route bypassed the
+dep-stack rot entirely (the base image freezes Python 3.8 + torch
+1.14 + numpy 1.22 at build time, so pip never has to re-resolve).
+
+Six build iterations to get a working image — each failure was a
+distinct dep / API issue documented in commit messages on
+[`818ccaa`](https://github.com/HereLiesAz/Liperty/commit/818ccaa):
+1. fairseq's `libnat_cuda` extension needs `THC/THC.h` (removed
+   in torch 1.11+)
+2. After stripping CUDA extension, setup.py still tries to
+   Cython-build deleted `.pyx` files
+3. protobuf 4.x rejects old `_pb2.py` files until
+   `PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python` env var is set
+4. `avhubert/hubert.py` uses bare imports (`from hubert_pretraining
+   import ...`) requiring `av_hubert/avhubert/` (the inner dir)
+   on PYTHONPATH
+5. Adding `av_hubert/` AND `av_hubert/avhubert/` to PYTHONPATH
+   makes `import avhubert` and `import hubert` double-register
+   the `av_hubert` model in fairseq's registry. Fixed by treating
+   avhubert as a flat module collection (Meta's own
+   `infer_s2s.py` pattern).
+
+Plus runtime iterations:
+- API mismatch: `AVHubertModel.extract_features` doesn't take
+  `features_only`; the dict-source needs both `audio` and `video`
+  keys; audio shape is `(B, 104, T_video)` not `(B, 104, T_video*4)`
+  (the `stack_order_audio=4` happens at preprocessing, not at
+  model input time).
+- Output disk-full on Google Drive bind mount, fixed by mounting
+  a regular C:\ path.
+
+Final state of run #6:
+- AV-HuBERT base loaded cleanly from Meta's CDN
+- PyTorch forward: clean output `(1, 50, 768)` in 1.0s, range `[-1.14, 1.12]`
+- `torch.onnx.export` completed in 25s, wrote 411 MB ONNX file
+- **Parity check FAILED**: ONNX output is all-zeros, max abs diff
+  to PyTorch = 1.14, mean = 0.19. The traced graph is structurally
+  valid (onnxruntime loads + runs it cleanly) but captured some
+  wrong control-flow path during the trace.
+- The standard fixes tried (`training=TrainingMode.EVAL` explicit,
+  forcing eval on the wrapper) didn't change anything.
+
+The ONNX file is durable at
+`C:\Users\azrie\v3-export-out\avhubert_visual_encoder.onnx` and at
+`out/avhubert_visual_encoder.onnx` once the user copies it back to
+the repo. **It is NOT yet usable for V3 inference** — its outputs
+are zeros, so any downstream pipeline that consumes its features
+would produce garbage.
+
+Next-step research for whoever picks this up:
+1. Add intermediate-activation logging at each fairseq layer
+   (`forward_features`, `layer_norm`, `post_extract_proj`,
+   `encoder.layers[0..N]`) inside both the PyTorch path and an
+   onnxruntime session, and binary-search where the values diverge
+   from PyTorch's path.
+2. Common culprits the warnings flagged: the `assert` statements
+   in `multihead_attention.py` got traced as `aten::Bool` ops,
+   which may be feeding into the conditional that picks zero
+   vs non-zero output paths.
+3. Alternatives: torch.export.export with strict=False; or rewrite
+   the encoder forward in plain PyTorch (no fairseq imports) and
+   transfer the state_dict to the rewritten module.
+
+The Dockerfile + scripts + 411 MB ONNX artifact are all durable.
+The research question of *why* this particular trace produces
+zero output is what remains.
+
 ### 2026-05 (third): conda env path also blocked at omegaconf
 
 After the first two warm-kernel pip attempts failed at fairseq import,
