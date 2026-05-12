@@ -132,9 +132,16 @@ else:
         "av", "torchvision",
     ])
 
-# Make the SyncVSR package importable.
-sys.path.insert(0, str(SYNCVSR_SRC / "LRS" / "video"))
+# SyncVSR's LRS/video is a FLAT layout: lightning.py, utils.py, espnet/,
+# datamodule/, etc. sit directly under it -- there is no src/ package.
+# We chdir into LRS/video so the LightningModule's relative paths
+# ("./spm/unigram/unigram5000.model") resolve, and we add it to sys.path
+# so its top-level modules import as `lightning`, `utils`, etc.
+LRS_VIDEO = SYNCVSR_SRC / "LRS" / "video"
+sys.path.insert(0, str(LRS_VIDEO))
+os.chdir(LRS_VIDEO)
 print("SyncVSR cloned to:", SYNCVSR_SRC)
+print("cwd:", os.getcwd())
 """))
 
 cells.append(md("## 3. Download the pretrained checkpoint"))
@@ -187,63 +194,36 @@ If the import path differs from the assumption below, the error message
 will point us at the correct module path inside `SyncVSR/LRS/video/`.
 """))
 cells.append(code("""\
-# The model class lives in SyncVSR/LRS/video/src/lightning_module.py
-# (or similar). We try a couple of likely import paths and let Python
-# tell us which one resolves.
-import importlib
-
-candidates = [
-    "src.lightning_module.LipReadingModule",
-    "src.lightning.LipReadingModule",
-    "src.module.LipReadingModule",
-    "src.lit.LipReadingModule",
-]
-LitModule = None
-for cand in candidates:
-    mod_path, cls_name = cand.rsplit(".", 1)
-    try:
-        mod = importlib.import_module(mod_path)
-        LitModule = getattr(mod, cls_name)
-        print(f"Found Lightning module: {cand}")
-        break
-    except Exception as e:
-        print(f"  {cand}: {type(e).__name__}: {e}")
-
-if LitModule is None:
-    # Fall back: walk src/ for any *.py with a LightningModule subclass.
-    import pkgutil, inspect
-    import pytorch_lightning as pl
-    for finder, name, ispkg in pkgutil.walk_packages([str(SYNCVSR_SRC / "LRS" / "video" / "src")], prefix="src."):
-        try:
-            mod = importlib.import_module(name)
-        except Exception:
-            continue
-        for cname, cls in inspect.getmembers(mod, inspect.isclass):
-            if issubclass(cls, pl.LightningModule) and cls is not pl.LightningModule:
-                print(f"Candidate: {name}.{cname}")
-                if LitModule is None:
-                    LitModule = cls
-
-assert LitModule is not None, "Could not locate Lightning module class in SyncVSR/LRS/video/src/"
-print("Using:", LitModule)
+# SyncVSR's LightningModule lives in lightning.py at the LRS/video
+# root (flat layout). It's called `ModelModule` and wraps espnet's
+# E2E visual-speech transformer at self.model.
+from lightning import ModelModule
+print("LightningModule:", ModelModule)
 """))
 
 cells.append(code("""\
-# Instantiate via load_from_checkpoint; Lightning re-creates the module
-# from the saved hyperparameters and loads the state_dict.
-model = LitModule.load_from_checkpoint(CKPT_PATH, map_location="cpu", strict=False)
-model.eval()
-print("Loaded.")
-print("Model type:", type(model.model).__name__ if hasattr(model, "model") else type(model).__name__)
-# Try to print the encoder + CTC head identity if exposed.
-for name in ("encoder", "model.encoder", "ctc", "model.ctc"):
-    obj = model
-    for part in name.split("."):
-        obj = getattr(obj, part, None)
-        if obj is None:
-            break
-    if obj is not None:
-        print(f"  {name}: {type(obj).__name__}")
+# Instantiate ModelModule and apply weights. We can't use
+# load_from_checkpoint() directly because ModelModule.__init__ tries
+# to torch.load(cfg.ckpt_path) for a frontend pretrain ckpt we don't
+# have on Kaggle. Null out cfg.ckpt_path + transfer_frontend first,
+# then instantiate and load the actual checkpoint's state_dict.
+cfg = ckpt["hyper_parameters"]["cfg"]
+cfg.ckpt_path = ""           # skip frontend pretrain load in __init__
+cfg.transfer_frontend = False
+
+model = ModelModule(cfg=cfg).eval()
+missing, unexpected = model.load_state_dict(ckpt["state_dict"], strict=False)
+print(f"load_state_dict: {len(missing)} missing, {len(unexpected)} unexpected")
+if missing:
+    print("  first missing:", missing[:5])
+if unexpected:
+    print("  first unexpected:", unexpected[:5])
+
+# Sanity-print the encoder + ctc + token_list dimensions.
+print("model.model:", type(model.model).__name__)
+print("model.model.encoder:", type(model.model.encoder).__name__)
+print("model.model.ctc:", type(model.model.ctc).__name__)
+print("vocab size:", len(model.text_transform.token_list))
 """))
 
 cells.append(md("""\
@@ -265,35 +245,36 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class EncoderCTCWrapper(nn.Module):
-    def __init__(self, encoder, ctc_head):
+    \"\"\"Encoder + CTC projection from espnet E2E, exposing a clean
+    (1, 1, T, 88, 88) -> (1, T_out, V) log-softmax forward. Drops the
+    attention decoder, beam search, scorers, and LM -- those don't
+    export cleanly and can be replaced at decode time by greedy/beam
+    CTC with optional KenLM rescoring on Android.\"\"\"
+
+    def __init__(self, e2e):
         super().__init__()
-        self.encoder = encoder
-        self.ctc = ctc_head
+        self.encoder = e2e.encoder
+        self.ctc = e2e.ctc
 
     def forward(self, video):
-        # video: (1, 1, T, 88, 88). ESPnet's E2E expects either NCTHW or
-        # NTHW depending on the model -- try the most common signatures.
-        # The encoder returns (hidden, ilens) or (hidden, mask).
+        # video: (1, 1, T, 88, 88) float32, already normalized.
+        # espnet's visual encoder accepts xs_pad of that shape and an
+        # ilens tensor giving the *output* time dimension for each
+        # batch item (we pass T since the model is 1:1 across stride).
+        ilens = torch.full((video.size(0),), video.size(2),
+                           dtype=torch.long, device=video.device)
         try:
-            out = self.encoder(video, ilens=None)
-        except TypeError:
+            hs_pad, hs_mask = self.encoder(video, ilens)
+        except (TypeError, ValueError):
+            # Some espnet variants return (hs_pad, hs_mask, hs_lens)
+            # or take only video.
             out = self.encoder(video)
-        if isinstance(out, tuple):
-            hidden = out[0]
-        else:
-            hidden = out
-        # hidden: (1, T_out, D). Project to vocab.
-        logits = self.ctc.ctc_lo(hidden) if hasattr(self.ctc, "ctc_lo") else self.ctc(hidden)
+            hs_pad = out[0] if isinstance(out, tuple) else out
+        # hs_pad: (1, T_out, D). CTC head: linear D -> V.
+        logits = self.ctc.ctc_lo(hs_pad)
         return F.log_softmax(logits, dim=-1)
 
-# Resolve encoder + ctc from the loaded model. The exact attribute names
-# depend on the SyncVSR LightningModule wrapping ESPnet.
-inner = getattr(model, "model", model)
-encoder = getattr(inner, "encoder", None)
-ctc = getattr(inner, "ctc", None)
-assert encoder is not None and ctc is not None, "Need encoder + ctc on model -- inspect printout above"
-
-wrapper = EncoderCTCWrapper(encoder, ctc).eval()
+wrapper = EncoderCTCWrapper(model.model).eval()
 print("Wrapper ready.")
 """))
 
@@ -357,33 +338,17 @@ print("Parity OK.")
 
 cells.append(md("## 10. Extract + save vocab"))
 cells.append(code("""\
-# SyncVSR uses SentencePiece. The tokenizer/spm model should be in the
-# loaded checkpoint's hyperparameters or accessible via the LightningModule.
-# Save the vocab as a unigram list mirroring Auto-AVSR's
-# unigram5000_units.txt format (one token per line, blank first, eos last).
-spm_path = None
-for k in ("spm_model_path", "tokenizer_path", "unit_path"):
-    p = getattr(model, k, None) or (hp.get(k) if isinstance(hp, dict) else None)
-    if p and Path(p).exists():
-        spm_path = p
-        break
-
+# SyncVSR uses a SentencePiece unigram tokenizer; the dictionary
+# is loaded via ModelModule.text_transform.token_list. Save it as a
+# plain text file mirroring Auto-AVSR's unigram5000_units.txt format:
+# one token per line, indexed from 0 (typically <blank>) to N-1.
 vocab_out = WORK / "syncvsr_unigram_units.txt"
-
-if spm_path is not None:
-    import sentencepiece as spm
-    sp = spm.SentencePieceProcessor()
-    sp.load(spm_path)
-    with open(vocab_out, "w") as f:
-        for i in range(sp.get_piece_size()):
-            f.write(sp.id_to_piece(i) + "\\n")
-    print(f"Wrote {sp.get_piece_size()} tokens from {spm_path} -> {vocab_out}")
-else:
-    # Fallback: write a placeholder so the upload doesn't fail. The
-    # Android side won't be able to decode until this is populated.
-    print("WARN: SentencePiece model not found. Inspect model attributes:")
-    print([a for a in dir(model) if not a.startswith('_')][:30])
-    vocab_out.write_text("<blank>\\n<unk>\\n<eos>\\n")
+with open(vocab_out, "w") as f:
+    for tok in model.text_transform.token_list:
+        f.write(f"{tok}\\n")
+print(f"Wrote {len(model.text_transform.token_list)} tokens -> {vocab_out}")
+print("First 5 tokens:", model.text_transform.token_list[:5])
+print("Last 5 tokens:", model.text_transform.token_list[-5:])
 """))
 
 cells.append(md("## 11. Metadata JSON"))
