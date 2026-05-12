@@ -50,8 +50,16 @@ find_library(jnigraphics-lib jnigraphics)
 # setup_libs.sh runs), kenlm_jni.cpp falls back to its stub which
 # reports load failure and the Kotlin layer no-ops cleanly.
 set(KENLM_NDK_DIR ${CMAKE_SOURCE_DIR}/kenlm/android-arm64)
-if(EXISTS ${KENLM_NDK_DIR}/libkenlm.a AND EXISTS ${KENLM_NDK_DIR}/libkenlm_util.a)
-    message(STATUS "KenLM NDK prebuilts found: enabling JNI bridge")
+# Prebuilts are cross-compiled for arm64-v8a only (see
+# tools/kaggle_build_kenlm_android.py). armeabi-v7a / x86_64 builds
+# fall through to the stub -- KenLmScorer.isNativeLoaded then reports
+# false on those devices and the Kotlin layer no-ops. The Pixel 5 and
+# all modern Android devices are arm64, so this only matters for
+# legacy 32-bit hardware.
+if(ANDROID_ABI STREQUAL "arm64-v8a"
+   AND EXISTS ${KENLM_NDK_DIR}/libkenlm.a
+   AND EXISTS ${KENLM_NDK_DIR}/libkenlm_util.a)
+    message(STATUS "KenLM NDK prebuilts found (arm64-v8a): enabling JNI bridge")
     add_library(kenlm STATIC IMPORTED)
     set_target_properties(kenlm PROPERTIES
         IMPORTED_LOCATION ${KENLM_NDK_DIR}/libkenlm.a)
@@ -62,7 +70,7 @@ if(EXISTS ${KENLM_NDK_DIR}/libkenlm.a AND EXISTS ${KENLM_NDK_DIR}/libkenlm_util.
     target_compile_definitions(liperty_cv PRIVATE KENLM_AVAILABLE=1)
     target_link_libraries(liperty_cv kenlm kenlm_util z)
 else()
-    message(STATUS "KenLM NDK prebuilts missing at ${KENLM_NDK_DIR} -- kenlm_jni.cpp will be a stub")
+    message(STATUS "KenLM JNI: stub (ABI=${ANDROID_ABI}, prebuilt dir=${KENLM_NDK_DIR})")
 endif()
 
 # Specifies libraries CMake should link to your target library.

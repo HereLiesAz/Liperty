@@ -226,7 +226,11 @@ class MainActivity : ComponentActivity() {
                 // build_binary's mmap path works. Matches OnnxModelEngine's
                 // approach so the same caching semantics apply.
                 val dst = java.io.File(filesDir, KENLM_MODEL)
-                val assetSize = assets.openFd(KENLM_MODEL).use { it.length }
+                // Use input stream's available() instead of openFd() because
+                // aapt2 compresses .bin assets by default, and openFd only
+                // works on uncompressed entries. The decompressed size shows
+                // up as available() on the AssetInputStream.
+                val assetSize = assets.open(KENLM_MODEL).use { it.available().toLong() }
                 if (!dst.exists() || dst.length() != assetSize) {
                     assets.open(KENLM_MODEL).use { input ->
                         dst.outputStream().use { output -> input.copyTo(output) }

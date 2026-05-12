@@ -23,13 +23,30 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 #ifdef KENLM_AVAILABLE
-#  include "lm/model.hh"
+// Deliberately avoid <lm/model.hh>: its LM_NAME_MODEL macro
+// (lines 130-141) expands to a class-with-constructor-delegation
+// pattern that NDK r26's clang in C++17 mode mis-parses as
+// "type X is not a direct or virtual base of Y". We don't need
+// the concrete ProbingModel/TrieModel/QuantTrieModel classes --
+// LoadVirtual() returns a polymorphic lm::base::Model* and that
+// virtual interface is fully sufficient for inference. We
+// forward-declare LoadVirtual below to match the model.hh signature.
 #  include "lm/virtual_interface.hh"
+#  include "lm/config.hh"
+#  include "lm/model_type.hh"
+
+namespace lm {
+namespace ngram {
+base::Model *LoadVirtual(const char *file_name,
+                         const Config &config = Config(),
+                         ModelType if_arpa = PROBING);
+} // namespace ngram
+} // namespace lm
 #endif
 
 extern "C" JNIEXPORT jlong JNICALL
-Java_com_hereliesaz_liperty_ml_KenLmScorer_00024Companion_nativeLoad(
-        JNIEnv *env, jobject /* this */, jstring jModelPath) {
+Java_com_hereliesaz_liperty_ml_KenLmScorer_nativeLoad(
+        JNIEnv *env, jclass /* clazz */, jstring jModelPath) {
     const char *modelPath = env->GetStringUTFChars(jModelPath, nullptr);
 
 #ifdef KENLM_AVAILABLE
