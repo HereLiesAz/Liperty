@@ -56,6 +56,12 @@ if decoder is None:
 print(f"[stage3] Decoder type: {type(decoder).__name__}")
 print(f"[stage3] Vocab size from CTC head: {e2e.ctc.ctc_lo.out_features}")
 
+# Print the actual decoder.forward signature so we know which arg
+# order to use (espnet variants vary).
+import inspect
+print(f"[stage3] decoder.forward signature: {inspect.signature(decoder.forward)}")
+print(f"[stage3] decoder file: {inspect.getsourcefile(type(decoder))}")
+
 
 class DecoderStepWrapper(nn.Module):
     """No-KV-cache single-step decoder. ONNX-friendly: pure tensor ops,
@@ -85,13 +91,30 @@ class DecoderStepWrapper(nn.Module):
         hlens = torch.full((bsz,), t_enc, dtype=torch.long, device=device)
         ys_in_lens = torch.full((bsz,), t_dec, dtype=torch.long, device=device)
 
-        try:
-            out = self.decoder(encoder_features, hlens, prev_tokens, ys_in_lens)
-        except (TypeError, AttributeError):
-            # Older API: build masks explicitly.
-            # memory_mask: (B, 1, T_enc) -- all-ones for inference.
+        # espnet's TransformerDecoder.forward signature in the bundled
+        # SyncVSR fork is (hs_pad, hlens, ys_in_pad, ys_in_lens) -- but
+        # different espnet versions reorder these. Try the most common
+        # signatures and let the one whose first non-self arg is a Long
+        # tensor (i.e. the ys-first variant) win.
+        candidates = [
+            # (ys_first?, args)
+            (False, (encoder_features, hlens, prev_tokens, ys_in_lens)),
+            (True,  (prev_tokens, ys_in_lens, encoder_features, hlens)),
+            # Older API with explicit masks:
+            (False, None),  # placeholder; handled below
+        ]
+        out = None
+        last_err = None
+        for ys_first, args in candidates[:2]:
+            try:
+                out = self.decoder(*args)
+                break
+            except Exception as e:
+                last_err = e
+                continue
+        if out is None:
+            # Final fallback: older mask-based API.
             memory_mask = torch.ones(bsz, 1, t_enc, dtype=torch.bool, device=device)
-            # ys_mask: (B, T_dec, T_dec) causal lower-triangular.
             ys_mask = torch.tril(
                 torch.ones(t_dec, t_dec, dtype=torch.bool, device=device)
             ).unsqueeze(0).expand(bsz, -1, -1)
