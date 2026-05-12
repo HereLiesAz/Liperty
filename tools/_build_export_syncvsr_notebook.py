@@ -325,11 +325,12 @@ class EncoderCTCWrapper(nn.Module):
         self.ctc = e2e.ctc
 
     def forward(self, video):
-        # video: (1, 1, T, 88, 88) float32, already normalized.
-        # espnet's visual encoder accepts xs_pad of that shape and an
-        # ilens tensor giving the *output* time dimension for each
-        # batch item (we pass T since the model is 1:1 across stride).
-        ilens = torch.full((video.size(0),), video.size(2),
+        # video is either NCTHW (1, 1, T, 88, 88) or NTCHW (1, T, 1, 88, 88)
+        # depending on the encoder's input_layer cfg. The T dim is whichever
+        # of axes 1, 2 is NOT the channel (channel == 1), and we feed its
+        # size as ilens since the encoder stride is 1:1.
+        t_dim = video.size(1) if video.size(1) > video.size(2) else video.size(2)
+        ilens = torch.full((video.size(0),), t_dim,
                            dtype=torch.long, device=video.device)
         try:
             hs_pad, hs_mask = self.encoder(video, ilens)
@@ -348,13 +349,25 @@ print("Wrapper ready.")
 
 cells.append(md("## 7. Sanity-check forward pass on dummy input"))
 cells.append(code("""\
+# Try both input layouts: SyncVSR's encoder internally chooses
+# between conv3d ("no transpose, expects NCTHW") and conv3d-lrw
+# ("transpose axes 1<->2, expects NTCHW"). Which one is active
+# depends on the loaded checkpoint's cfg. Try NTCHW first since
+# the deployed Vox+LRS2+LRS3 cfg uses it; fall back to NCTHW.
 T = 16
-dummy = torch.randn(1, 1, T, 88, 88)
-with torch.no_grad():
-    out = wrapper(dummy)
-print("Output shape:", tuple(out.shape))
-# Expected: (1, T_out, V). T_out depends on the encoder's stride.
-# V should be the SentencePiece vocab size (typically 5000-ish for LRS3).
+for layout_name, dummy_shape in [("NTCHW", (1, T, 1, 88, 88)), ("NCTHW", (1, 1, T, 88, 88))]:
+    print(f"Trying {layout_name} dummy {dummy_shape} ...")
+    dummy = torch.randn(*dummy_shape)
+    try:
+        with torch.no_grad():
+            out = wrapper(dummy)
+        print(f"  {layout_name} worked. Output shape: {tuple(out.shape)}")
+        INPUT_LAYOUT = layout_name
+        break
+    except RuntimeError as e:
+        print(f"  {layout_name} failed: {e}")
+else:
+    raise RuntimeError("Neither NTCHW nor NCTHW worked -- inspect the encoder's input_layer cfg")
 """))
 
 cells.append(md("""\
@@ -366,6 +379,10 @@ window length.
 """))
 cells.append(code("""\
 ONNX_PATH = WORK / "syncvsr_lrs3_visual_ctc.onnx"
+# Time axis position depends on which layout we ended up using:
+#   NTCHW: axis 1 = T
+#   NCTHW: axis 2 = T
+time_axis_idx = 1 if INPUT_LAYOUT == "NTCHW" else 2
 torch.onnx.export(
     wrapper,
     (dummy,),
@@ -373,7 +390,7 @@ torch.onnx.export(
     input_names=["video"],
     output_names=["logprobs"],
     dynamic_axes={
-        "video":   {0: "batch", 2: "time"},
+        "video":   {0: "batch", time_axis_idx: "time"},
         "logprobs": {0: "batch", 1: "t_out"},
     },
     opset_version=17,
@@ -426,7 +443,7 @@ cells.append(code("""\
 metadata = {
     "model_name": "syncvsr_lrs3_visual_ctc",
     "source_checkpoint": "Vox+LRS2+LRS3.ckpt",
-    "input_layout": "NCTHW",
+    "input_layout": INPUT_LAYOUT,
     "input_channels": 1,
     "input_height": 88,
     "input_width": 88,
