@@ -43,6 +43,28 @@ add_library( # Sets the name of the library.
 find_library(log-lib log)
 find_library(jnigraphics-lib jnigraphics)
 
+# KenLM Android prebuilts (cross-compiled by
+# tools/kaggle_build_kenlm_android.py, pulled by setup_libs.sh).
+# When the .a files are present, the JNI bridge compiles against the
+# real lm::ngram::Model API. When absent (CI / fresh checkout before
+# setup_libs.sh runs), kenlm_jni.cpp falls back to its stub which
+# reports load failure and the Kotlin layer no-ops cleanly.
+set(KENLM_NDK_DIR ${CMAKE_SOURCE_DIR}/kenlm/android-arm64)
+if(EXISTS ${KENLM_NDK_DIR}/libkenlm.a AND EXISTS ${KENLM_NDK_DIR}/libkenlm_util.a)
+    message(STATUS "KenLM NDK prebuilts found: enabling JNI bridge")
+    add_library(kenlm STATIC IMPORTED)
+    set_target_properties(kenlm PROPERTIES
+        IMPORTED_LOCATION ${KENLM_NDK_DIR}/libkenlm.a)
+    add_library(kenlm_util STATIC IMPORTED)
+    set_target_properties(kenlm_util PROPERTIES
+        IMPORTED_LOCATION ${KENLM_NDK_DIR}/libkenlm_util.a)
+    target_include_directories(liperty_cv PRIVATE ${KENLM_NDK_DIR}/include)
+    target_compile_definitions(liperty_cv PRIVATE KENLM_AVAILABLE=1)
+    target_link_libraries(liperty_cv kenlm kenlm_util z)
+else()
+    message(STATUS "KenLM NDK prebuilts missing at ${KENLM_NDK_DIR} -- kenlm_jni.cpp will be a stub")
+endif()
+
 # Specifies libraries CMake should link to your target library.
 target_link_libraries( # Specifies the target library.
                        liperty_cv

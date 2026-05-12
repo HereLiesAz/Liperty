@@ -161,31 +161,35 @@ transcriptionManager.appendText(rescored, ...)
 | LM binary build (Docker + KenLM) | ✓ shipped |
 | `LanguageModelScorer` interface + Noop | ✓ shipped |
 | `SubwordCtcBeamDecoder` rescoring | ✓ shipped (no-op when scorer absent) |
-| `KenLmScorer` Kotlin skeleton with native gating | ✓ shipped |
-| **KenLM JNI / `libkenlm.so`** | ✗ NOT BUILT — gates all LM-effect |
+| `KenLmScorer` Kotlin with native gating | ✓ shipped |
+| KenLM Android prebuilt (libkenlm.a + libkenlm_util.a) | ✓ at `HereLiesAz/liperty-lm/android-arm64` |
+| `setup_libs.sh` pulls prebuilt into `app/src/main/cpp/kenlm/` | ✓ shipped |
+| `CMakeLists.txt` links kenlm + kenlm_util into `liperty_cv` | ✓ shipped (guarded by `KENLM_AVAILABLE` macro) |
+| `kenlm_jni.cpp` real `lm::ngram::Model` implementation | ✓ shipped (still falls back to stub if the .a files are absent) |
 | Viseme map + index assets | ✓ shipped |
 | `VisemeRescorer` | ✓ shipped |
 | MainActivity wiring | ✓ shipped |
-| Unit tests | ✓ 32 new tests pass |
-| On-device WER measurement | ✗ not done — Phase A6 |
+| Unit tests | ✓ 40 new tests pass |
+| On-device validation that `KenLmScorer.isNativeLoaded` flips true | pending |
+| On-device WER measurement | pending — Phase A6 |
 
-**The single remaining blocker for all of this to do anything useful:** the KenLM native library. The Kotlin code paths all execute today, but every LM score returns 0 until `libkenlm.so` is packaged in the APK.
+**The build-side stack is complete.** A fresh checkout that runs `./setup_libs.sh && ./gradlew assembleDebug` produces an APK that ships `libliperty_cv.so` linked against `libkenlm.a`, with the LM scoring path active end-to-end. On-device validation (confirming `KenLmScorer.isNativeLoaded` flips to `true` on a real arm64 device and that the rescorer actually produces different output) is the next concrete step — and the gating step for Phase A6's WER sweep.
 
 ---
 
-## Phase A3b/c: building libkenlm.so
+## Phase A3b/c: KenLM JNI build (done)
 
-The work to unblock the rescoring stack:
+The rescoring-stack-blocking work, now complete:
 
-1. **Vendor KenLM source** into `app/src/main/cpp/kenlm/`. The kpu/kenlm repo is small (~150 .cc/.hh files). Either submodule it or copy the headers + sources directly.
-2. **Add a CMakeLists.txt target** alongside the existing OpenCV integration. Build the static parts of KenLM as a static lib, then link into `libkenlm.so` together with the JNI bridge.
-3. **Write `kenlm_jni.cpp`** exposing the three native methods declared in `KenLmScorer.kt`:
-   - `nativeLoad(modelPath: String) -> jlong` — load the binary into a `lm::ngram::Model`, return its pointer cast to `jlong`.
-   - `nativeScore(handle: jlong, words: Array<String>) -> jfloat` — walk the words through `model.FullScoreForgotState`, sum the log10 probabilities.
-   - `nativeFree(handle: jlong)` — delete the `Model`.
-4. **Configure NDK build** in `app/build.gradle.kts` to produce arm64-v8a (primary) and armeabi-v7a (optional, deprecated).
+1. **KenLM cross-compiled for Android arm64-v8a** via [`tools/kaggle_build_kenlm_android.py`](../tools/kaggle_build_kenlm_android.py). Inference-only build (training-pipeline subdirs excluded), no Boost dependency. Output: `libkenlm.a` (~10 MB) + `libkenlm_util.a` (~3 MB) at [`HereLiesAz/liperty-lm/android-arm64`](https://huggingface.co/HereLiesAz/liperty-lm/tree/main/android-arm64).
+2. **`app/src/main/cpp/CMakeLists.txt`** declares the two as `IMPORTED STATIC` targets, adds the include path, links into `liperty_cv`. Defines a `KENLM_AVAILABLE` compile macro when the `.a` files are present (so a fresh checkout that hasn't run `setup_libs.sh` builds cleanly with `kenlm_jni.cpp` falling back to its stub).
+3. **`kenlm_jni.cpp`** ships real implementations of the three native methods declared in `KenLmScorer.kt`:
+   - `nativeLoad(modelPath)` — `lm::ngram::LoadVirtual(path)` (auto-detects binary format), wraps in try/catch, returns the polymorphic `lm::base::Model*` cast to `jlong`.
+   - `nativeScore(handle, words[])` — `model->BeginSentenceWrite(state)`, loop `model->BaseScore(state, vocab.Index(word), out_state)` ping-ponging two state buffers sized by `model->StateSize()`, sum log10 probabilities.
+   - `nativeFree(handle)` — `delete` the Model pointer.
+4. **`setup_libs.sh`** pulls `android-arm64/` from HF into `app/src/main/cpp/kenlm/` via `huggingface-cli` (with `huggingface_hub` Python fallback).
 
-Estimated effort: 4-8 hours of focused NDK work. The blockers are NDK cross-compile quirks rather than algorithmic complexity. KenLM has no exotic deps — just C++ stdlib + zlib for compressed model files.
+On a fresh clone: `./setup_libs.sh && ./gradlew assembleDebug` produces an APK where `KenLmScorer.tryLoad(path).isNativeLoaded` returns `true` — assuming a real `librispeech_3gram.bin` ships in `assets/` (also pulled by `setup_libs.sh`).
 
 ---
 

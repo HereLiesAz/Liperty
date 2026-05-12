@@ -281,6 +281,37 @@ KENLM_HF_REPO="HereLiesAz/liperty-lm"
 KENLM_FILE="librispeech_3gram.bin"
 download_from_hf_repo "$KENLM_HF_REPO" "$KENLM_FILE" "${TARGET_ASSETS}/${KENLM_FILE}" || true
 
+# --- KenLM Android NDK prebuilts (arm64-v8a) ---
+# Cross-compiled by tools/kaggle_build_kenlm_android.py and pulled
+# into app/src/main/cpp/kenlm/android-arm64/ so the NDK build can link
+# against libkenlm.a + libkenlm_util.a. Without these, kenlm_jni.cpp
+# compiles as a stub that returns 0 (KenLmScorer.isNativeLoaded stays
+# false and the rescoring stack is a no-op).
+KENLM_NDK_DIR="app/src/main/cpp/kenlm/android-arm64"
+mkdir -p "$KENLM_NDK_DIR"
+if [ ! -f "${KENLM_NDK_DIR}/libkenlm.a" ]; then
+    echo "[+] Pulling KenLM Android prebuilts from ${KENLM_HF_REPO}..."
+    if command -v huggingface-cli &> /dev/null; then
+        huggingface-cli download "$KENLM_HF_REPO" \
+            --include "android-arm64/*" \
+            --local-dir "app/src/main/cpp/kenlm" --quiet 2>&1 | tail -2
+    elif command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; then
+        python -c "
+from huggingface_hub import snapshot_download
+snapshot_download(repo_id='$KENLM_HF_REPO', repo_type='model',
+                  allow_patterns=['android-arm64/*'],
+                  local_dir='app/src/main/cpp/kenlm')
+" 2>&1 | tail -2
+    else
+        echo "[!] Skipping KenLM NDK prebuilts: need huggingface-cli or python+huggingface_hub"
+    fi
+    if [ -f "${KENLM_NDK_DIR}/libkenlm.a" ]; then
+        echo "[+] KenLM NDK prebuilts installed ($(du -sh "$KENLM_NDK_DIR" | cut -f1))"
+    fi
+else
+    echo "[*] KenLM NDK prebuilts already present at ${KENLM_NDK_DIR}"
+fi
+
 # --- TTS / Voice Cloning ONNX Models ---
 # Pre-converted ONNX models for PocketTTSEngine (voice cloning pipeline).
 # If not available from GitHub Releases, generate them locally with:

@@ -1,56 +1,122 @@
-// JNI bridge between Kotlin's KenLmScorer and the native KenLM
-// n-gram language model. Used by Liperty's CTC + viseme rescoring
-// stack (see docs/LM_RESCORING.md).
+// JNI bridge between Kotlin's KenLmScorer and the native KenLM n-gram
+// language model. Used by Liperty's CTC + viseme rescoring stack
+// (see docs/LM_RESCORING.md).
 //
-// CURRENT STATUS: stub. The real KenLM source needs to be vendored
-// into app/src/main/cpp/kenlm/ (planned in setup_libs.sh) and built
-// via CMakeLists.txt. Until then, nativeLoad returns 0, signaling
-// to KenLmScorer.tryLoad() that the native library is "present but
-// not functional" — which it gracefully falls back from by setting
-// isNativeLoaded=false and treating every score() call as a no-op.
-//
-// Once KenLM is vendored, the three functions below will be replaced
-// with:
-//   - nativeLoad: open the .bin file via lm::ngram::Model
-//   - nativeScore: walk the words through model.FullScoreForgotState,
-//     accumulating log10 probabilities
-//   - nativeFree: delete the Model handle
+// Build modes:
+//   - KENLM_AVAILABLE defined: real `lm::ngram::Model` implementation,
+//     links against `libkenlm.a` + `libkenlm_util.a` from
+//     `kenlm/android-arm64/` (fetched by setup_libs.sh from
+//     `HereLiesAz/liperty-lm/android-arm64`).
+//   - KENLM_AVAILABLE undefined: stub. `nativeLoad` returns 0;
+//     `KenLmScorer.tryLoad()` then reports `isNativeLoaded = false`
+//     and the Kotlin layer no-ops every score call. Build still
+//     succeeds on a fresh checkout that hasn't run setup_libs.sh.
 
 #include <jni.h>
 #include <android/log.h>
+#include <string>
+#include <vector>
 
 #define LOG_TAG "kenlm_jni"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+#ifdef KENLM_AVAILABLE
+#  include "lm/model.hh"
+#  include "lm/virtual_interface.hh"
+#endif
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_hereliesaz_liperty_ml_KenLmScorer_00024Companion_nativeLoad(
         JNIEnv *env, jobject /* this */, jstring jModelPath) {
     const char *modelPath = env->GetStringUTFChars(jModelPath, nullptr);
-    LOGI("KenLM nativeLoad('%s') called — STUB IMPL, returning 0", modelPath);
+
+#ifdef KENLM_AVAILABLE
+    LOGI("nativeLoad('%s')", modelPath);
+    lm::base::Model *model = nullptr;
+    try {
+        lm::ngram::Config config;
+        config.show_progress = false;
+        config.messages = nullptr;
+        // LoadVirtual auto-detects the model's binary format (probing,
+        // trie, quant_trie, quant_array_trie). Our published LM is
+        // trie+q8 -- see tools/kaggle_build_kenlm_android.py's build
+        // flags. Returns a polymorphic Model* implementing
+        // lm::base::Model's virtual interface.
+        model = lm::ngram::LoadVirtual(modelPath, config);
+        LOGI("  loaded, state_size=%zu", model->StateSize());
+    } catch (const std::exception &e) {
+        LOGE("  load failed: %s", e.what());
+        delete model;
+        model = nullptr;
+    } catch (...) {
+        LOGE("  load failed: unknown exception");
+        model = nullptr;
+    }
     env->ReleaseStringUTFChars(jModelPath, modelPath);
-    // Returning 0 signals to KenLmScorer.tryLoad that loading failed,
-    // and the Kotlin layer falls back to no-op scoring. This is the
-    // correct behavior while the KenLM source is not yet vendored.
+    return reinterpret_cast<jlong>(model);
+#else
+    LOGW("nativeLoad('%s') -- KENLM_AVAILABLE not defined; returning 0", modelPath);
+    env->ReleaseStringUTFChars(jModelPath, modelPath);
     return 0L;
+#endif
 }
 
 extern "C" JNIEXPORT jfloat JNICALL
 Java_com_hereliesaz_liperty_ml_KenLmScorer_nativeScore(
         JNIEnv *env, jobject /* this */, jlong handle, jobjectArray jWords) {
-    // Unreachable in practice: KenLmScorer.score() short-circuits when
-    // handle == 0, and tryLoad() never returns an instance with a
-    // non-zero handle while this is a stub.
+#ifdef KENLM_AVAILABLE
     if (handle == 0L) {
-        LOGW("nativeScore called with handle=0; this should be unreachable");
+        LOGW("nativeScore: null handle");
+        return 0.0f;
     }
+    auto *model = reinterpret_cast<lm::base::Model *>(handle);
+    const lm::base::Vocabulary &vocab = model->BaseVocabulary();
+
+    // KenLM state is an opaque struct whose size depends on the model
+    // type (trie vs probing) and KENLM_MAX_ORDER. Allocate from
+    // StateSize() and ping-pong two buffers across the word loop.
+    const std::size_t state_size = model->StateSize();
+    std::vector<char> state_buf(state_size);
+    std::vector<char> out_buf(state_size);
+    model->BeginSentenceWrite(state_buf.data());
+
+    jint n = env->GetArrayLength(jWords);
+    float total = 0.0f;
+    for (jint i = 0; i < n; ++i) {
+        auto jword = reinterpret_cast<jstring>(env->GetObjectArrayElement(jWords, i));
+        if (jword == nullptr) continue;
+        const char *word = env->GetStringUTFChars(jword, nullptr);
+
+        // vocab.Index returns 0 (== <unk>) for OOV words. Add the unk
+        // penalty just like any other token; the LM was trained with
+        // its own unk handling.
+        lm::WordIndex wid = vocab.Index(word);
+        total += model->BaseScore(state_buf.data(), wid, out_buf.data());
+
+        env->ReleaseStringUTFChars(jword, word);
+        env->DeleteLocalRef(jword);
+
+        // Swap buffers: out becomes new state, old state buffer is
+        // reused as the next out.
+        state_buf.swap(out_buf);
+    }
+    return total;
+#else
+    LOGW("nativeScore: KENLM_AVAILABLE not defined; returning 0");
     return 0.0f;
+#endif
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_hereliesaz_liperty_ml_KenLmScorer_nativeFree(
-        JNIEnv *env, jobject /* this */, jlong handle) {
+        JNIEnv * /* env */, jobject /* this */, jlong handle) {
+#ifdef KENLM_AVAILABLE
     if (handle != 0L) {
-        LOGI("nativeFree(handle=%lld) called", (long long) handle);
+        delete reinterpret_cast<lm::base::Model *>(handle);
     }
+#else
+    (void) handle;
+#endif
 }
