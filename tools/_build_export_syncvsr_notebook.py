@@ -224,24 +224,48 @@ If the import path differs from the assumption below, the error message
 will point us at the correct module path inside `SyncVSR/LRS/video/`.
 """))
 cells.append(code("""\
-# Pre-import shim: espnet's asr_utils.PlotAttentionReport ends up as
-# None when matplotlib's plot bits don't resolve (common on Kaggle's
-# image where some matplotlib_inline plumbing is missing). Then
-# espnet.nets.pytorch_backend.transformer.plot tries
-#   class PlotAttentionReport(asr_utils.PlotAttentionReport):
-# and gets "NoneType takes no arguments". Replace with a stub so the
-# subclass declaration parses. We don't need attention plotting for
-# inference -- the wrapper exports encoder + CTC only.
+# === Pre-import patches ===
+# These three fixes are needed before `from lightning import ModelModule`
+# on a Kaggle env. Found the hard way during the original export
+# session; baked in here so a fresh kernel can run top-to-bottom.
+
+# 1. Source-patch the bundled E2E so the `if self.codec is not None`
+# check works even when fairseq isn't installed (Kaggle doesn't
+# ship fairseq and we don't need it for inference; the wav2vec2
+# audio codec is training-time-only). The replacement uses getattr
+# so `self.codec` undefined behaves like None.
+_e2e_src = LRS_VIDEO / "espnet" / "nets" / "pytorch_backend" / "e2e_asr_transformer.py"
+_src = _e2e_src.read_text()
+_patched = _src.replace(
+    "if self.codec is not None:",
+    "if getattr(self, 'codec', None) is not None:",
+)
+if _patched != _src:
+    _e2e_src.write_text(_patched)
+    print(f"Patched {_e2e_src.name}: codec attribute guarded")
+
+# 2. Stub espnet's asr_utils.PlotAttentionReport if it's None
+# (matplotlib's plotting submodule is missing on Kaggle). Without
+# this, espnet's transformer.plot crashes its class declaration
+# with "NoneType takes no arguments".
 import espnet.asr.asr_utils as _asr_utils
 if getattr(_asr_utils, "PlotAttentionReport", None) is None:
     _asr_utils.PlotAttentionReport = type("_StubPAR", (), {})
     print("Patched espnet.asr.asr_utils.PlotAttentionReport with stub")
 
-# SyncVSR's LightningModule lives in lightning.py at the LRS/video
-# root (flat layout). It's called `ModelModule` and wraps espnet's
-# E2E visual-speech transformer at self.model.
+# 3. Import the LightningModule.
 from lightning import ModelModule
 print("LightningModule:", ModelModule)
+
+# 4. lightning.py captured E2E at module load time. If pip's espnet
+# (3-arg E2E) was in sys.modules then, ModelModule will call the
+# wrong E2E even though we uninstalled pip. Rebind explicitly to the
+# bundled fork's E2E so the upcoming instantiation uses the right one.
+from espnet.nets.pytorch_backend.e2e_asr_transformer import E2E as _good_E2E
+import lightning as _lm
+_lm.E2E = _good_E2E
+import inspect
+print(f"lightning.E2E now: {inspect.signature(_lm.E2E.__init__)}")
 """))
 
 cells.append(code("""\
