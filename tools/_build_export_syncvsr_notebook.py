@@ -220,7 +220,8 @@ cells.append(code("""\
 # to torch.load(cfg.ckpt_path) for a frontend pretrain ckpt we don't
 # have on Kaggle. Null out cfg.ckpt_path + transfer_frontend first,
 # then instantiate and load the actual checkpoint's state_dict.
-cfg = ckpt["hyper_parameters"]["cfg"]
+cfg = ckpt["hyper_parameters"]   # already the flat OmegaConf cfg,
+                                  # not nested under a "cfg" key
 cfg.ckpt_path = ""           # skip frontend pretrain load in __init__
 cfg.transfer_frontend = False
 
