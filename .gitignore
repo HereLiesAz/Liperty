@@ -46,3 +46,25 @@ app/src/main/assets.zip
 app/src/main/assets/vallr_model.tflite
 vallr_model.onnx
 /bash.exe.stackdump
+
+# OpenCV Android SDK (1.4 GB; re-downloaded by setup_libs.sh).
+# Was tracked in git by accident; removed in the commit that added
+# this entry.
+app/src/main/cpp/libs/opencv/
+
+# KenLM Android prebuilts (~13 MB; pulled from HF by setup_libs.sh).
+app/src/main/cpp/kenlm/
+
+# Auto-AVSR / AV-HuBERT / KenLM / PocketTTS model assets pulled by
+# setup_libs.sh from HuggingFace / GitHub Releases. Tens of MB to GB
+# each, and version-coupled to setup_libs.sh -- not safe to track.
+app/src/main/assets/autoavsr_lrs3_visual_ctc.onnx
+app/src/main/assets/avhubert_base_vox_433h_decoder.onnx
+app/src/main/assets/avhubert_base_vox_433h_visual_encoder.onnx
+app/src/main/assets/avhubert_base_vox_433h_dict.txt
+app/src/main/assets/unigram5000_units.txt
+app/src/main/assets/librispeech_3gram.bin
+app/src/main/assets/pocket_tts_acoustic.onnx
+app/src/main/assets/pocket_tts_speaker.onnx
+app/src/main/assets/pocket_tts_vocoder.onnx
+app/src/main/assets/pocket_tts_vc.onnx
