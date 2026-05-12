@@ -96,13 +96,13 @@ print("Working dir:", WORK)
 """))
 
 cells.append(code("""\
-# Install pinned ML stack. SyncVSR is PyTorch-Lightning-based and uses
-# ESPnet's E2E transformer; the requirements file in their repo is the
-# authoritative source so we defer the install to the next cell after
-# the clone.
+# Install onnx + onnxruntime. We do NOT install huggingface_hub because
+# Kaggle's pre-installed transformers (5.0.x) needs huggingface_hub
+# >=1.3, and an aggressive --upgrade with our own constraint will
+# downgrade it to a transformers-incompatible version. Whatever Kaggle
+# ships is fine for `upload_folder` at the end of this notebook.
 subprocess.check_call([
-    sys.executable, "-m", "pip", "install", "-q", "--upgrade",
-    "huggingface_hub>=0.27,<1.0",
+    sys.executable, "-m", "pip", "install", "-q",
     "onnx>=1.17", "onnxruntime>=1.20",
 ])
 import torch
