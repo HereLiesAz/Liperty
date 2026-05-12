@@ -5,7 +5,11 @@
 # TARGET_ASSETS: app/src/main/assets
 
 # Configuration
-OPENCV_VERSION="4.10.0"
+# OpenCV 4.13.0 ships native libs aligned to 16 KiB pages (.so segments
+# at 0x4000 instead of 0x1000), so libopencv_java4.so is 16 KB-compatible
+# on Android 15. The build.gradle patches below still apply -- the SDK
+# layout hasn't changed.
+OPENCV_VERSION="4.13.0"
 OPENCV_ZIP="opencv-${OPENCV_VERSION}-android-sdk.zip"
 OPENCV_URL="https://github.com/opencv/opencv/releases/download/${OPENCV_VERSION}/${OPENCV_ZIP}"
 TARGET_LIBS="app/src/main/cpp/libs"
@@ -64,35 +68,68 @@ else
 
         OPENCV_BUILD_GRADLE="${TARGET_OPENCV}/sdk/build.gradle"
         if [ -f "$OPENCV_BUILD_GRADLE" ]; then
-            echo "[+] Patching OpenCV build.gradle..."
+            # Replace OpenCV's shipped build.gradle outright with a minimal
+            # AGP 9 / Java 17 -compatible one. The brittle sed patches we used
+            # for 4.10.0 broke against 4.13.0's reorganized layout (orphan
+            # braces left after externalNativeBuild/prefab block deletions).
+            # Since we only need to package the prebuilt .so files from
+            # native/libs and the Java sources from java/src as an Android
+            # library module, the minimal config below is sufficient and
+            # version-stable.
+            echo "[+] Writing replacement build.gradle for OpenCV module..."
+            cat > "$OPENCV_BUILD_GRADLE" <<'GRADLE_EOF'
+// Minimal replacement for OpenCV's shipped build.gradle.
+// Written by setup_libs.sh.
+// We only need OpenCV as an Android library that exposes:
+//   - prebuilt .so files from native/libs (consumed by libliperty_cv.so
+//     via find_package(OpenCV) in app/src/main/cpp/CMakeLists.txt)
+//   - Java classes from java/src (org.opencv.* API surface)
+// We don't need OpenCV's externalNativeBuild, prefab, or maven-publish
+// blocks -- the app links directly against the prebuilts.
+apply plugin: 'com.android.library'
 
-            # 5. Patch for AGP 9.0 Compatibility (ProGuard)
-            # Replace deprecated 'proguard-android.txt' with 'proguard-android-optimize.txt'
-            sed 's/proguard-android.txt/proguard-android-optimize.txt/g' "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
+android {
+    namespace 'org.opencv'
+    compileSdk 34
 
-            # 6. Patch for JVM Target Compatibility (Java 17)
-            echo "[+] Upgrading OpenCV source compatibility to Java 17..."
-            sed 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
+    defaultConfig {
+        minSdkVersion 21
+    }
 
-            # 7. Patch for AGP 9 built-in Kotlin (remove kotlin-android plugin)
-            echo "[+] Removing kotlin-android plugin for AGP 9 compatibility..."
-            sed "/apply plugin: 'kotlin-android'/d" "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
 
-            # 8. Replace deprecated compileSdkVersion with compileSdk
-            sed 's/compileSdkVersion /compileSdk /g' "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
+    buildFeatures {
+        buildConfig true
+    }
 
-            # 9. Remove kotlinOptions block (no longer needed without kotlin-android plugin)
-            sed '/kotlinOptions {/,/}/d' "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
+    buildTypes {
+        debug {
+            packagingOptions {
+                doNotStrip '**/*.so'
+            }
+        }
+        release {
+            packagingOptions {
+                doNotStrip '**/*.so'
+            }
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.txt'
+        }
+    }
 
-            # 10. Remove externalNativeBuild blocks (avoids ninja/Google Drive conflicts;
-            #     prebuilt .so files are already in jniLibs, app CMake links directly)
-            echo "[+] Removing externalNativeBuild from OpenCV module..."
-            sed '/externalNativeBuild {/,/}/d' "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
-
-            # 11. Remove prefab blocks (app links OpenCV via its own CMakeLists.txt)
-            sed '/prefabPublishing/d' "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
-            sed '/prefab {/,/}/d' "$OPENCV_BUILD_GRADLE" > "${OPENCV_BUILD_GRADLE}.tmp" && mv "${OPENCV_BUILD_GRADLE}.tmp" "$OPENCV_BUILD_GRADLE"
-
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['native/libs']
+            java.srcDirs = ['java/src']
+            res.srcDirs = ['java/res']
+            manifest.srcFile 'java/AndroidManifest.xml'
+        }
+    }
+}
+GRADLE_EOF
         else
             echo "[!] Warning: OpenCV build.gradle not found at $OPENCV_BUILD_GRADLE"
         fi
