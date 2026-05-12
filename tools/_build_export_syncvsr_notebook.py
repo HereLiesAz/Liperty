@@ -140,8 +140,38 @@ else:
 LRS_VIDEO = SYNCVSR_SRC / "LRS" / "video"
 sys.path.insert(0, str(LRS_VIDEO))
 os.chdir(LRS_VIDEO)
+
+# SyncVSR vendors its own espnet fork (LRS/video/espnet/) whose
+# E2E signature is (odim, args) -- 2 args, not the stock espnet's
+# (idim, odim, args). Their ModelModule calls the 2-arg form, so we
+# MUST use the bundled fork. The pip-installed espnet (5.0.x range)
+# at /usr/local/lib/python3.12/dist-packages/espnet shadows the
+# bundled one for any `import espnet.*` even with LRS_VIDEO at
+# sys.path[0], because pip ships an `__init__.py` while the bundled
+# tree may not be a proper package. Uninstall the pip one so the
+# bundled espnet is the only candidate.
+subprocess.check_call([
+    sys.executable, "-m", "pip", "uninstall", "-y", "-q", "espnet",
+])
+
+# Drop any cached espnet imports so subsequent imports re-resolve.
+for mod_name in list(sys.modules):
+    if mod_name == "espnet" or mod_name.startswith("espnet."):
+        del sys.modules[mod_name]
+
+# Make sure LRS/video/espnet/ is package-importable. SyncVSR's
+# bundled fork may not ship __init__.py at every level; touch any
+# missing ones so namespace resolution works.
+import os as _os
+for d in _os.walk(LRS_VIDEO / "espnet"):
+    init = _os.path.join(d[0], "__init__.py")
+    if not _os.path.exists(init):
+        with open(init, "w") as _f:
+            _f.write("")
+
 print("SyncVSR cloned to:", SYNCVSR_SRC)
 print("cwd:", os.getcwd())
+print("Using bundled espnet from", LRS_VIDEO / "espnet")
 """))
 
 cells.append(md("## 3. Download the pretrained checkpoint"))
