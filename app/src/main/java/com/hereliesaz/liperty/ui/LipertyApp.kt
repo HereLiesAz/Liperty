@@ -195,6 +195,20 @@ fun LipertyApp(
                 color   = Color.White
             )
 
+            // Per-user viseme-confusion calibration. Walks the user
+            // through a curated list of visually-ambiguous words (built
+            // by tools/build_viseme_confusion_sets.py) recording each
+            // one for downstream LoRA training. Distinct from the
+            // legacy "calibrate" entry above, which trains the legacy
+            // phoneme TFLite model on pangram phrases.
+            azRailItem(
+                id      = "viseme_calibrate",
+                text    = context.getString(R.string.nav_train),
+                route   = "viseme_calibrate",
+                content = Icons.Filled.PlayArrow,
+                color   = Color.White
+            )
+
             azRailItem(
                 id      = "settings",
                 text    = context.getString(R.string.nav_settings),
@@ -486,6 +500,64 @@ fun LipertyApp(
                             onDone = { navController.popBackStack() },
                             vm = calibrationVm
                         )
+                    }
+
+                    composable("viseme_calibrate") {
+                        // Per-user viseme calibration writes biometric data
+                        // (lip-cropped video frames + word labels) to disk
+                        // via PairedTrainingStore, which requires the
+                        // SEPARATE personalization opt-in. Distinct from
+                        // the app-launch biometric-processing consent —
+                        // this consent gates ON-DISK persistence.
+                        val ctx = androidx.compose.ui.platform.LocalContext.current
+                        val consentMgr = androidx.compose.runtime.remember {
+                            com.hereliesaz.liperty.personalization.PersonalizationConsentManager(ctx)
+                        }
+                        var hasConsent by androidx.compose.runtime.remember {
+                            androidx.compose.runtime.mutableStateOf(consentMgr.hasConsent())
+                        }
+                        if (!hasConsent) {
+                            PersonalizationConsentDialog(
+                                onAccept = {
+                                    consentMgr.grantConsent()
+                                    hasConsent = true
+                                },
+                                onDecline = { navController.popBackStack() },
+                            )
+                        } else {
+                            // Build the VM lazily via a factory so the PairedTrainingStore
+                            // and the loaded confusion sets can be hoisted into it. The
+                            // store roots its files under filesDir/viseme_calibration/
+                            // which the personalization consent flow's "delete all"
+                            // pathway already wipes.
+                            val vm: com.hereliesaz.liperty.personalization.VisemeCalibrationViewModel =
+                                androidx.lifecycle.viewmodel.compose.viewModel(
+                                    factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                                        @Suppress("UNCHECKED_CAST")
+                                        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                                            val storeDir = java.io.File(ctx.filesDir, "viseme_calibration")
+                                            val store = com.hereliesaz.liperty.personalization.PairedTrainingStore(storeDir)
+                                            // Top-50 by score is ~150 words, ~5-15 min
+                                            // of focused recording -- a reasonable
+                                            // first session length.
+                                            val sets = com.hereliesaz.liperty.personalization.ConfusionSetLoader.load(
+                                                context = ctx,
+                                                maxSets = 50,
+                                                maxSetSize = 4,
+                                            )
+                                            return com.hereliesaz.liperty.personalization.VisemeCalibrationViewModel(
+                                                store = store,
+                                                sets = sets,
+                                            ) as T
+                                        }
+                                    }
+                                )
+                            VisemeCalibrationScreen(
+                                vm = vm,
+                                onRegisterFrameCallback = onRegisterCalibrationCallback,
+                                onClose = { navController.popBackStack() },
+                            )
+                        }
                     }
 
                     composable("voice_mgmt") {

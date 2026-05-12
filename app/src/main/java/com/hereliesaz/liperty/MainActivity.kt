@@ -150,6 +150,22 @@ class MainActivity : ComponentActivity() {
         // for a research build that exercises the new path end-to-end.
         const val USE_V3_BACKEND = false
 
+        // SyncVSR seq2seq path: encoder (no CTC head, hidden states only)
+        // + attention decoder + greedy autoregressive loop. This replaces
+        // the CTC head decode (the active CTC path is encoder+CTC -> beam
+        // search) with the model's own attention decoder, which was
+        // jointly trained alongside the CTC head and should give better
+        // accuracy at the cost of N^2 per-step decoder ONNX runs. ONNX
+        // assets pulled by setup_libs.sh from HereLiesAz/liperty-syncvsr-onnx:
+        //   syncvsr_lrs3_encoder.onnx       (~759 MB, NTCHW)
+        //   syncvsr_lrs3_decoder.onnx       (~273 MB)
+        //   syncvsr_unigram_units.txt       (5049 tokens; blank=0, eos=5048)
+        // Only active when VSR_BACKEND == BACKEND_SYNC_VSR; the
+        // Auto-AVSR backend doesn't have an exported attention decoder.
+        const val SYNCVSR_USE_SEQ2SEQ = true
+        const val SYNCVSR_SEQ2SEQ_ENCODER = "syncvsr_lrs3_encoder.onnx"
+        const val SYNCVSR_SEQ2SEQ_DECODER = "syncvsr_lrs3_decoder.onnx"
+
         // KenLM n-gram language model for n-best rescoring on top of CTC
         // beam search (Phase A — see docs/AVHUBERT_V3_BACKEND.md). Pulled
         // by setup_libs.sh from HereLiesAz/liperty-lm. LibriSpeech 3-gram
@@ -176,6 +192,12 @@ class MainActivity : ComponentActivity() {
      *  is true and the assets are present. Research path; not yet
      *  validated on real users. See docs/AVHUBERT_V3_BACKEND.md. */
     private var avhubertV3: AvHubertSeq2SeqInference? = null
+    /** SyncVSR seq2seq backend (encoder + attention decoder, no CTC).
+     *  Non-null only when both VSR_BACKEND == BACKEND_SYNC_VSR and
+     *  [SYNCVSR_USE_SEQ2SEQ] are true AND the ONNX assets loaded. When
+     *  set, the inference pipeline routes the rolling window through
+     *  this object instead of [vsrInference] (the CTC path). */
+    private var syncVsrSeq2Seq: AvHubertSeq2SeqInference? = null
     /** Viseme-aware post-rescorer. Non-null when both the viseme index
      *  and the KenLM language model loaded successfully. See
      *  [VisemeRescorer] for the algorithm — it's the "Chaplin's second
@@ -350,6 +372,27 @@ class MainActivity : ComponentActivity() {
                     avhubertV3 = null
                 }
             }
+
+            if (VSR_BACKEND == BACKEND_SYNC_VSR && SYNCVSR_USE_SEQ2SEQ) {
+                // SyncVSR seq2seq path. Asset misses (the encoder/decoder
+                // ONNX files not bundled by setup_libs.sh) are non-fatal —
+                // we leave the field null and the inference loop falls
+                // back to the CTC path via vsrInference.
+                try {
+                    syncVsrSeq2Seq = AvHubertSeq2SeqInference.createSyncVsr(
+                        context = this,
+                        encoderAsset = SYNCVSR_SEQ2SEQ_ENCODER,
+                        decoderAsset = SYNCVSR_SEQ2SEQ_DECODER,
+                        vocabAsset = AUTOAVSR_VOCAB,
+                        numFrames = 16,
+                    ).also {
+                        Log.i("MainActivity", "SyncVSR seq2seq backend constructed")
+                    }
+                } catch (e: Exception) {
+                    Log.w("MainActivity", "SyncVSR seq2seq init skipped (${e.message}); using CTC")
+                    syncVsrSeq2Seq = null
+                }
+            }
             coreInitialized = true
         } catch (e: Exception) {
             Log.e("MainActivity", "Failed to initialize components", e)
@@ -367,6 +410,14 @@ class MainActivity : ComponentActivity() {
                     if (!it.initialize()) {
                         Log.w("MainActivity", "V3 backend.initialize() returned false; falling back to V2")
                         avhubertV3 = null
+                    }
+                }
+                syncVsrSeq2Seq?.let {
+                    if (!it.initialize()) {
+                        Log.w("MainActivity", "SyncVSR seq2seq init returned false; falling back to CTC")
+                        syncVsrSeq2Seq = null
+                    } else {
+                        Log.i("MainActivity", "SyncVSR seq2seq backend initialized")
                     }
                 }
             }
@@ -974,12 +1025,20 @@ class MainActivity : ComponentActivity() {
 
                 lifecycleScope.launch(Dispatchers.Default) {
                     val v3 = avhubertV3
-                    val vsrResult = if (v3 != null) {
-                        // V3 path: AV-HuBERT seq2seq. Doesn't consume the lip
-                        // landmarks — the encoder takes only mouth ROIs.
-                        v3.runInference(framesToProcess)
-                    } else {
-                        vsrInference.runInference(framesToProcess, landmarksToProcess)
+                    val sync2 = syncVsrSeq2Seq
+                    val vsrResult = when {
+                        v3 != null -> {
+                            // V3 path: AV-HuBERT seq2seq. Doesn't consume the lip
+                            // landmarks — the encoder takes only mouth ROIs.
+                            v3.runInference(framesToProcess)
+                        }
+                        sync2 != null -> {
+                            // SyncVSR seq2seq: encoder hidden states + attention
+                            // decoder greedy autoregressive loop. Same lip-ROI
+                            // input as the CTC path; landmarks unused.
+                            sync2.runInference(framesToProcess)
+                        }
+                        else -> vsrInference.runInference(framesToProcess, landmarksToProcess)
                     }
                     // Once inference is complete, explicitly recycle the frames
                     for (frame in framesToProcess) {
@@ -1042,6 +1101,10 @@ class MainActivity : ComponentActivity() {
         if (::handGestureHelper.isInitialized) handGestureHelper.close()
         if (::laryngealSensor.isInitialized) laryngealSensor.stop()
         if (::vsrInference.isInitialized) vsrInference.close()
+        avhubertV3?.close()
+        avhubertV3 = null
+        syncVsrSeq2Seq?.close()
+        syncVsrSeq2Seq = null
         if (::ssrInference.isInitialized) ssrInference.close()
         if (::frameBuffer.isInitialized) frameBuffer.clearAndRecycle()
         if (::voiceManager.isInitialized) {

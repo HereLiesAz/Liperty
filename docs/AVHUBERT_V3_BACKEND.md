@@ -10,6 +10,17 @@ trained on LRS3 + VoxCeleb2)**.
 The Auto-AVSR backend stays the production path until V3 demonstrates
 a concrete WER improvement on real Liperty input on real hardware.
 
+> **Update 2026-05-12.** The seq2seq orchestrator originally built for
+> V3 (`AvHubertSeq2SeqInference`) has been generalized: it now also
+> drives the **SyncVSR** seq2seq path (KAIST-AILab Vox+LRS2+LRS3,
+> NTCHW input, attention decoder exported alongside the encoder by
+> `tools/syncvsr_export_stage3_decoder.py` + `..._stage4_encoder.py`).
+> Selected by `MainActivity.SYNCVSR_USE_SEQ2SEQ`; falls back to the
+> SyncVSR CTC path if the new ONNX files aren't present. The class
+> name still says "AvHubert" because moving it would churn imports
+> across the codebase without changing behavior — the rename is a
+> follow-up task.
+
 ---
 
 ## Why bother

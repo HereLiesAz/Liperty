@@ -13,7 +13,15 @@ object BpeDetokenizer {
 
     private const val SP_SPACE = "▁"   // SentencePiece `▁`
 
-    private val SPECIALS = setOf("<s>", "</s>", "<pad>", "<unk>")
+    // Union of fairseq (AV-HuBERT) and espnet (SyncVSR / Auto-AVSR)
+    // special tokens. Stripped wherever they appear in the decoded
+    // sequence. <eos> and <sos> matter here because espnet's attention
+    // decoder reuses the same id for both sentence boundaries, and our
+    // greedy loop keeps the terminating EOS in the token list it returns.
+    private val SPECIALS = setOf(
+        "<s>", "</s>", "<pad>", "<unk>",
+        "<blank>", "<eos>", "<sos>", "<sos/eos>",
+    )
 
     fun detokenize(tokenIds: IntArray, dict: List<String>): String {
         val sb = StringBuilder()

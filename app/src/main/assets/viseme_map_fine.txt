@@ -1,0 +1,127 @@
+# Fine-grained ARPABET phoneme -> viseme class, FOR LORA TRAINING ONLY.
+#
+# Distinct from viseme_map.txt (9 classes), which is intentionally coarse
+# to maximize VisemeRescorer's LM candidate pool at runtime. This finer
+# map (12 classes) splits V1 by jaw aperture + lip rounding so that
+# confusion sets built from it represent truly visually-ambiguous
+# distinctions — words where outside-the-mouth cues genuinely fail to
+# discriminate. Distinctions that ARE visible (open vs close jaw, neutral
+# vs rounded lips) get separated, so LoRA's gradient is spent on the
+# distinctions that matter (B vs P vs M with matching vowel; T vs D vs N
+# with matching vowel; etc.) instead of being diluted across the easy
+# vowel discriminations the base model already gets right.
+#
+# Format and override behavior are identical to viseme_map.txt — same
+# parser code, just a different file. Consumed only by
+# tools/build_viseme_confusion_sets.py. VisemeRescorer continues to use
+# the 9-class map and its prebuilt viseme_index.json.
+#
+# Vowel split rationale (Bear-Harvey 2017 informed by Lan 2010,
+# Bozkurt 2007):
+#   V1A "open"    — wide jaw aperture, neutral lips (AA "father", AE "cat",
+#                   AW "cow", AY "bite"). Diphthongs grouped by INITIAL
+#                   vowel position since the onset dominates the first
+#                   ~100 ms of the visible trajectory.
+#   V1B "mid"     — moderate jaw, neutral lips (AH "cut", EH "bet",
+#                   EY "bait").
+#   V1C "close"   — closed jaw, lip spread (IH "bit", IY "beet"). Very
+#                   distinct from open vowels and from UW/W rounding.
+#   V1D "rounded" — moderate jaw + lip rounding, but less protrusion than
+#                   UW/W (AO "caught", OW "boat", OY "boy", UH "book").
+#                   Distinct from V9 because the rounding is partial.
+#
+# Consonant groupings unchanged from viseme_map.txt — they're already the
+# right resolution for separating "the model can in principle learn this
+# from facial cues" from "it physically can't."
+#
+# Viseme legend (12 classes):
+#   V1A = vowels: open (AA/AE/AW/AY)
+#   V1B = vowels: mid (AH/EH/EY)
+#   V1C = vowels: close, unrounded (IH/IY)
+#   V1D = vowels: mid-open rounded (AO/OW/OY/UH)
+#   V2  = bilabial closure (B/M/P)
+#   V3  = post-alveolar (SH/CH/JH/ZH)
+#   V4  = alveolar+velar (T/D/N/L/S/Z/K/G/NG)
+#   V5  = dental (TH/DH)
+#   V6  = rhotic (ER/R)
+#   V7  = labio-dental (F/V)
+#   V8  = glottal (HH)
+#   V9  = high rounded (UW/W)
+
+# Open vowels (large jaw aperture, neutral lips). Diphthongs AW + AY are
+# grouped here because their visible onset is open before the glide.
+AA	V1A
+AE	V1A
+AW	V1A
+AY	V1A
+
+# Mid vowels (moderate jaw, neutral lips). EY diphthong grouped here
+# because the mid /e/ onset is the dominant visual cue.
+AH	V1B
+EH	V1B
+EY	V1B
+
+# Close unrounded vowels (closed jaw, lip spread). IY is more tense / more
+# spread than IH but from the outside the difference is sub-frame-level.
+# Y (palatal glide /j/ as in "yes") joins this class because it shares the
+# high-tongue-spread-lips articulation, even though it's a consonant
+# phonemically.
+IH	V1C
+IY	V1C
+Y	V1C
+
+# Mid-open rounded vowels (moderate jaw + lip rounding without UW-level
+# protrusion). OW and OY are diphthongs whose rounded onset dominates;
+# UH is the lax close-back rounded vowel ("book"), visually closer to
+# this group than to UW.
+AO	V1D
+OW	V1D
+OY	V1D
+UH	V1D
+
+# Rounded vowel + glide (high, maximally protruded — kept distinct from
+# V1D because the lip protrusion is dramatically more visible).
+UW	V9
+W	V9
+
+# Rhotic
+ER	V6
+R	V6
+
+# Bilabial — the canonical viseme-collapse case; disambiguating these is
+# precisely what LoRA is being trained to do.
+B	V2
+M	V2
+P	V2
+
+# Post-alveolar
+CH	V3
+JH	V3
+SH	V3
+ZH	V3
+
+# Alveolar + velar. Kept lumped because K/G/NG are genuinely invisible
+# from outside the mouth; T/D/N/L/S/Z give some tongue-tip cues but
+# inconsistently. LoRA gets a chance here on T/D/N if the user has any
+# consistent micro-feature, but the base model probably can't be made to
+# reliably tell K from G from a phone-distance front-facing camera.
+D	V4
+G	V4
+K	V4
+L	V4
+N	V4
+NG	V4
+S	V4
+T	V4
+Z	V4
+
+# Dental
+TH	V5
+DH	V5
+
+# Labio-dental
+F	V7
+V	V7
+
+# Glottal
+HH	V8

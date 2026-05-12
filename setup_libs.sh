@@ -293,6 +293,13 @@ hf_hub_download(repo_id='$SYNCVSR_HF_REPO', filename='$filename', local_dir='$TA
 download_syncvsr "syncvsr_lrs3_visual_ctc.onnx" || true
 download_syncvsr "syncvsr_lrs3_visual_ctc_fp16.onnx" || true
 download_syncvsr "syncvsr_unigram_units.txt" || true
+# SyncVSR seq2seq: encoder-only hidden states (no CTC head) + attention
+# decoder. Exported by tools/syncvsr_export_stage4_encoder.py and
+# tools/syncvsr_export_stage3_decoder.py respectively. Wired together
+# in AvHubertSeq2SeqInference.createSyncVsr() and routed by
+# MainActivity.SYNCVSR_USE_SEQ2SEQ. ~759 MB + ~273 MB.
+download_syncvsr "syncvsr_lrs3_encoder.onnx" || true
+download_syncvsr "syncvsr_lrs3_decoder.onnx" || true
 
 # --- AV-HuBERT V3 Backend (encoder + Transformer-decoder seq2seq) ---
 # Optional. If missing the app still works in V2 mode (Auto-AVSR CTC).

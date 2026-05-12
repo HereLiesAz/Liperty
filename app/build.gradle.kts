@@ -82,6 +82,44 @@ android {
             isIncludeAndroidResources = true
         }
     }
+    // Robolectric mmaps the unit-test APK via a 32-bit ZipFileRO; when the
+    // combined assets folder exceeds ~2 GB (post-stage-4 export the SyncVSR
+    // + AV-HuBERT + Auto-AVSR ONNX files alone total ~3 GB), parseApkLite
+    // throws NegativeArraySizeException and every Robolectric test class
+    // fails before its body runs. Strip the giant binary blobs from the
+    // unit-test APK only — unit tests never load real model files (they
+    // pass fake EncoderSession / DecoderSession etc.); they only need the
+    // small text assets (vocab files, viseme_index.json, ...).
+    //
+    // Hook is on the packaging task itself so we don't need to know which
+    // upstream merge task owns the staging directory in AGP 9 — we just
+    // walk the task's input file tree and delete matching files.
+    // `generateDebugUnitTestAssets` is the merge task in AGP 9 (was
+    // `mergeDebugUnitTestAssets` in AGP 7/8); the package task's input
+    // points at its output directory either way.
+    val unitTestPruneRegex = Regex("""\.(onnx|tflite)$|^librispeech_3gram\.bin$|_landmarker\.task$""")
+    val buildDirPath = layout.buildDirectory.get().asFile.absolutePath
+    listOf("Debug", "Release").forEach { variantSuffix ->
+        tasks.matching { it.name == "package${variantSuffix}UnitTestForUnitTest" }
+            .configureEach {
+                doFirst {
+                    inputs.files.forEach { f ->
+                        if (!f.exists()) return@forEach
+                        // Hard safety: only delete from build/ intermediates,
+                        // never from src/. A misconfigured task input pointing
+                        // at src/main/assets would otherwise nuke production
+                        // model files on the developer's disk.
+                        if (!f.absolutePath.startsWith(buildDirPath)) return@forEach
+                        f.walkTopDown().forEach { child ->
+                            if (child.isFile && unitTestPruneRegex.containsMatchIn(child.name)) {
+                                logger.lifecycle("Stripping ${child.name} from unit-test APK to keep it under 2 GB")
+                                child.delete()
+                            }
+                        }
+                    }
+                }
+            }
+    }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -185,6 +223,10 @@ dependencies {
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.androidx.junit)
     testImplementation(libs.robolectric)
+    // For Dispatchers.setMain + StandardTestDispatcher + advanceUntilIdle,
+    // used by VisemeCalibrationViewModelTest (and any future ViewModel
+    // test that needs deterministic coroutine scheduling).
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.tfliteSelectTfOps)

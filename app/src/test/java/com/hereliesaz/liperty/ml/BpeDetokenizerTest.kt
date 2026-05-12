@@ -77,6 +77,24 @@ class BpeDetokenizerTest {
     }
 
     @Test
+    fun dropsEspnetSpecialsForSyncVsrVocab() {
+        // SyncVSR / Auto-AVSR use ESPnet's special-token convention:
+        // <blank>, <unk>, <eos>. ESPnet's attention decoder reuses <eos>
+        // as <sos>, so the greedy loop keeps the terminating <eos> in
+        // its emitted token list — the detokenizer must drop it.
+        val espnetDict = listOf(
+            "<blank>", "<unk>", "▁the", "▁cat", "<eos>",
+        )
+        // [<eos>(bos), ▁the, ▁cat, <eos>] -> "the cat"
+        val ids = intArrayOf(4, 2, 3, 4)
+        assertEquals("the cat", BpeDetokenizer.detokenize(ids, espnetDict))
+        // <blank> mid-sequence (rarely emitted by attention decoder, but
+        // defensive) should also disappear.
+        val idsWithBlank = intArrayOf(4, 2, 0, 3, 4)
+        assertEquals("the cat", BpeDetokenizer.detokenize(idsWithBlank, espnetDict))
+    }
+
+    @Test
     fun ignoresOutOfRangeIds() {
         // Defensive: if the decoder somehow emits an id beyond the vocab,
         // skip it instead of crashing.

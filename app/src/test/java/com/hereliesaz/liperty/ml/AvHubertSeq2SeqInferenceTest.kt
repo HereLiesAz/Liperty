@@ -138,6 +138,29 @@ class AvHubertSeq2SeqInferenceTest {
     }
 
     @Test
+    fun handsEncoderTheNtchwShapeWhenLayoutOverridden() {
+        // SyncVSR's bundled E2E expects NTCHW (batch, time, channels=1,
+        // H, W) — not NCTHW. The orchestrator must declare that on the
+        // ONNX input tensor or the encoder errors out at shape-check.
+        val featShape = longArrayOf(1L, 2L, 8L)
+        val feats = FloatArray((featShape[0] * featShape[1] * featShape[2]).toInt())
+        val fakeEnc = FakeEncoder(feats to featShape)
+        val fakeDec = FakeDecoder(plan = intArrayOf(2))
+
+        val orch = AvHubertSeq2SeqInference(
+            encoder = fakeEnc, decoder = fakeDec, dict = dict,
+            numFrames = 16, cropSize = 88,
+            inputLayout = InputLayout.NTCHW,
+        )
+        orch.initialize()
+        orch.runInference(List(16) { Bitmap.createBitmap(88, 88, Bitmap.Config.ARGB_8888) })
+
+        val seen = fakeEnc.lastInputShape!!
+        assertEquals(5, seen.size)
+        assertEquals(longArrayOf(1L, 16L, 1L, 88L, 88L).toList(), seen.toList())
+    }
+
+    @Test
     fun emptyDecodeOutputsEmptyText() {
         val featShape = longArrayOf(1L, 2L, 8L)
         val fakeEnc = FakeEncoder(FloatArray(16) to featShape)
