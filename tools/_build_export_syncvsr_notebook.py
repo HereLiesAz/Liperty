@@ -101,9 +101,12 @@ cells.append(code("""\
 # >=1.3, and an aggressive --upgrade with our own constraint will
 # downgrade it to a transformers-incompatible version. Whatever Kaggle
 # ships is fine for `upload_folder` at the end of this notebook.
+# onnxscript is pulled in by torch 2.10's onnx.export even when
+# we pass dynamo=False -- it gets imported during the legacy
+# pathway too. So install it up front.
 subprocess.check_call([
     sys.executable, "-m", "pip", "install", "-q",
-    "onnx>=1.17", "onnxruntime>=1.20",
+    "onnx>=1.17", "onnxruntime>=1.20", "onnxscript",
 ])
 import torch
 print("torch:", torch.__version__, "cuda:", torch.cuda.is_available())
