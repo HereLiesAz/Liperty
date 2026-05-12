@@ -82,8 +82,17 @@ class MainActivity : ComponentActivity() {
 
         // Not `const val` because the conditional expression isn't a
         // compile-time literal -- but still effectively constant per build.
+        // Use the FP16 quantized variant of SyncVSR by default. On Pixel 5's
+        // Snapdragon 765G the ARMv8.2 FP16 SIMD instructions cut inference
+        // latency roughly in half; argmax agreement with FP32 was 100%
+        // (verified by tools/quantize_syncvsr_fp16.py), so the CTC decode
+        // path is unaffected. Set to false to fall back to the FP32 model
+        // (e.g. if a device lacks FEAT_FP16).
+        private const val SYNCVSR_USE_FP16 = true
         val AUTOAVSR_MODEL: String =
-            if (VSR_BACKEND == BACKEND_SYNC_VSR) "syncvsr_lrs3_visual_ctc.onnx"
+            if (VSR_BACKEND == BACKEND_SYNC_VSR)
+                if (SYNCVSR_USE_FP16) "syncvsr_lrs3_visual_ctc_fp16.onnx"
+                else "syncvsr_lrs3_visual_ctc.onnx"
             else "autoavsr_lrs3_visual_ctc.onnx"
         val AUTOAVSR_VOCAB: String =
             if (VSR_BACKEND == BACKEND_SYNC_VSR) "syncvsr_unigram_units.txt"

@@ -60,6 +60,7 @@ app/src/main/cpp/kenlm/
 # each, and version-coupled to setup_libs.sh -- not safe to track.
 app/src/main/assets/autoavsr_lrs3_visual_ctc.onnx
 app/src/main/assets/syncvsr_lrs3_visual_ctc.onnx
+app/src/main/assets/syncvsr_lrs3_visual_ctc_fp16.onnx
 app/src/main/assets/syncvsr_unigram_units.txt
 app/src/main/assets/avhubert_base_vox_433h_decoder.onnx
 app/src/main/assets/avhubert_base_vox_433h_visual_encoder.onnx

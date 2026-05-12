@@ -291,6 +291,7 @@ hf_hub_download(repo_id='$SYNCVSR_HF_REPO', filename='$filename', local_dir='$TA
     fi
 }
 download_syncvsr "syncvsr_lrs3_visual_ctc.onnx" || true
+download_syncvsr "syncvsr_lrs3_visual_ctc_fp16.onnx" || true
 download_syncvsr "syncvsr_unigram_units.txt" || true
 
 # --- AV-HuBERT V3 Backend (encoder + Transformer-decoder seq2seq) ---
