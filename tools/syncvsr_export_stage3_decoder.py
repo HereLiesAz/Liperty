@@ -91,34 +91,19 @@ class DecoderStepWrapper(nn.Module):
         hlens = torch.full((bsz,), t_enc, dtype=torch.long, device=device)
         ys_in_lens = torch.full((bsz,), t_dec, dtype=torch.long, device=device)
 
-        # espnet's TransformerDecoder.forward signature in the bundled
-        # SyncVSR fork is (hs_pad, hlens, ys_in_pad, ys_in_lens) -- but
-        # different espnet versions reorder these. Try the most common
-        # signatures and let the one whose first non-self arg is a Long
-        # tensor (i.e. the ys-first variant) win.
-        candidates = [
-            # (ys_first?, args)
-            (False, (encoder_features, hlens, prev_tokens, ys_in_lens)),
-            (True,  (prev_tokens, ys_in_lens, encoder_features, hlens)),
-            # Older API with explicit masks:
-            (False, None),  # placeholder; handled below
-        ]
-        out = None
-        last_err = None
-        for ys_first, args in candidates[:2]:
-            try:
-                out = self.decoder(*args)
-                break
-            except Exception as e:
-                last_err = e
-                continue
-        if out is None:
-            # Final fallback: older mask-based API.
-            memory_mask = torch.ones(bsz, 1, t_enc, dtype=torch.bool, device=device)
-            ys_mask = torch.tril(
-                torch.ones(t_dec, t_dec, dtype=torch.bool, device=device)
-            ).unsqueeze(0).expand(bsz, -1, -1)
-            out = self.decoder(encoder_features, memory_mask, prev_tokens, ys_mask)
+        # Bundled SyncVSR decoder.forward signature (confirmed by
+        # inspect.signature in stage3 setup):
+        #   (tgt, tgt_mask, memory, memory_mask)
+        # where:
+        #   tgt         = ys_in_pad   (B, T_dec) long
+        #   tgt_mask    = causal mask (B, T_dec, T_dec) bool
+        #   memory      = encoder_features (B, T_enc, D) float
+        #   memory_mask = (B, 1, T_enc) bool, all-ones at inference
+        tgt_mask = torch.tril(
+            torch.ones(t_dec, t_dec, dtype=torch.bool, device=device)
+        ).unsqueeze(0).expand(bsz, -1, -1)
+        memory_mask = torch.ones(bsz, 1, t_enc, dtype=torch.bool, device=device)
+        out = self.decoder(prev_tokens, tgt_mask, encoder_features, memory_mask)
 
         decoded = out[0] if isinstance(out, tuple) else out
         # decoded: (B, T_dec, V). Return as-is; the runner picks
