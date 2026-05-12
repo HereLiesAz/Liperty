@@ -56,12 +56,54 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
 
     private companion object AutoAvsrConfig {
-        // Asset filenames bundled by setup_libs.sh.
-        const val AUTOAVSR_MODEL = "autoavsr_lrs3_visual_ctc.onnx"
-        const val AUTOAVSR_VOCAB = "unigram5000_units.txt"
+        // === Visual encoder backend ===
+        // Two interchangeable Visual ASR backends are bundled. The active
+        // one is selected by VSR_BACKEND below. Both export only the visual
+        // encoder + CTC head; the autoregressive decoder + LM + beam-search
+        // scorers stay off-device.
+        //
+        //   AUTO_AVSR  -- Amanvir/LRS3_V_WER19.1 ESPnet Conformer, NCTHW input.
+        //                  Headline 19.1% WER on LRS3 (with full beam + LM
+        //                  pipeline; greedy CTC alone is materially worse).
+        //                  774 MB ONNX. Confirmed-broken on device (always
+        //                  predicts <blank>) as of 2026-05-12; preserved for
+        //                  reference.
+        //   SYNC_VSR   -- KAIST-AILab/SyncVSR Vox+LRS2+LRS3 checkpoint, NTCHW
+        //                  input. Trained on 3 datasets so it's more robust
+        //                  to lighting / pose. 775 MB ONNX exported by
+        //                  tools/export_syncvsr_to_onnx.ipynb +
+        //                  tools/syncvsr_export_stage2.py.
+        //
+        // To swap backends, change VSR_BACKEND. All other constants are
+        // pre-resolved off it below.
+        private const val BACKEND_AUTO_AVSR = "auto_avsr"
+        private const val BACKEND_SYNC_VSR = "sync_vsr"
+        private const val VSR_BACKEND = BACKEND_SYNC_VSR
+
+        // Not `const val` because the conditional expression isn't a
+        // compile-time literal -- but still effectively constant per build.
+        val AUTOAVSR_MODEL: String =
+            if (VSR_BACKEND == BACKEND_SYNC_VSR) "syncvsr_lrs3_visual_ctc.onnx"
+            else "autoavsr_lrs3_visual_ctc.onnx"
+        val AUTOAVSR_VOCAB: String =
+            if (VSR_BACKEND == BACKEND_SYNC_VSR) "syncvsr_unigram_units.txt"
+            else "unigram5000_units.txt"
+
+        // Layout the model expects for the input tensor. Auto-AVSR's encoder
+        // is NCTHW (batch, channels, time, height, width); SyncVSR's bundled
+        // E2E is NTCHW (batch, time, channels, height, width). The
+        // OnnxModelEngine + VSRInference handle both layouts via the
+        // InputLayout enum; we just pass the right one for the active model.
+        val VSR_INPUT_LAYOUT: com.hereliesaz.liperty.ml.InputLayout =
+            if (VSR_BACKEND == BACKEND_SYNC_VSR)
+                com.hereliesaz.liperty.ml.InputLayout.NTCHW
+            else
+                com.hereliesaz.liperty.ml.InputLayout.NCTHW
 
         // Mouth-ROI crop pulled from Chaplin's pipelines/data/transforms.py:
         //     CenterCrop(88), Normalize(mean=0.421, std=0.165)  (grayscale)
+        // SyncVSR uses the same 88x88 mean/std (visual_backbone trained on
+        // LRS3 with identical preprocessing).
         const val AUTOAVSR_CROP_SIZE = 88
         const val AUTOAVSR_PIXEL_MEAN = 0.421f
         const val AUTOAVSR_PIXEL_STD = 0.165f
@@ -216,7 +258,11 @@ class MainActivity : ComponentActivity() {
             // tools/export_autoavsr_to_onnx.ipynb) is the active backend.
             // 88x88 grayscale mouth ROI, normalized to mean=0.421 std=0.165,
             // emits log-softmax over 5049 SentencePiece subword tokens.
-            val vsrEngine = OnnxModelEngine(this, AUTOAVSR_MODEL)
+            val vsrEngine = OnnxModelEngine(
+                this,
+                modelName = AUTOAVSR_MODEL,
+                expectedInputLayout = VSR_INPUT_LAYOUT,
+            )
             val subwordVocab = VocabularyLoader.loadFromAssets(this, AUTOAVSR_VOCAB, blank = "<blank>")
             // Beam search over the 5049-token vocabulary. Beam width 8 picked
             // to match Chaplin's effective recognizer cost (Chaplin uses

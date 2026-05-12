@@ -18,7 +18,13 @@ import java.nio.FloatBuffer
  */
 class OnnxModelEngine(
     private val context: Context,
-    private val modelName: String = "vallr_model.onnx"
+    private val modelName: String = "vallr_model.onnx",
+    /** Layout the loaded model expects for its primary input tensor.
+     *  Auto-AVSR uses NCTHW; SyncVSR uses NTCHW. Callers pass whichever
+     *  matches the bundled ONNX so VSRInference writes pixels in the
+     *  right axis order. Default NCTHW keeps the historical behaviour
+     *  (VALLR/Auto-AVSR exports). */
+    private val expectedInputLayout: InputLayout = InputLayout.NCTHW,
 ) : ModelEngine {
 
     private var env: OrtEnvironment? = null
@@ -152,7 +158,7 @@ class OnnxModelEngine(
         if (inputIndex == 0 && inputShape.isNotEmpty()) inputShape
         else intArrayOf()
 
-    override fun getInputLayout(): InputLayout = InputLayout.NCTHW
+    override fun getInputLayout(): InputLayout = expectedInputLayout
 
     override fun close() {
         session?.close()

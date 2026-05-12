@@ -267,6 +267,32 @@ hf_hub_download(repo_id='$AUTOAVSR_HF_REPO', filename='$filename', local_dir='$T
 download_from_hf "$AUTOAVSR_MODEL" "$AUTOAVSR_DEST_MODEL" || true
 download_from_hf "$AUTOAVSR_VOCAB" "$AUTOAVSR_DEST_VOCAB" || true
 
+# SyncVSR backend (KAIST-AILab Vox+LRS2+LRS3, exported by
+# tools/export_syncvsr_to_onnx.ipynb + tools/syncvsr_export_stage2.py).
+# MainActivity selects between Auto-AVSR and SyncVSR via VSR_BACKEND;
+# we pull both so the swap is a code-only flip without re-running setup.
+SYNCVSR_HF_REPO="HereLiesAz/liperty-syncvsr-onnx"
+download_syncvsr() {
+    local filename="$1"
+    local dest="${TARGET_ASSETS}/${filename}"
+    if [ -f "$dest" ]; then
+        echo "[*] ${dest} already exists."
+        return 0
+    fi
+    echo "[+] Downloading ${filename} from huggingface.co/${SYNCVSR_HF_REPO}..."
+    if command -v huggingface-cli &> /dev/null; then
+        huggingface-cli download "$SYNCVSR_HF_REPO" "$filename" \
+            --local-dir "$TARGET_ASSETS" --quiet 2>&1 | tail -2
+    elif command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; then
+        python -c "
+from huggingface_hub import hf_hub_download
+hf_hub_download(repo_id='$SYNCVSR_HF_REPO', filename='$filename', local_dir='$TARGET_ASSETS')
+" 2>&1 | tail -2
+    fi
+}
+download_syncvsr "syncvsr_lrs3_visual_ctc.onnx" || true
+download_syncvsr "syncvsr_unigram_units.txt" || true
+
 # --- AV-HuBERT V3 Backend (encoder + Transformer-decoder seq2seq) ---
 # Optional. If missing the app still works in V2 mode (Auto-AVSR CTC).
 # See docs/AVHUBERT_V3_BACKEND.md. Repo is PUBLIC so HF_TOKEN is not
