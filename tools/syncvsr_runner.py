@@ -18,8 +18,16 @@ From a Kaggle cell, paste:
 import urllib.request
 import json
 import traceback
+import sys
 
-NB_URL = "https://raw.githubusercontent.com/HereLiesAz/Liperty/main/tools/export_syncvsr_to_onnx.ipynb"
+# Resolve the notebook URL from the caller's globals if they pre-set it
+# (lets the bootstrap pin a commit SHA to defeat raw.githubusercontent
+# CDN caching). Falls back to main if no override.
+_caller_globals = sys._getframe(1).f_globals if hasattr(sys, "_getframe") else {}
+NB_URL = _caller_globals.get(
+    "NB_URL",
+    "https://raw.githubusercontent.com/HereLiesAz/Liperty/main/tools/export_syncvsr_to_onnx.ipynb",
+)
 
 print(f"[syncvsr_runner] Fetching {NB_URL}")
 nb = json.loads(urllib.request.urlopen(NB_URL).read())
