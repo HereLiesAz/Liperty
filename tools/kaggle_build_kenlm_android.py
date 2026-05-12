@@ -1,76 +1,89 @@
 """Cross-compile KenLM for Android (arm64-v8a) on Kaggle.
 
-Produces a static library + headers that Liperty's NDK build can link
-against to enable on-device n-gram language-model scoring. This is the
-"libkenlm.so / libkenlm.a" output the Phase A3b/c plan needs (see
-docs/LM_RESCORING.md).
+Produces inference-only static libraries + headers suitable for linking
+into Liperty's `libliperty_cv.so` to enable on-device n-gram LM scoring
+(see docs/LM_RESCORING.md).
 
-USAGE (paste into a Kaggle notebook cell, CPU-only is fine, ~10 minutes):
-  1. Add HF_TOKEN as a notebook secret (Add-ons -> Secrets).
-  2. Paste the contents of this file into one cell.
-  3. Run. Outputs upload to HereLiesAz/liperty-lm under android-arm64/.
+The PoC ran successfully on Kaggle on 2026-05-12. Outputs at
+HereLiesAz/liperty-lm/tree/main/android-arm64.
 
-Output (on HF):
-  - android-arm64/libkenlm.a       static lib for arm64-v8a
-  - android-arm64/libkenlm_util.a  KenLM's util sub-library
-  - android-arm64/include/lm/*.hh  C++ headers for linking
-  - android-arm64/include/util/*.hh
+USAGE (paste into a Kaggle notebook cell, CPU is fine, ~10 minutes):
+  1. HF_TOKEN secret set (Add-ons -> Secrets).
+  2. Internet enabled in the right-panel Settings.
+  3. Paste and run.
 
-Local integration (in Liperty repo, after this runs):
-  1. setup_libs.sh pulls these from HF into app/src/main/cpp/kenlm/.
-  2. app/src/main/cpp/CMakeLists.txt adds them to liperty_cv via
-     add_library(kenlm STATIC IMPORTED) + target_link_libraries(...).
-  3. kenlm_jni.cpp's stub gets replaced with real lm::ngram::Model calls.
+Output (HF):
+  - android-arm64/libkenlm.a         (~10 MB)
+  - android-arm64/libkenlm_util.a    (~3 MB)
+  - android-arm64/include/lm/*.hh    inference headers
+  - android-arm64/include/util/*.hh  util headers
+  - android-arm64/README.md          consumer documentation
+
+4 patches landed during the build iteration that are now baked in:
+  1. KenLM's CMakeLists.txt has `find_package(Boost REQUIRED)` but the
+     inference-only kenlm/kenlm_util targets don't link Boost. We patch
+     to drop REQUIRED so the configure proceeds.
+  2. CMake's FindBoost still fails the version check (Boost not
+     installed for Android NDK). We provide a stub include directory
+     with a `boost/version.hpp` reporting 1.81.0 + strip the version
+     constraint from KenLM's find_package() calls.
+  3. `util/stream/` and `lm/common/` source files #include
+     `<boost/thread/mutex.hpp>` at compile time -- these are
+     training-pipeline code paths we don't need for inference. We
+     remove those subdirectories from the kenlm/kenlm_util targets.
+  4. KenLM's CLI exe targets (lmplz, build_binary, query,
+     kenlm_benchmark, fragment) link Boost::program_options. We
+     comment out their AddExes() call so they're not even attempted.
+
+Local integration (next, in Liperty repo):
+  - setup_libs.sh pulls android-arm64/ -> app/src/main/cpp/kenlm/.
+  - app/src/main/cpp/CMakeLists.txt declares kenlm + kenlm_util as
+    IMPORTED static libs, adds include dir, links into liperty_cv.
+  - Replace the kenlm_jni.cpp stub with real lm::ngram::Model calls.
 """
 
 import os
+import re
+import shutil
 import subprocess
 import sys
 
 # ---------------------------------------------------------------------------
-# 0. HF auth
+# 0. HF auth + dep
 # ---------------------------------------------------------------------------
 if "HF_TOKEN" not in os.environ:
     try:
         from kaggle_secrets import UserSecretsClient
         os.environ["HF_TOKEN"] = UserSecretsClient().get_secret("HF_TOKEN")
     except Exception as e:
-        raise RuntimeError(
-            "HF_TOKEN not found. Add it as a notebook secret first."
-        ) from e
+        raise RuntimeError("HF_TOKEN not found in Kaggle secrets") from e
 
 subprocess.check_call([sys.executable, "-m", "pip", "install", "-q",
                        "huggingface_hub>=0.27,<1.0"])
-from huggingface_hub import login, upload_folder, create_repo
-login(token=os.environ["HF_TOKEN"], add_to_git_credential=False)
 
+WORK = "/kaggle/working/kenlm-android"
+os.makedirs(WORK, exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# 1. Install Android NDK (one-time per Kaggle session)
+# 1. Android NDK
 # ---------------------------------------------------------------------------
 NDK_VERSION = "r26d"
 NDK_ZIP = f"android-ndk-{NDK_VERSION}-linux.zip"
 NDK_URL = f"https://dl.google.com/android/repository/{NDK_ZIP}"
-WORK = "/kaggle/working/kenlm-android"
-os.makedirs(WORK, exist_ok=True)
 NDK = f"{WORK}/android-ndk-{NDK_VERSION}"
 
 if not os.path.exists(NDK):
-    print(f"Downloading Android NDK {NDK_VERSION} ...")
+    print(f"[+] Downloading Android NDK {NDK_VERSION} ...")
     subprocess.check_call(["wget", "-q", "-O", f"{WORK}/{NDK_ZIP}", NDK_URL])
-    print(f"  {os.path.getsize(f'{WORK}/{NDK_ZIP}') / 1e6:.0f} MB downloaded")
-    print("Extracting NDK ...")
     subprocess.check_call(["unzip", "-q", f"{WORK}/{NDK_ZIP}", "-d", WORK])
     os.remove(f"{WORK}/{NDK_ZIP}")
-print(f"NDK ready at: {NDK}")
-
+print(f"NDK: {NDK}")
 
 # ---------------------------------------------------------------------------
-# 2. Clone KenLM source
+# 2. KenLM source
 # ---------------------------------------------------------------------------
 KENLM_SRC = f"{WORK}/kenlm-src"
 if not os.path.exists(KENLM_SRC):
-    print("Cloning KenLM ...")
     subprocess.check_call([
         "git", "clone", "--depth", "1",
         "https://github.com/kpu/kenlm.git", KENLM_SRC,
@@ -79,25 +92,95 @@ print(f"KenLM source: {KENLM_SRC}")
 
 
 # ---------------------------------------------------------------------------
-# 3. Configure & build for arm64-v8a
+# 3. Patch CMakeLists.txt: drop Boost REQUIRED + version + Boost-needing
+#    subdirectories from the inference-only build.
+# ---------------------------------------------------------------------------
+# Patch 1+2: drop REQUIRED + version constraint from find_package(Boost ...)
+for cml in [
+    f"{KENLM_SRC}/CMakeLists.txt",
+    f"{KENLM_SRC}/lm/CMakeLists.txt",
+    f"{KENLM_SRC}/lm/filter/CMakeLists.txt",
+    f"{KENLM_SRC}/lm/builder/CMakeLists.txt",
+    f"{KENLM_SRC}/util/CMakeLists.txt",
+]:
+    if not os.path.exists(cml):
+        continue
+    with open(cml, "r") as f:
+        c = f.read()
+    c2 = re.sub(
+        r"find_package\(Boost\s+[0-9.]+\s+REQUIRED",
+        "find_package(Boost",
+        c,
+    )
+    c2 = re.sub(
+        r"find_package\(Boost\s+REQUIRED",
+        "find_package(Boost",
+        c2,
+    )
+    c2 = re.sub(
+        r"find_package\(Boost\s+[0-9.]+",
+        "find_package(Boost",
+        c2,
+    )
+    if c2 != c:
+        with open(cml, "w") as f:
+            f.write(c2)
+
+# Patch 3: drop util/stream/ from kenlm_util (it #includes boost/thread)
+util_cml = f"{KENLM_SRC}/util/CMakeLists.txt"
+with open(util_cml, "r") as f:
+    c = f.read()
+c = c.replace(
+    "add_subdirectory(stream)\n",
+    "# add_subdirectory(stream)  # excluded for inference-only build\n",
+)
+c = c.replace("${KENLM_UTIL_STREAM_SOURCE}", "")
+with open(util_cml, "w") as f:
+    f.write(c)
+
+# Drop lm/common/ from kenlm (and the builder/filter/interpolate subdirs
+# + CLI exe targets that depend on them).
+lm_cml = f"{KENLM_SRC}/lm/CMakeLists.txt"
+with open(lm_cml, "r") as f:
+    c = f.read()
+c = c.replace(
+    "add_subdirectory(common)\n",
+    "# add_subdirectory(common)  # excluded for inference-only build\n",
+)
+c = c.replace("${KENLM_LM_COMMON_SOURCE}", "")
+c = c.replace("add_subdirectory(builder)\n", "# add_subdirectory(builder)\n")
+c = c.replace("add_subdirectory(filter)\n", "# add_subdirectory(filter)\n")
+c = c.replace("add_subdirectory(interpolate)\n", "# add_subdirectory(interpolate)\n")
+c = c.replace(
+    "AddExes(EXES ${EXE_LIST}\n        LIBRARIES ${LM_LIBS})",
+    "# AddExes ... (CLI tools require Boost::program_options; omitted)",
+)
+with open(lm_cml, "w") as f:
+    f.write(c)
+print("[+] patched KenLM CMakeLists for inference-only build")
+
+
+# ---------------------------------------------------------------------------
+# 4. Fake Boost include directory (CMake refuses NOTFOUND as a path)
+# ---------------------------------------------------------------------------
+FAKE_BOOST = "/kaggle/working/fake-boost-include"
+os.makedirs(f"{FAKE_BOOST}/boost", exist_ok=True)
+with open(f"{FAKE_BOOST}/boost/version.hpp", "w") as f:
+    # Report Boost 1.81 to satisfy any residual FindBoost version probing.
+    f.write("#define BOOST_VERSION 108100\n")
+    f.write('#define BOOST_LIB_VERSION "1_81"\n')
+
+
+# ---------------------------------------------------------------------------
+# 5. Configure + build
 # ---------------------------------------------------------------------------
 BUILD = f"{WORK}/build-arm64"
+if os.path.exists(BUILD):
+    shutil.rmtree(BUILD)
 os.makedirs(BUILD, exist_ok=True)
 
-# CMake flags rationale:
-# - CMAKE_TOOLCHAIN_FILE: standard Android NDK CMake integration.
-# - ANDROID_ABI=arm64-v8a: 64-bit ARM; covers all reasonably modern Android phones.
-# - ANDROID_PLATFORM=android-26: matches Liperty's minSdk in app/build.gradle.kts.
-# - BUILD_TESTING=OFF: skips the gtest dep + saves build time.
-# - KENLM_MAX_ORDER=6: handles up to 6-gram models; our shipped LibriSpeech LM
-#   is 3-gram but room for future personal LMs.
-# - ENABLE_PYTHON=OFF: skip the Python bindings (no Python on Android target).
-# - FORCE_STATIC=ON: link statically; we want .a files to combine into liperty_cv.so.
-# - Boost: pass -DKENLM_USE_BOOST=OFF if available, else hope its default off-path
-#   triggers. Recent kenlm has reduced Boost coupling; inference code doesn't need it.
-# - WITH_THREADS=OFF: KenLM threading is only used by build tools, not inference.
-print("\nConfiguring with CMake ...")
-cmake_cmd = [
+print("[+] CMake configure ...")
+subprocess.check_call([
     "cmake",
     f"-S{KENLM_SRC}",
     f"-B{BUILD}",
@@ -109,18 +192,11 @@ cmake_cmd = [
     "-DKENLM_MAX_ORDER=6",
     "-DENABLE_PYTHON=OFF",
     "-DFORCE_STATIC=ON",
-    # The default Boost detection may try to find host Boost — skip it.
-    "-DBoost_NO_BOOST_CMAKE=ON",
-    "-DBoost_NO_SYSTEM_PATHS=ON",
-]
-print("  cmake:", " ".join(cmake_cmd))
-subprocess.check_call(cmake_cmd)
+    f"-DBoost_INCLUDE_DIR={FAKE_BOOST}",
+    "-DBoost_LIBRARIES=",
+])
 
-print("\nBuilding (kenlm + kenlm_util only — skip tools) ...")
-# Targets: kenlm (the main inference library) + kenlm_util (KenLM's util
-# subdir built as a static lib). The lmplz / build_binary / query targets
-# require Boost program_options + filesystem and aren't useful on-device.
-# We're just shipping the inference path.
+print("[+] Building kenlm + kenlm_util ...")
 subprocess.check_call([
     "cmake", "--build", BUILD,
     "--target", "kenlm", "kenlm_util",
@@ -130,111 +206,67 @@ subprocess.check_call([
 
 
 # ---------------------------------------------------------------------------
-# 4. Collect outputs
+# 6. Collect outputs + headers
 # ---------------------------------------------------------------------------
-import shutil
 OUT = f"{WORK}/android-arm64"
-INC = f"{OUT}/include"
-os.makedirs(OUT, exist_ok=True)
-os.makedirs(f"{INC}/lm", exist_ok=True)
-os.makedirs(f"{INC}/util", exist_ok=True)
+os.makedirs(f"{OUT}/include/lm", exist_ok=True)
+os.makedirs(f"{OUT}/include/util", exist_ok=True)
 
-# Find the built static libs (typically under build/lib/ or build/lm/, build/util/)
-print(f"\nSearching {BUILD} for .a files ...")
-found_libs = []
-for root, _, files in os.walk(BUILD):
-    for f in files:
-        if f.endswith(".a") and ("kenlm" in f or "lm" == os.path.basename(root) or "util" == os.path.basename(root)):
-            src = os.path.join(root, f)
-            dst = os.path.join(OUT, f)
-            shutil.copy(src, dst)
-            found_libs.append(dst)
-            print(f"  {f}  ({os.path.getsize(dst) / 1e6:.1f} MB)")
+for fname in ("libkenlm.a", "libkenlm_util.a"):
+    shutil.copy(f"{BUILD}/lib/{fname}", f"{OUT}/{fname}")
+    print(f"  {fname}: {os.path.getsize(f'{OUT}/{fname}') / 1e6:.2f} MB")
 
-if not any("libkenlm" in p for p in found_libs):
-    raise RuntimeError(
-        "libkenlm.a not found in build output. Check the cmake build above "
-        "for errors. KenLM's CMakeLists may have changed target names; "
-        "search the build dir manually."
-    )
-
-# Copy headers
-print("Copying headers ...")
+hdr_count = 0
 for sub in ("lm", "util"):
-    src_dir = os.path.join(KENLM_SRC, sub)
-    dst_dir = os.path.join(INC, sub)
+    src_dir = f"{KENLM_SRC}/{sub}"
+    dst_dir = f"{OUT}/include/{sub}"
     for root, _, files in os.walk(src_dir):
         rel = os.path.relpath(root, src_dir)
         for f in files:
             if f.endswith(".hh") or f.endswith(".h"):
-                d = os.path.join(dst_dir, rel)
+                d = os.path.join(dst_dir, rel) if rel != "." else dst_dir
                 os.makedirs(d, exist_ok=True)
                 shutil.copy(os.path.join(root, f), os.path.join(d, f))
-print(f"  headers: $(find {INC} -name '*.hh' | wc -l) files")
+                hdr_count += 1
+print(f"  {hdr_count} headers")
 
 
 # ---------------------------------------------------------------------------
-# 5. Write README and upload
+# 7. README + upload
 # ---------------------------------------------------------------------------
-readme = f"""# KenLM Android prebuilt — arm64-v8a
-
-Static libraries + headers for cross-compiled KenLM, suitable for
-linking into Liperty's `libliperty_cv.so` (see
-`app/src/main/cpp/CMakeLists.txt`).
-
-## Contents
-
-| Path | Purpose |
-|---|---|
-| `android-arm64/libkenlm.a`        | Main inference lib (`lm::ngram::Model` etc.) |
-| `android-arm64/libkenlm_util.a`   | KenLM's util sub-library (string handling, file I/O) |
-| `android-arm64/include/lm/*.hh`   | Public headers for the inference API |
-| `android-arm64/include/util/*.hh` | Util headers |
-
-## Build info
-
-- Android NDK: {NDK_VERSION}
-- minSdk: android-26 (matches Liperty)
-- KENLM_MAX_ORDER: 6
-- Boost: disabled (inference doesn't need it; would only be needed for
-  build tools like `lmplz` which aren't on-device anyway)
-- Threads: KenLM's threading is build-tools only; inference is single-threaded
-
-## Liperty integration
-
-In `app/src/main/cpp/CMakeLists.txt`:
-
-```cmake
-set(KENLM_ANDROID_DIR ${{CMAKE_SOURCE_DIR}}/kenlm/android-arm64)
-add_library(kenlm STATIC IMPORTED)
-set_target_properties(kenlm PROPERTIES
-    IMPORTED_LOCATION ${{KENLM_ANDROID_DIR}}/libkenlm.a)
-add_library(kenlm_util STATIC IMPORTED)
-set_target_properties(kenlm_util PROPERTIES
-    IMPORTED_LOCATION ${{KENLM_ANDROID_DIR}}/libkenlm_util.a)
-include_directories(${{KENLM_ANDROID_DIR}}/include)
-target_link_libraries(liperty_cv ... kenlm kenlm_util ${{log-lib}})
-```
-
-In `app/src/main/cpp/kenlm_jni.cpp`, replace the stub with real
-`lm::ngram::Model` calls — see `docs/LM_RESCORING.md` for the API
-sketch.
-
-## Source
-
-Built by [`tools/kaggle_build_kenlm_android.py`](https://github.com/HereLiesAz/Liperty/blob/main/tools/kaggle_build_kenlm_android.py).
-"""
-with open(os.path.join(OUT, "README.md"), "w") as f:
+readme = (
+    "# KenLM Android prebuilt -- arm64-v8a\n\n"
+    "Static libraries + headers cross-compiled for Android, suitable for\n"
+    "linking into Liperty's `libliperty_cv.so` via\n"
+    "`app/src/main/cpp/CMakeLists.txt`.\n\n"
+    "## Contents\n\n"
+    "| Path | Purpose |\n"
+    "|---|---|\n"
+    "| `libkenlm.a`        | `lm::ngram::Model` and inference code |\n"
+    "| `libkenlm_util.a`   | KenLM's util sub-library |\n"
+    "| `include/lm/*.hh`   | Public inference API headers |\n"
+    "| `include/util/*.hh` | Util headers |\n\n"
+    "## Build configuration\n\n"
+    f"- Android NDK {NDK_VERSION} (Clang 17)\n"
+    "- ABI: arm64-v8a, minSdk: android-26\n"
+    "- KENLM_MAX_ORDER: 6\n"
+    "- Inference-only build (excluded: `util/stream/`, `lm/common/`,\n"
+    "  `lm/builder/`, `lm/filter/`, `lm/interpolate/`, all CLI exes)\n"
+    "- Boost: not required (the inference targets don't link it)\n\n"
+    "Built by `tools/kaggle_build_kenlm_android.py` in the Liperty repo.\n"
+)
+with open(f"{OUT}/README.md", "w") as f:
     f.write(readme)
 
-print(f"\nUploading android-arm64/ to HereLiesAz/liperty-lm ...")
+print("[+] Uploading to HereLiesAz/liperty-lm/android-arm64 ...")
+from huggingface_hub import login, create_repo, upload_folder
+login(token=os.environ["HF_TOKEN"], add_to_git_credential=False)
 create_repo("HereLiesAz/liperty-lm", repo_type="model", private=False, exist_ok=True)
 upload_folder(
     folder_path=OUT,
     path_in_repo="android-arm64",
     repo_id="HereLiesAz/liperty-lm",
     repo_type="model",
-    commit_message=f"KenLM Android prebuilt (NDK {NDK_VERSION}, arm64-v8a)",
+    commit_message=f"KenLM Android arm64-v8a prebuilt (NDK {NDK_VERSION}, inference-only)",
 )
 print("Uploaded -> https://huggingface.co/HereLiesAz/liperty-lm/tree/main/android-arm64")
-print("\nDone. Pull these into Liperty's app/src/main/cpp/kenlm/ via setup_libs.sh.")
