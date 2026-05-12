@@ -192,12 +192,23 @@ class VSRInference(
                     // Layout: for each channel C, write all T frames' pixels.
                     // For ARGB packed ints: shift R=16, G=8, B=0 → shift = (2 - c) * 8
                     // when numChannels == 3. For grayscale (numChannels == 1) we
-                    // use the red channel.
+                    // convert to Rec.601 luma instead of just the red channel --
+                    // Auto-AVSR was trained on proper grayscale conversion
+                    // (cv2.cvtColor BGR2GRAY in Chaplin's preprocessing), so
+                    // feeding a single colour channel is a distribution shift
+                    // and the model collapses to predicting <blank>.
                     for (c in 0 until numChannels) {
-                        val shift = if (numChannels == 1) 16 else (2 - c) * 8
+                        val shift = if (numChannels == 1) -1 else (2 - c) * 8
                         for (px in pixelsPerFrame) {
                             for (pixel in px) {
-                                currentInputBuffer.putFloat(norm((pixel shr shift) and 0xFF))
+                                val raw = if (shift < 0) {
+                                    // Rec.601 luma: 0.299 R + 0.587 G + 0.114 B
+                                    val r = (pixel shr 16) and 0xFF
+                                    val g = (pixel shr 8) and 0xFF
+                                    val b = pixel and 0xFF
+                                    ((r * 76 + g * 150 + b * 30) ushr 8).coerceIn(0, 255)
+                                } else (pixel shr shift) and 0xFF
+                                currentInputBuffer.putFloat(norm(raw))
                             }
                         }
                         repeat(paddingFrames * pixelsPerImage) {

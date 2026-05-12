@@ -695,6 +695,39 @@ class MainActivity : ComponentActivity() {
             // the crop box to wander off-face by inference time. Kalman-only smoothing.
             val lipBox = lipBoxFilter.update(rawLipBox)
 
+            // Compute the expanded mouth-crop box FIRST so the overlay can
+            // draw the actual cropped region (not just the lip aperture).
+            // Auto-AVSR / Chaplin training data shows mouth + chin + outer
+            // lips + a strip of cheek on each side. We size the crop off the
+            // full face bounding box rather than the tiny lip box because:
+            //   - the lip box is only the lip APERTURE (very narrow),
+            //     1.6x or 2x it doesn't reliably reach the chin
+            //   - face_width is invariant to mouth-open vs mouth-closed,
+            //     so the crop stays the same size across frames
+            // Crop side = 0.55 * face_width, centered on the lip-box center.
+            val faceBox = faceLandmarkerHelper.extractFaceBoundingBox(
+                result, bitmap.width, bitmap.height, marginPct = 0f
+            )
+            val rotation = FaceLandmarkerHelper.calculateLipRotation(result)
+            val expandedLipBox = run {
+                val cx = lipBox.centerX()
+                val cy = lipBox.centerY()
+                val side = if (faceBox != null) {
+                    (faceBox.width() * 0.55f).toInt()
+                } else {
+                    // Fallback if face bounding box failed: use 2.5x of the
+                    // longest lip-box dimension.
+                    (kotlin.math.max(lipBox.width(), lipBox.height()) * 2.5f).toInt()
+                }
+                val half = side / 2
+                android.graphics.Rect(
+                    (cx - half).coerceAtLeast(0),
+                    (cy - half).coerceAtLeast(0),
+                    (cx + half).coerceAtMost(bitmap.width),
+                    (cy + half).coerceAtMost(bitmap.height)
+                )
+            }
+
             // Build overlay data on the camera thread, post to UI thread.
             // PreviewView uses FILL_CENTER (scale to fill, crop one axis).
             // We must apply the same transform so landmarks land on the
@@ -721,11 +754,14 @@ class MainActivity : ComponentActivity() {
                         PointF(lm.x() * imgW * scale + offsetX,
                                lm.y() * imgH * scale + offsetY)
                     } ?: emptyList()
+                    // Show the ACTUAL crop region on the overlay, not the
+                    // raw lip aperture box. That way what the user sees on
+                    // screen matches what the model is being fed.
                     val scaledBox = RectF(
-                        lipBox.left   * scale + offsetX,
-                        lipBox.top    * scale + offsetY,
-                        lipBox.right  * scale + offsetX,
-                        lipBox.bottom * scale + offsetY
+                        expandedLipBox.left   * scale + offsetX,
+                        expandedLipBox.top    * scale + offsetY,
+                        expandedLipBox.right  * scale + offsetX,
+                        expandedLipBox.bottom * scale + offsetY
                     )
                     overlayView.setLandmarks(points, scaledBox)
                 }
@@ -737,24 +773,105 @@ class MainActivity : ComponentActivity() {
                  FaceLandmarkerHelper.calculateHeadPose(matrix)
             }
 
-            // Crop & Align — Auto-AVSR was trained on 88×88 grayscale MOUTH crops
-            // (Chaplin pipelines/data/transforms.py: CenterCrop(88) + Normalize).
-            // VSRInference reads only the R channel when numChannels==1, so the
-            // bitmap can stay ARGB_8888 here; the grayscale conversion happens at
-            // the byte-write stage.
-            val rotation = FaceLandmarkerHelper.calculateLipRotation(result)
+            // Crop & Align — Auto-AVSR was trained on 88×88 grayscale crops
+            // showing the mouth + chin + outer lips + cheek strip. The
+            // expanded box above was sized off the face bounding box so we
+            // capture that context consistently across mouth open/closed
+            // states. VSRInference handles grayscale conversion (Rec.601
+            // luma) at the byte-write stage.
             val cropSize = AUTOAVSR_CROP_SIZE
             val reusableBitmap = BitmapPool.get(cropSize, cropSize)
-            val processedMouth = ImageUtils.alignAndCropMouth(
-                bitmap, lipBox, rotation, cropSize, cropSize, reusableBitmap
+            var processedMouth = ImageUtils.alignAndCropMouth(
+                bitmap, expandedLipBox, rotation, cropSize, cropSize, reusableBitmap
             )
+            // Front camera produces a horizontally-mirrored image (the user
+            // sees themselves as in a mirror). Auto-AVSR / LRS3 training
+            // data is NOT mirrored (subjects facing camera directly), so
+            // we flip the crop horizontally on the front-facing camera so
+            // the model sees mouth motion in the same chirality it was
+            // trained on. If we move to the back camera later this flip
+            // is unnecessary -- gated on currentLensFacing.
+            if (currentLensFacing == CameraSelector.LENS_FACING_FRONT) {
+                val mirrorMatrix = android.graphics.Matrix().apply { preScale(-1f, 1f) }
+                val mirrored = Bitmap.createBitmap(
+                    processedMouth, 0, 0,
+                    processedMouth.width, processedMouth.height,
+                    mirrorMatrix, true
+                )
+                // The reused bitmap from BitmapPool is replaced; the
+                // mirrored copy is now owned by the frame buffer flow.
+                BitmapPool.recycle(processedMouth)
+                processedMouth = mirrored
+            }
 
-            // Diagnostic: log mean pixel brightness of first frame in each batch to confirm input varies
-            if (frameBuffer.size() == 0) {
+            // Diagnostic: dump a MID-buffer frame (size==8 of 16) rather than the
+            // first frame, so we see what the model is being fed at the middle
+            // of an utterance rather than at the boundary where detection may
+            // still be settling.
+            if (frameBuffer.size() == 8) {
                 val pixels = IntArray(cropSize * cropSize)
                 processedMouth.getPixels(pixels, 0, cropSize, 0, 0, cropSize, cropSize)
                 val mean = pixels.map { android.graphics.Color.red(it) }.average()
-                Log.d("VSRInput", "frame0 mean_brightness=%.1f lipBox=$lipBox".format(mean))
+                Log.d("VSRInput", "frame0 mean_brightness=%.1f lipBox=$lipBox " +
+                    "expanded=$expandedLipBox srcBitmap=${bitmap.width}x${bitmap.height} " +
+                    "rotation=${"%.1f".format(rotation)}".format(mean))
+
+                // Dump the actual 88x88 crop the model is being fed to
+                // /sdcard/Download so we can pull it via `adb pull` and
+                // visually verify whether the crop shows the user's mouth.
+                // One file per inference window (overwrites previous).
+                try {
+                    val dumpFile = java.io.File(
+                        android.os.Environment.getExternalStoragePublicDirectory(
+                            android.os.Environment.DIRECTORY_DOWNLOADS),
+                        "liperty_mouth_crop.png"
+                    )
+                    dumpFile.outputStream().use { out ->
+                        processedMouth.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    }
+                    // Also dump the full source bitmap with the expanded lip box
+                    // overlaid so we can see what region was cropped from where.
+                    val sourceDump = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                    val canvas = android.graphics.Canvas(sourceDump)
+                    val boxPaint = android.graphics.Paint().apply {
+                        color = android.graphics.Color.RED
+                        style = android.graphics.Paint.Style.STROKE
+                        strokeWidth = 4f
+                    }
+                    canvas.drawRect(expandedLipBox, boxPaint)
+                    // Also dot every detected lip landmark (cyan) and every
+                    // face landmark (faint green) so we can see what MediaPipe
+                    // actually found, not just where our box ended up.
+                    rawLandmarks?.let { lms ->
+                        val allPaint = android.graphics.Paint().apply {
+                            color = android.graphics.Color.argb(180, 100, 255, 100)
+                            style = android.graphics.Paint.Style.FILL
+                        }
+                        val lipPaint = android.graphics.Paint().apply {
+                            color = android.graphics.Color.argb(255, 0, 255, 255)
+                            style = android.graphics.Paint.Style.FILL
+                        }
+                        val lipSet = com.hereliesaz.liperty.ml.FaceLandmarkerHelper.LIP_INDICES.toHashSet()
+                        for ((i, lm) in lms.withIndex()) {
+                            val x = lm.x() * bitmap.width
+                            val y = lm.y() * bitmap.height
+                            canvas.drawCircle(x, y, 2f, allPaint)
+                            if (i in lipSet) canvas.drawCircle(x, y, 5f, lipPaint)
+                        }
+                    }
+                    val sourceFile = java.io.File(
+                        android.os.Environment.getExternalStoragePublicDirectory(
+                            android.os.Environment.DIRECTORY_DOWNLOADS),
+                        "liperty_source_with_box.png"
+                    )
+                    sourceFile.outputStream().use { out ->
+                        sourceDump.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    }
+                    sourceDump.recycle()
+                    Log.d("VSRInput", "dumped crop+source PNGs to /sdcard/Download/")
+                } catch (e: Exception) {
+                    Log.w("VSRInput", "crop dump failed: ${e.message}")
+                }
             }
 
             // Pass an explicitly copied bitmap to calibration to avoid lifecycle conflicts with FrameBuffer
