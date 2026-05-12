@@ -40,11 +40,11 @@ class EncoderCTCWrapper(nn.Module):
         self.ctc = e2e.ctc
 
     def forward(self, video):
-        # video: (N, C=1, T, 88, 88) float32, already normalized to the
-        # mean/std Auto-AVSR/Chaplin trained on. Espnet's E2E encoder
-        # for visual speech takes (xs_pad, ilens) and returns
-        # (hs_pad, hs_mask). Pass ilens = T for every batch element
-        # since we're working on full windows here.
+        # video: NCTHW (N, C=1, T, 88, 88) float32, already normalized
+        # to the mean/std Auto-AVSR/Chaplin trained on. Espnet's E2E
+        # encoder for visual speech takes (xs_pad, ilens) and returns
+        # (hs_pad, hs_mask). T is on axis 2 in NCTHW. Pass ilens = T
+        # for every batch element since we're working on full windows.
         ilens = torch.full((video.size(0),), video.size(2),
                            dtype=torch.long, device=video.device)
         try:
@@ -61,21 +61,24 @@ class EncoderCTCWrapper(nn.Module):
 print("[stage2] Building wrapper ...")
 wrapper = EncoderCTCWrapper(model.model).eval()
 
-# Sanity check: SyncVSR's bundled E2E expects NTCHW
-# (batch, time, channel=1, 88, 88), confirmed from the encoder's
-# first conv layer expecting input[*, *, 1, 88, 88] format.
-print("[stage2] Sanity forward NTCHW (1, 16, 1, 88, 88) ...")
+# Sanity check: SyncVSR's bundled E2E with input_layer="conv3d"
+# expects NCTHW (batch, channel=1, time, 88, 88). Its frontend3D's
+# first Conv3d weight is [out=64, in=1, T_k=5, H_k=7, W_k=7], so
+# axis 1 of the input MUST be 1 (channel). The encoder code path
+# for input_layer="conv3d-lrw" would transpose axes 1<->2, but
+# the deployed Vox+LRS2+LRS3 cfg uses plain "conv3d" -- no transpose.
+print("[stage2] Sanity forward NCTHW (1, 1, 16, 88, 88) ...")
 with torch.no_grad():
-    dummy = torch.randn(1, 16, 1, 88, 88)
+    dummy = torch.randn(1, 1, 16, 88, 88)
     try:
         out = wrapper(dummy)
         print(f"[stage2] Output shape: {tuple(out.shape)}")
     except Exception as e:
-        print(f"[stage2] NTCHW forward failed ({type(e).__name__}): {e}")
-        print("[stage2] Retrying with NCTHW (1, 1, 16, 88, 88) ...")
-        dummy = torch.randn(1, 1, 16, 88, 88)
+        print(f"[stage2] NCTHW forward failed ({type(e).__name__}): {e}")
+        print("[stage2] Retrying with NTCHW (1, 16, 1, 88, 88) ...")
+        dummy = torch.randn(1, 16, 1, 88, 88)
         out = wrapper(dummy)
-        print(f"[stage2] NCTHW output shape: {tuple(out.shape)}")
+        print(f"[stage2] NTCHW output shape: {tuple(out.shape)}")
 
 # ONNX export with dynamic batch + time axes.
 ONNX_PATH = WORK / "syncvsr_lrs3_visual_ctc.onnx"
@@ -92,7 +95,7 @@ torch.onnx.export(
     input_names=["video"],
     output_names=["logprobs"],
     dynamic_axes={
-        "video":    {0: "batch", 1: "time"},     # axis 1 = T in NTCHW
+        "video":    {0: "batch", 2: "time"},     # axis 2 = T in NCTHW
         "logprobs": {0: "batch", 1: "t_out"},
     },
     opset_version=17,
