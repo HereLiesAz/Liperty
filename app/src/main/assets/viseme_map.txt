@@ -1,0 +1,91 @@
+# ARPABET phoneme -> viseme class. Used by VisemeRescorer to identify
+# viseme-equivalent words (the candidate set for LM rescoring of the
+# CTC decoder output).
+#
+# Format: one line per phoneme, `<PHONEME>\t<VISEME>`. Lines starting
+# with # are comments. The phoneme set matches Liperty's
+# MLConstants.PHONEME_VOCAB (40-symbol ARPABET).
+#
+# Mapping based on Jeffers & Barley (1971), "Speechreading (Lipreading)",
+# the most-cited grouping in lipreading research. Some adjustments from
+# more recent corpus-based studies (Bear & Harvey 2017) where the
+# Jeffers groups proved suboptimal for ASR rescoring:
+#   - Velars (K, G, NG) collapsed with alveolars (T, D, N, L, S, Z)
+#     because they're indistinguishable from outside the mouth.
+#   - W and UW separated from other rounded vowels because the lip
+#     protrusion is much more pronounced.
+#
+# Visemes are intentionally fewer than 14 — coarser groupings make
+# more pairs viseme-equivalent, which makes the rescorer's candidate
+# set richer at the cost of false positives. 9 classes is a balance
+# point that's been validated on LRS2 (Bear-Harvey).
+#
+# Viseme legend:
+#   V1 = vowels (most: a/e/i/short-o etc.)
+#   V2 = bilabial closure (b/p/m)
+#   V3 = post-alveolar (sh/ch/jh/zh)
+#   V4 = alveolar+velar internal (t/d/n/l/s/z/k/g/ng)
+#   V5 = dental (th/dh)
+#   V6 = rhotic (r/er)
+#   V7 = labio-dental (f/v)
+#   V8 = glottal (hh)
+#   V9 = rounded (uw/w)
+
+# Vowels
+AA	V1
+AE	V1
+AH	V1
+AO	V1
+AW	V1
+AY	V1
+EH	V1
+EY	V1
+IH	V1
+IY	V1
+OW	V1
+OY	V1
+UH	V1
+
+# Rounded vowel + glide
+UW	V9
+W	V9
+
+# Rhotic
+ER	V6
+R	V6
+
+# Bilabial
+B	V2
+M	V2
+P	V2
+
+# Post-alveolar
+CH	V3
+JH	V3
+SH	V3
+ZH	V3
+
+# Alveolar + velar (internal, hard to distinguish from outside)
+D	V4
+G	V4
+K	V4
+L	V4
+N	V4
+NG	V4
+S	V4
+T	V4
+Z	V4
+
+# Dental
+DH	V5
+TH	V5
+
+# Labio-dental
+F	V7
+V	V7
+
+# Glottal
+HH	V8
+
+# Palatal glide
+Y	V1

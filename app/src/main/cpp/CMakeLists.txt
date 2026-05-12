@@ -33,7 +33,11 @@ add_library( # Sets the name of the library.
              audio_player.cpp
              vibraphone_jni.cpp
              AudioEngine.cpp
-             LC3Wrapper.cpp )
+             LC3Wrapper.cpp
+             # KenLM JNI bridge — currently a stub returning 0 from
+             # nativeLoad so the Kotlin side gracefully no-ops. Real
+             # implementation requires vendoring KenLM source (planned).
+             kenlm_jni.cpp )
 
 # Searches for prebuilt libraries.
 find_library(log-lib log)

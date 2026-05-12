@@ -29,6 +29,15 @@ class SubwordCtcBeamDecoder(
     private val vocabulary: List<String>,
     private val beamWidth: Int = 8,
     private val blankIndex: Int = 0,
+    /** Optional external language model for n-best rescoring. When non-null
+     *  and [lmWeight] != 0, the surviving top-[beamWidth] beams are re-ranked
+     *  by `CTC_logprob + lmWeight * LM.score(words)` before the winner is
+     *  picked. Null (the default) disables rescoring — pure-CTC behavior. */
+    private val lmScorer: LanguageModelScorer? = null,
+    /** Weight on the LM score in the rescoring sum. Conventional values
+     *  for n-gram shallow fusion are 0.3–0.7; tune offline on a dev set.
+     *  Unused when [lmScorer] is null. */
+    private val lmWeight: Float = 0.5f,
 ) {
     private data class Beam(
         val text: String,
@@ -131,11 +140,29 @@ class SubwordCtcBeamDecoder(
                 .associate { it.toPair() }
         }
 
-        val best = beams.values.maxByOrNull { it.total } ?: return ""
+        // Optional n-best rescoring with an external LM. When disabled
+        // (lmScorer null or lmWeight 0), this is a no-op and we keep
+        // the original CTC argmax behavior.
+        val best = if (lmScorer != null && lmWeight != 0f) {
+            beams.values.maxByOrNull { beam ->
+                beam.total + lmWeight * lmScorer.score(splitIntoWords(beam.text))
+            }
+        } else {
+            beams.values.maxByOrNull { it.total }
+        } ?: return ""
         return best.text
             .replace(WORD_BOUNDARY, ' ')
             .trimStart()
     }
+
+    /**
+     * SentencePiece-aware word splitter — raw beam text concatenates tokens
+     * including their `▁` word-start markers (e.g. "▁the▁cat" or "▁i've"
+     * with a contraction). Splitting on `▁` and dropping empties yields
+     * `["the", "cat"]` — the LM's expected input.
+     */
+    private fun splitIntoWords(text: String): List<String> =
+        text.split(WORD_BOUNDARY).filter { it.isNotEmpty() }
 
     private fun FloatArray.getOrZero(i: Int): Double =
         if (i in indices) this[i].toDouble() else 0.0

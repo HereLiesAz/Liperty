@@ -30,7 +30,11 @@ import com.hereliesaz.liperty.ml.HandGestureHelper
 import com.hereliesaz.liperty.voicebox.LaryngealSensor
 
 import com.hereliesaz.liperty.ml.FrameBuffer
+import com.hereliesaz.liperty.ml.AvHubertSeq2SeqInference
+import com.hereliesaz.liperty.ml.KenLmScorer
 import com.hereliesaz.liperty.ml.OnnxModelEngine
+import com.hereliesaz.liperty.ml.VisemeIndex
+import com.hereliesaz.liperty.ml.VisemeRescorer
 import com.hereliesaz.liperty.ml.SubwordCtcBeamDecoder
 import com.hereliesaz.liperty.ml.TFLiteEngine
 import com.hereliesaz.liperty.ml.VSRInference
@@ -68,6 +72,46 @@ class MainActivity : ComponentActivity() {
         // re-process the second half of each window with the first half of
         // the next — every new frame is seen by exactly two inferences.
         const val AUTOAVSR_SLIDE_RETAIN = 8
+
+        // V3 backend (AV-HuBERT seq2seq). Pulled by setup_libs.sh from
+        // HereLiesAz/liperty-avhubert-encoder. Encoder + decoder + dict
+        // are mean/std-compatible with the Auto-AVSR preprocessing above,
+        // so the camera pipeline doesn't need to change. The decoder is
+        // autoregressive (Transformer with cross-attention) — see
+        // docs/AVHUBERT_V3_BACKEND.md for the rationale.
+        const val AVHUBERT_V3_ENCODER_MODEL = "avhubert_base_vox_433h_visual_encoder.onnx"
+        const val AVHUBERT_V3_DECODER_MODEL = "avhubert_base_vox_433h_decoder.onnx"
+        const val AVHUBERT_V3_DICT = "avhubert_base_vox_433h_dict.txt"
+        // Fairseq's canonical special-token indices for AV-HuBERT's 1000-token
+        // unigram BPE vocab: 0=<s>(bos), 1=<pad>, 2=</s>(eos), 3=<unk>.
+        const val AVHUBERT_V3_BOS = 0
+        const val AVHUBERT_V3_EOS = 2
+        // Encoder window: trained on ~50-frame clips. Matches V2's FrameBuffer.
+        const val AVHUBERT_V3_NUM_FRAMES = 50
+        // Beyond ~50 BPE tokens is unrealistic for a Liperty utterance and
+        // protects against decoder runaway when the encoder features carry
+        // no signal (e.g. user out of frame).
+        const val AVHUBERT_V3_MAX_DECODE = 50
+
+        // Compile-time switch. V3 stays off by default until on-device WER
+        // beats V2 (Phase 4 in docs/AVHUBERT_V3_BACKEND.md). Flip to true
+        // for a research build that exercises the new path end-to-end.
+        const val USE_V3_BACKEND = false
+
+        // KenLM n-gram language model for n-best rescoring on top of CTC
+        // beam search (Phase A — see docs/AVHUBERT_V3_BACKEND.md). Pulled
+        // by setup_libs.sh from HereLiesAz/liperty-lm. LibriSpeech 3-gram
+        // pruned 1e-7, KenLM trie+q8 binary, ~27 MB. The vocabulary is
+        // UPPERCASE — KenLmScorer.score() uppercases input automatically.
+        const val KENLM_MODEL = "librispeech_3gram.bin"
+        // Conventional shallow-fusion weight for n-gram LMs in ASR (0.3-0.7).
+        // Tune on a held-out dev set; 0.5 is a sensible starting point.
+        const val KENLM_WEIGHT = 0.5f
+
+        // Viseme rescorer assets (built offline by tools/build_viseme_index.py
+        // and shipped in the APK). Cmudict-derived: 126k words across 30k
+        // unique viseme sequences. ~2 MB on disk.
+        const val VISEME_INDEX = "viseme_index.json"
     }
 
     private lateinit var cameraManager: CameraManager
@@ -76,6 +120,16 @@ class MainActivity : ComponentActivity() {
     private lateinit var overlayView: OverlayView
     private lateinit var previewView: PreviewView
     private lateinit var vsrInference: VSRInference
+    /** V3 AV-HuBERT seq2seq backend. Non-null only when [USE_V3_BACKEND]
+     *  is true and the assets are present. Research path; not yet
+     *  validated on real users. See docs/AVHUBERT_V3_BACKEND.md. */
+    private var avhubertV3: AvHubertSeq2SeqInference? = null
+    /** Viseme-aware post-rescorer. Non-null when both the viseme index
+     *  and the KenLM language model loaded successfully. See
+     *  [VisemeRescorer] for the algorithm — it's the "Chaplin's second
+     *  AI" tailored for visual ASR (swaps in viseme-equivalent words
+     *  that score higher under the LM). */
+    private var visemeRescorer: VisemeRescorer? = null
     private lateinit var ssrInference: SSRInference
     private lateinit var frameBuffer: FrameBuffer
     private val lipBoxFilter = RectKalmanFilter()
@@ -163,7 +217,50 @@ class MainActivity : ComponentActivity() {
             // beam_size=40 at greedy LM-scoring, but we have no LM and a
             // smaller-width search is enough to recover from greedy's
             // path-collapse mistakes).
-            val subwordDecoder = SubwordCtcBeamDecoder(subwordVocab, beamWidth = 8, blankIndex = 0)
+            // Try to load the KenLM language model for n-best rescoring on
+            // top of CTC beam search. Gracefully no-ops if either the .bin
+            // file isn't in assets (setup_libs.sh failure / older builds) or
+            // libkenlm.so isn't packaged (JNI not yet wired — Phase A3b/c).
+            val kenLmScorer: KenLmScorer? = try {
+                // KenLM expects a real on-disk path; stream the asset out so
+                // build_binary's mmap path works. Matches OnnxModelEngine's
+                // approach so the same caching semantics apply.
+                val dst = java.io.File(filesDir, KENLM_MODEL)
+                val assetSize = assets.openFd(KENLM_MODEL).use { it.length }
+                if (!dst.exists() || dst.length() != assetSize) {
+                    assets.open(KENLM_MODEL).use { input ->
+                        dst.outputStream().use { output -> input.copyTo(output) }
+                    }
+                }
+                KenLmScorer.tryLoad(dst.absolutePath).also {
+                    Log.i("MainActivity", "KenLM scorer: isNativeLoaded=${it.isNativeLoaded}")
+                }
+            } catch (e: Exception) {
+                Log.w("MainActivity", "KenLM scorer init skipped (${e.message})")
+                null
+            }
+            val subwordDecoder = SubwordCtcBeamDecoder(
+                vocabulary = subwordVocab,
+                beamWidth = 8,
+                blankIndex = 0,
+                lmScorer = kenLmScorer,
+                lmWeight = if (kenLmScorer?.isNativeLoaded == true) KENLM_WEIGHT else 0f,
+            )
+
+            // Viseme rescorer is independent of the JNI status — it only
+            // needs the viseme index asset and a LanguageModelScorer (any
+            // one will do; if KenLM isn't native-loaded, the rescorer
+            // gracefully no-ops because every candidate scores 0).
+            visemeRescorer = try {
+                val idx = VisemeIndex.loadFromAssets(this, VISEME_INDEX)
+                val lm = kenLmScorer ?: com.hereliesaz.liperty.ml.NoopLanguageModelScorer()
+                VisemeRescorer(idx, lm).also {
+                    Log.i("MainActivity", "VisemeRescorer ready (LM=${if (kenLmScorer?.isNativeLoaded == true) "kenlm" else "noop"})")
+                }
+            } catch (e: Exception) {
+                Log.w("MainActivity", "VisemeRescorer init skipped (${e.message})")
+                null
+            }
             vsrInference = VSRInference(
                 engine = vsrEngine,
                 pixelMean = AUTOAVSR_PIXEL_MEAN,
@@ -174,6 +271,20 @@ class MainActivity : ComponentActivity() {
             // Auto-AVSR's encoder accepts variable T; 16 frames keeps cadence
             // close to the legacy VideoMAE pipeline.
             frameBuffer = FrameBuffer(capacity = 16)
+
+            if (USE_V3_BACKEND) {
+                // Optional: build the AV-HuBERT seq2seq backend in parallel.
+                // Asset misses (model files not on disk) are non-fatal —
+                // we leave avhubertV3 null and the pipeline falls back to V2.
+                try {
+                    avhubertV3 = AvHubertSeq2SeqInference.create(this).also {
+                        Log.i("MainActivity", "V3 AV-HuBERT seq2seq backend constructed")
+                    }
+                } catch (e: Exception) {
+                    Log.w("MainActivity", "V3 backend init skipped (${e.message}); using V2")
+                    avhubertV3 = null
+                }
+            }
             coreInitialized = true
         } catch (e: Exception) {
             Log.e("MainActivity", "Failed to initialize components", e)
@@ -187,6 +298,12 @@ class MainActivity : ComponentActivity() {
             lifecycleScope.launch(Dispatchers.Default) {
                 vsrInference.initialize()
                 ssrInference.initialize()
+                avhubertV3?.let {
+                    if (!it.initialize()) {
+                        Log.w("MainActivity", "V3 backend.initialize() returned false; falling back to V2")
+                        avhubertV3 = null
+                    }
+                }
             }
         }
 
@@ -666,15 +783,36 @@ class MainActivity : ComponentActivity() {
                 }
 
                 lifecycleScope.launch(Dispatchers.Default) {
-                    val vsrResult = vsrInference.runInference(framesToProcess, landmarksToProcess)
+                    val v3 = avhubertV3
+                    val vsrResult = if (v3 != null) {
+                        // V3 path: AV-HuBERT seq2seq. Doesn't consume the lip
+                        // landmarks — the encoder takes only mouth ROIs.
+                        v3.runInference(framesToProcess)
+                    } else {
+                        vsrInference.runInference(framesToProcess, landmarksToProcess)
+                    }
                     // Once inference is complete, explicitly recycle the frames
                     for (frame in framesToProcess) {
                         BitmapPool.recycle(frame)
                     }
 
+                    // Viseme-aware rescoring ("Chaplin's second AI" for visual ASR):
+                    // try to swap visually-equivalent words that score higher in
+                    // the LM context. No-op when LM has no signal (Noop or
+                    // missing KenLM JNI). Runs off the UI thread; the result is
+                    // typically near-identical to input until KenLM is wired up.
+                    val rescoredText = visemeRescorer?.let {
+                        try {
+                            it.rescore(vsrResult.text)
+                        } catch (e: Exception) {
+                            Log.w("MainActivity", "visemeRescorer failed: ${e.message}")
+                            vsrResult.text
+                        }
+                    } ?: vsrResult.text
+
                     withContext(Dispatchers.Main) {
-                        val rawText = vsrResult.text.replace("Pred: ", "").replace(Regex("\\(.*\\)"), "")
-                        Log.d("VSRPipeline", "inference done: raw='${vsrResult.text.take(80)}' filtered='$rawText' conf=${"%.2f".format(vsrResult.confidence)}")
+                        val rawText = rescoredText.replace("Pred: ", "").replace(Regex("\\(.*\\)"), "")
+                        Log.d("VSRPipeline", "inference done: ctc='${vsrResult.text.take(80)}' rescored='${rescoredText.take(80)}' final='$rawText' conf=${"%.2f".format(vsrResult.confidence)}")
                         if (rawText.isNotBlank()) {
                             transcriptionManager.appendText(rawText, vsrResult.confidence)
                             updateTranscriptionUI()
