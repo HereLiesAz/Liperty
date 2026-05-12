@@ -230,6 +230,57 @@ hf_hub_download(repo_id='$AUTOAVSR_HF_REPO', filename='$filename', local_dir='$T
 download_from_hf "$AUTOAVSR_MODEL" "$AUTOAVSR_DEST_MODEL" || true
 download_from_hf "$AUTOAVSR_VOCAB" "$AUTOAVSR_DEST_VOCAB" || true
 
+# --- AV-HuBERT V3 Backend (encoder + Transformer-decoder seq2seq) ---
+# Optional. If missing the app still works in V2 mode (Auto-AVSR CTC).
+# See docs/AVHUBERT_V3_BACKEND.md. Repo is PUBLIC so HF_TOKEN is not
+# required, but huggingface_hub still needs to be installed.
+AVHUBERT_HF_REPO="HereLiesAz/liperty-avhubert-encoder"
+AVHUBERT_FILES=(
+    "avhubert_base_vox_433h_visual_encoder.onnx"
+    "avhubert_base_vox_433h_decoder.onnx"
+    "avhubert_base_vox_433h_dict.txt"
+)
+
+download_from_hf_repo() {
+    # download_from_hf_repo <repo_id> <filename> <dest>
+    local repo="$1"
+    local filename="$2"
+    local dest="$3"
+    if [ -f "$dest" ]; then
+        echo "[*] ${dest} already exists."
+        return 0
+    fi
+    echo "[+] Downloading ${filename} from huggingface.co/${repo}..."
+    if command -v huggingface-cli &> /dev/null; then
+        huggingface-cli download "$repo" "$filename" \
+            --local-dir "$TARGET_ASSETS" --quiet 2>&1 | tail -2
+    elif command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; then
+        python -c "
+from huggingface_hub import hf_hub_download
+hf_hub_download(repo_id='$repo', filename='$filename', local_dir='$TARGET_ASSETS')
+" 2>&1 | tail -2
+    else
+        echo "[!] Need huggingface-cli or python+huggingface_hub for V3 download. Skipping."
+        return 1
+    fi
+    if [ ! -f "$dest" ]; then
+        echo "[!] ${dest} not present after download."
+        return 1
+    fi
+}
+
+for f in "${AVHUBERT_FILES[@]}"; do
+    download_from_hf_repo "$AVHUBERT_HF_REPO" "$f" "${TARGET_ASSETS}/${f}" || true
+done
+
+# --- KenLM Language Model (shallow-fusion / n-best rescoring) ---
+# LibriSpeech 3-gram pruned 1e-7, KenLM trie+q8 binary (~27 MB).
+# Vocabulary is UPPERCASE — the Kotlin scorer uppercases words before
+# querying. Optional; missing LM = pure-CTC decoder with no rescoring.
+KENLM_HF_REPO="HereLiesAz/liperty-lm"
+KENLM_FILE="librispeech_3gram.bin"
+download_from_hf_repo "$KENLM_HF_REPO" "$KENLM_FILE" "${TARGET_ASSETS}/${KENLM_FILE}" || true
+
 # --- TTS / Voice Cloning ONNX Models ---
 # Pre-converted ONNX models for PocketTTSEngine (voice cloning pipeline).
 # If not available from GitHub Releases, generate them locally with:

@@ -36,8 +36,20 @@ import time
 # 0. Env detect
 # ---------------------------------------------------------------------------
 IS_KAGGLE = os.path.exists("/kaggle/working") or "KAGGLE_KERNEL_RUN_TYPE" in os.environ
-WORK_DIR = "/kaggle/working/work" if IS_KAGGLE else "/content/work"
+# Default: /kaggle/working/work on Kaggle, /content/work on Colab,
+# system tempdir/liperty-v3 elsewhere (Windows/Linux/Mac local).
+# Override anywhere with LIPERTY_WORK_DIR.
+if os.environ.get("LIPERTY_WORK_DIR"):
+    WORK_DIR = os.environ["LIPERTY_WORK_DIR"]
+elif IS_KAGGLE:
+    WORK_DIR = "/kaggle/working/work"
+elif os.path.exists("/content"):
+    WORK_DIR = "/content/work"
+else:
+    import tempfile
+    WORK_DIR = os.path.join(tempfile.gettempdir(), "liperty-v3")
 os.makedirs(WORK_DIR, exist_ok=True)
+print(f"Work dir: {WORK_DIR}")
 
 print(f"Environment: {'kaggle' if IS_KAGGLE else 'other'}")
 print(f"Python: {sys.version.split()[0]}")
@@ -87,7 +99,8 @@ print(f"  {enc_path}  ({os.path.getsize(enc_path) / 1e6:.0f} MB)")
 # ---------------------------------------------------------------------------
 # 3. Configuration
 # ---------------------------------------------------------------------------
-MAX_SPEAKERS = int(os.environ.get("LIPERTY_MAX_SPEAKERS", "6"))  # same cap as V1
+MAX_SPEAKERS = int(os.environ.get("LIPERTY_MAX_SPEAKERS", "7"))  # 6 train + 1 val by default
+VAL_SPEAKERS = int(os.environ.get("LIPERTY_VAL_SPEAKERS", "1")) # last N speakers held out for validation
 NUM_FRAMES = 16                    # video clip length our shards have
 CROP_SIZE  = 88                    # AV-HuBERT input size
 PIXEL_MEAN = 0.421
@@ -197,16 +210,18 @@ def extract_features_batch(frames_88_batch: np.ndarray) -> np.ndarray:
 
 def build_or_load_feature_cache():
     """For each clip in each shard: preprocess frames -> 88x88 mouth ROI ->
-    run ONNX -> save features. Re-running this script reuses the cache."""
-    entries = []   # (cache_path, phonemes)
+    run ONNX -> save features. Re-running this script reuses the cache.
+    Returns: {speaker_name: [(feat_tensor, phoneme_tensor), ...]}"""
+    by_speaker = {}
     for sp_path in shard_paths:
         sp_name = os.path.basename(sp_path)
         cache_path = os.path.join(CACHE_DIR, sp_name.replace(".pt", "_feats.pt"))
         if os.path.exists(cache_path):
             d = torch.load(cache_path, map_location="cpu", weights_only=False)
-            for feat, ph in zip(d["features"], d["phonemes"]):
-                entries.append((feat, torch.tensor(ph, dtype=torch.long)))
-            print(f"  {sp_name}: loaded {len(d['features'])} cached clips")
+            entries = [(feat, torch.tensor(ph, dtype=torch.long))
+                       for feat, ph in zip(d["features"], d["phonemes"])]
+            by_speaker[sp_name] = entries
+            print(f"  {sp_name}: loaded {len(entries)} cached clips")
             continue
         # Cache miss; build it.
         print(f"  {sp_name}: extracting features (one-time)...")
@@ -233,15 +248,25 @@ def build_or_load_feature_cache():
         torch.save({"features": [torch.from_numpy(f) for f in feats_list],
                     "phonemes": ph_list},
                    cache_path)
-        for feat, ph in zip(feats_list, ph_list):
-            entries.append((torch.from_numpy(feat), torch.tensor(ph, dtype=torch.long)))
-        print(f"    {sp_name}: extracted {len(feats_list)} clips in {time.time()-t0:.0f}s, cached")
-    return entries
+        entries = [(torch.from_numpy(f), torch.tensor(ph, dtype=torch.long))
+                   for f, ph in zip(feats_list, ph_list)]
+        by_speaker[sp_name] = entries
+        print(f"    {sp_name}: extracted {len(entries)} clips in {time.time()-t0:.0f}s, cached")
+    return by_speaker
 
 
 print("Building feature cache (one-time pass over all shards)...")
-all_entries = build_or_load_feature_cache()
-print(f"Total training clips: {len(all_entries)}")
+by_speaker = build_or_load_feature_cache()
+
+# Split: last VAL_SPEAKERS speakers (by sorted name) held out for validation.
+speaker_order = sorted(by_speaker.keys())
+val_names   = speaker_order[-VAL_SPEAKERS:] if VAL_SPEAKERS > 0 else []
+train_names = [s for s in speaker_order if s not in val_names]
+train_entries = [e for s in train_names for e in by_speaker[s]]
+val_entries   = [e for s in val_names   for e in by_speaker[s]]
+print(f"Train speakers: {train_names}  ({len(train_entries)} clips)")
+print(f"Val   speakers: {val_names}    ({len(val_entries)} clips)")
+all_entries = train_entries  # back-compat alias used below
 
 
 # ---------------------------------------------------------------------------
@@ -264,10 +289,19 @@ def ctc_collate(batch):
         labels[i, :len(b[1])] = b[1]
     return feats, labels, label_lengths
 
+# num_workers=0 on Windows (no `if __name__ == '__main__':` wrapper here;
+# multiprocessing dataloaders need fork on POSIX or the guard on Windows).
+# Features are already cached as torch tensors so the single-process loader
+# is plenty fast.
+_nw = 2 if sys.platform != "win32" else 0
 train_loader = DataLoader(FeatureDataset(all_entries), batch_size=BATCH_SIZE,
-                          shuffle=True, num_workers=2, collate_fn=ctc_collate,
+                          shuffle=True, num_workers=_nw, collate_fn=ctc_collate,
                           drop_last=True, pin_memory=True)
-print(f"Batches per epoch: {len(train_loader)}")
+val_loader = DataLoader(FeatureDataset(val_entries), batch_size=BATCH_SIZE,
+                        shuffle=False, num_workers=_nw, collate_fn=ctc_collate,
+                        drop_last=False, pin_memory=True) if val_entries else None
+print(f"Batches per epoch: {len(train_loader)} train / "
+      f"{len(val_loader) if val_loader else 0} val")
 
 
 # ---------------------------------------------------------------------------
@@ -310,10 +344,68 @@ def lr_lambda(step):
 scheduler = LambdaLR(optimizer, lr_lambda)
 ctc_loss = nn.CTCLoss(blank=BLANK_IDX, zero_infinity=True, reduction="mean")
 
+VAL_EVERY = int(os.environ.get("LIPERTY_VAL_EVERY", "500"))
+BEST_CKPT = os.path.join(CKPT_DIR, "head_best.pt")
+
+
+def evaluate(loader):
+    """Returns (mean_ctc_loss, mean_phoneme_cer). CER = token edit distance /
+    label length over greedy CTC decode. Cheap proxy for WER; same blank=0
+    convention as the training loss."""
+    if loader is None or len(loader) == 0:
+        return float("nan"), float("nan")
+    head.eval()
+    losses = []
+    edits = 0
+    chars = 0
+    with torch.no_grad():
+        for feats, labels, label_lengths in loader:
+            feats = feats.to(device, non_blocking=True)
+            labels_dev = labels.to(device, non_blocking=True)
+            label_lengths_dev = label_lengths.to(device, non_blocking=True)
+            logits = head(feats)
+            log_probs = F.log_softmax(logits, dim=-1).transpose(0, 1)
+            T_out = log_probs.shape[0]
+            input_lengths = torch.full((logits.shape[0],), T_out, dtype=torch.long, device=device)
+            loss = ctc_loss(log_probs, labels_dev.clamp_min(0), input_lengths, label_lengths_dev)
+            losses.append(float(loss.item()))
+            # Greedy CTC decode -> collapse repeats -> drop blank
+            preds = logits.argmax(dim=-1).cpu().numpy()  # (B, T)
+            for b in range(preds.shape[0]):
+                seq = preds[b].tolist()
+                collapsed = []
+                prev = -1
+                for tok in seq:
+                    if tok != prev and tok != BLANK_IDX:
+                        collapsed.append(tok)
+                    prev = tok
+                gt = labels[b, :label_lengths[b]].tolist()
+                # Token-level Levenshtein
+                m, n = len(gt), len(collapsed)
+                if m == 0:
+                    continue
+                dp = list(range(n + 1))
+                for i in range(1, m + 1):
+                    prev_diag = dp[0]
+                    dp[0] = i
+                    for j in range(1, n + 1):
+                        ins = dp[j] + 1
+                        dele = dp[j - 1] + 1
+                        sub = prev_diag + (0 if gt[i - 1] == collapsed[j - 1] else 1)
+                        prev_diag = dp[j]
+                        dp[j] = min(ins, dele, sub)
+                edits += dp[n]
+                chars += m
+    head.train()
+    cer = (edits / max(1, chars)) if chars else float("nan")
+    return sum(losses) / max(1, len(losses)), cer
+
+
 print("Training...")
 step = 0
 running_loss = 0.0
 running_n = 0
+best_val_loss = float("inf")
 t0 = time.time()
 head.train()
 while step < TOTAL_STEPS:
@@ -352,7 +444,21 @@ while step < TOTAL_STEPS:
             torch.save(head.state_dict(), ckpt_path)
             print(f"  [ckpt] saved {ckpt_path}")
 
+        if val_loader is not None and step % VAL_EVERY == 0:
+            v_loss, v_cer = evaluate(val_loader)
+            tag = ""
+            if v_loss < best_val_loss:
+                best_val_loss = v_loss
+                torch.save(head.state_dict(), BEST_CKPT)
+                tag = "  [BEST]"
+            print(f"  [val] step={step:5d}  loss={v_loss:.3f}  cer={v_cer*100:.1f}%{tag}")
+
 print(f"Training done. Final ckpt: {ckpt_path if 'ckpt_path' in dir() else '(no ckpt)'}")
+if val_loader is not None and os.path.exists(BEST_CKPT):
+    print(f"Best val loss = {best_val_loss:.3f}  ckpt = {BEST_CKPT}")
+    # Reload best weights so the ONNX export below reflects them, not the last step.
+    head.load_state_dict(torch.load(BEST_CKPT, map_location=device, weights_only=True))
+    head.eval()
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +467,9 @@ print(f"Training done. Final ckpt: {ckpt_path if 'ckpt_path' in dir() else '(no 
 head.eval()
 ONNX_HEAD = os.path.join(WORK_DIR, "avhubert_v3_phoneme_head.onnx")
 dummy_feat = torch.randn(1, 50, 768, device=device, dtype=torch.float32)
+# Force the legacy TorchScript tracer (dynamo=False). The torch 2.10 default
+# dynamo path requires onnxscript AND chokes on LSTM dynamic_axes — see the
+# 2026-05-11 (sixth) attempt entry in docs/AVHUBERT_V3_BACKEND.md.
 torch.onnx.export(
     head,
     dummy_feat,
@@ -371,6 +480,7 @@ torch.onnx.export(
     do_constant_folding=True,
     dynamic_axes={"features": {1: "T"}, "phoneme_logits": {1: "T_out"}},
     training=torch.onnx.TrainingMode.EVAL,
+    dynamo=False,
 )
 print(f"Head ONNX: {ONNX_HEAD}  ({os.path.getsize(ONNX_HEAD) / 1e6:.1f} MB)")
 
@@ -396,8 +506,12 @@ if token:
         path_in_repo="avhubert_v3_phoneme_head.onnx",
         repo_id=HEAD_REPO,
         repo_type="model",
-        commit_message=f"V3 phoneme head trained on GRID ({MAX_SPEAKERS} speakers, "
-                       f"{TOTAL_STEPS} steps, base+vox+433h encoder)",
+        commit_message=(
+            f"V3 phoneme head trained on GRID "
+            f"({len(train_names)} train spks + {len(val_names)} val spk, "
+            f"{TOTAL_STEPS} steps, base+vox+433h encoder, "
+            f"best_val_loss={best_val_loss:.3f})"
+        ),
     )
     print(f"Uploaded -> https://huggingface.co/{HEAD_REPO}/blob/main/avhubert_v3_phoneme_head.onnx")
 else:

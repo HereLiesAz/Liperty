@@ -33,20 +33,38 @@ This document serves as the master source of truth for the Liperty project. It m
 
 ## 🧠 Phase 4: Machine Learning (The "Inference & Reasoning" Engine)
 
-*Ref: RESEARCH.md Section "State-of-the-Art Neural Architectures for Mobile VSR"*
+*Refs: RESEARCH.md "State-of-the-Art Neural Architectures for Mobile VSR"; AVHUBERT_V3_BACKEND.md; LM_RESCORING.md*
 
-- [x] **Model Selection & Deployment:**
-    - [ ] **VALLR Architecture (Production):** Integrate real Video Transformer and LLM Decoder.
-    - [x] **Mock Engine:** Deployment of `vsr_model.tflite` (Dummy weights with correct I/O shapes).
-- [ ] **Multi-View Robustness:**
-    - [ ] Integration of pose-invariant feature extractors for off-axis (30°-60°) lipreading.
-- [x] **Advanced Decoding:**
-    - [x] **CTC Beam Search:** Prefix merging implementation in `BeamSearchDecoder.kt`.
-    - [ ] **Dynamic Language Model:** Replace placeholder `HomopheneCorrector` with a probabilistic dictionary.
-- [ ] **On-Device Personalization:**
-    - [ ] **Calibration UI:** "Tweak" flow for capturing user-specific articulatory patterns.
-    - [ ] **LoRA Infrastructure:** TFLite training signature support in `OnDeviceTrainer.kt`.
-    - [ ] **Real Fine-Tuning:** Replace dummy label mapping with actual phoneme-to-index alignment.
+- [x] **Production VSR backend (V2):**
+    - [x] Auto-AVSR ONNX (`Amanvir/LRS3_V_WER19.1`, ESPnet Conformer + CTC, 5050 SentencePiece tokens).
+    - [x] Streaming inference via `FrameBuffer.slideAndGetFrames(retainCount=8)`.
+    - [x] `SubwordCtcBeamDecoder` (beam=8, prefix merge via logsumexp).
+- [x] **Research VSR backend (V3, off by default):**
+    - [x] AV-HuBERT base+vox+433h encoder exported to ONNX (parity verified, 392 MB).
+    - [x] AV-HuBERT seq2seq decoder exported to ONNX (parity vs PyTorch verified text-equivalent on 5/5 clips, 240 MB).
+    - [x] Kotlin orchestrator (`AvHubertSeq2SeqInference` + `Seq2SeqGreedyDecoder` + `BpeDetokenizer`).
+    - [x] Wired into MainActivity behind `USE_V3_BACKEND` flag; 18 unit tests pass.
+    - [ ] On-device WER measurement vs V2.
+    - [ ] Seq2Seq beam search + LM fusion for V3 (Phase A5).
+- [x] **Phase A: LM rescoring + viseme-aware "Chaplin's second AI" (see LM_RESCORING.md)**:
+    - [x] LibriSpeech 3-gram pruned 1e-7 → KenLM trie+q8 binary (27 MB), shipped via `setup_libs.sh`.
+    - [x] `LanguageModelScorer` interface + `NoopLanguageModelScorer`.
+    - [x] `SubwordCtcBeamDecoder` optional LM rescoring via `lmScorer` constructor param.
+    - [x] Viseme map asset (9-class, Jeffers-Barley + Bear-Harvey).
+    - [x] Viseme inverse index asset (126K cmudict words / 30K viseme sequences, 2.1 MB).
+    - [x] `VisemeRescorer` with beam search over viseme-equivalent substitutions + input-bias tiebreaker.
+    - [x] Wired in MainActivity post-CTC, pre-TranscriptionManager.
+    - [ ] **`libkenlm.so` NDK build (gates all LM scoring effect — Phase A3b/c).**
+    - [ ] Offline WER sweep V2-no-LM vs V2+KenLM vs V2+KenLM+VisemeRescorer (Phase A6).
+- [ ] **Multi-view robustness:** pose-invariant feature extractors for off-axis (30°-60°) lipreading.
+- [ ] **On-device personalization (see PERSONALIZATION.md):**
+    - [x] **Step 1a: PairedTrainingRecord + PairedTrainingStore + 8 unit tests.**
+    - [x] **Step 1b: VideoFrameExtractor (MediaMetadataRetriever-based).**
+    - [ ] **Step 1c-f:** Android SpeechRecognizer transcript labels, voice-import hook, separate consent dialog, Settings UI for delete-all.
+    - [x] **Step 3 PoC partial:** `tools/build_avhubert_training_artifacts.py`; ONNX export validated (382.9 MB). Blocker: `onnxruntime-training` package needs adding to v3-export docker.
+    - [ ] **Step 3 on-device trainer:** Kotlin/JNI ORT Training Session, adapter-aware inference (post-PoC validation, ~6-8 weeks).
+    - [ ] **Step 2:** Personal n-gram LM, personal viseme confusion matrix, auto-tuned hyperparameters (queued behind Step 1).
+- [x] **Optional 2nd-stage LLM cleanup:** `LlmTextCleaner` wrapping Gemma-2B-it (MediaPipe Tasks GenAI). Opt-in.
 
 ---
 
@@ -144,9 +162,14 @@ This document serves as the master source of truth for the Liperty project. It m
 
 ## 🎯 Immediate Next Steps for AI Agent
 
-1. [ ] **PHONEME MAPPING:** Replace dummy 40-char vocabulary with the VALLR 38-phoneme set.
-2. [ ] **DSP REFINEMENT:** Improve `voiceSourceExpansion` in `VibraPhoneDSP` using a non-linear excitation model instead of simple folding.
-3. [ ] **POCKET-TTS INTEGRATION:** Implement the actual ONNX session execution for voice cloning and audio generation.
+In rough priority order (latest first):
+
+1. [ ] **KenLM JNI / `libkenlm.so` NDK build.** Gates ALL LM scoring effect — the entire rescoring stack (Phase A) runs as no-op until this lands. ~4-8 hours of NDK work. See `docs/LM_RESCORING.md` § "Phase A3b/c: building libkenlm.so".
+2. [ ] **Step 3 PoC unblock.** Add `onnxruntime-training` to `docker/v3-export/Dockerfile`, re-run `tools/build_avhubert_training_artifacts.py`, confirm the 4 ORT training artifacts generate cleanly for AV-HuBERT. ~1 hour.
+3. [ ] **Step 1c-f: voice import hook + consent dialog + Settings UI.** Foundation for both Step 2 (statistical personalization) and Step 3 (encoder LoRA). See `docs/PERSONALIZATION.md` § "Step 1".
+4. [ ] **Phase A6: offline WER sweep.** Once libkenlm.so works, measure V2-no-LM vs V2+KenLM vs V2+KenLM+VisemeRescorer on a held-out clip set. Pick α weight.
+5. [ ] **V3 device validation.** Flip `USE_V3_BACKEND=true` on a debug build, run on a real device, compare V2 vs V3 WER on the same input.
+6. [ ] **DSP refinement:** improve `voiceSourceExpansion` in `VibraPhoneDSP` using a non-linear excitation model instead of simple folding.
 
 ---
 

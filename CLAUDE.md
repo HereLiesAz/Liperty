@@ -50,10 +50,24 @@ Liperty/
 │       │   │   │   ├── HomopheneCorrector.kt
 │       │   │   │   ├── LanguageModel.kt
 │       │   │   │   ├── LlmTextCleaner.kt       # Opt-in 2nd-stage on-device LLM cleanup (MediaPipe Tasks GenAI)
+│       │   │   │   ├── LanguageModelScorer.kt  # Interface + NoopLanguageModelScorer for rescoring
+│       │   │   │   ├── KenLmScorer.kt          # KenLM n-gram LM via JNI (see docs/LM_RESCORING.md)
+│       │   │   │   ├── VisemeMap.kt            # ARPABET phoneme -> viseme class loader (asset: viseme_map.txt)
+│       │   │   │   ├── VisemeIndex.kt          # Word -> viseme-equivalent words lookup (asset: viseme_index.json)
+│       │   │   │   ├── VisemeRescorer.kt       # Viseme-aware post-CTC rescorer ("Chaplin's second AI" for visual ASR)
+│       │   │   │   ├── AvHubertEncoderSession.kt   # V3 encoder ONNX session (interface: EncoderSession)
+│       │   │   │   ├── AvHubertDecoderSession.kt   # V3 seq2seq decoder ONNX session (interface: DecoderSession)
+│       │   │   │   ├── Seq2SeqGreedyDecoder.kt # V3 autoregressive greedy loop
+│       │   │   │   ├── BpeDetokenizer.kt       # SentencePiece detokenizer (▁ -> space)
+│       │   │   │   ├── AvHubertSeq2SeqInference.kt # V3 backend top-level orchestrator (USE_V3_BACKEND=false default)
 │       │   │   │   ├── HandGestureHelper.kt
 │       │   │   │   ├── MLConstants.kt
 │       │   │   │   ├── CalibrationManager.kt   # Per-user pre-deployment calibration
 │       │   │   │   └── OnDeviceTrainer.kt
+│       │   │   ├── personalization/      # On-device personalization (see docs/PERSONALIZATION.md)
+│       │   │   │   ├── PairedTrainingRecord.kt # (audio, lip-video frames, optional transcript) sample
+│       │   │   │   ├── PairedTrainingStore.kt  # On-disk store with delete-all retention controls
+│       │   │   │   └── VideoFrameExtractor.kt  # MediaMetadataRetriever-based frame extraction
 │       │   │   ├── ui/
 │       │   │   │   ├── LipertyApp.kt        # Compose root
 │       │   │   │   ├── OverlayView.kt       # Landmark/text overlay
@@ -91,7 +105,12 @@ Liperty/
 │   ├── RESEARCH.md
 │   ├── USER_GUIDE.md
 │   ├── LEGAL.md
-│   └── MODEL_CONVERSION.md
+│   ├── MODEL_CONVERSION.md
+│   ├── AVHUBERT_V3_BACKEND.md         # V3 seq2seq research log (10 attempts, ongoing)
+│   ├── LM_RESCORING.md                # KenLM + viseme-aware rescoring architecture
+│   ├── PERSONALIZATION.md             # On-device per-user training plan (Steps 1-3)
+│   ├── RESEARCH_PAPER.md              # System paper: architecture + results + limitations
+│   └── PRIVACY_POLICY.md
 ├── tools/                             # Python notebook generators + .ipynb training/eval pipelines
 │   ├── _build_export_autoavsr_notebook.py / export_autoavsr_to_onnx.ipynb
 │   ├── _build_notebook.py             / train_grid_tcd_resumable.ipynb       # pixel V1
@@ -183,10 +202,16 @@ ONNX encoder + CTC head ─► (1, T_out, 5050)    .tflite ─► (1, T_out, V_p
         │                                              │
         ▼                                              ▼
 SubwordCtcBeamDecoder (beamWidth=8)            BeamSearchDecoder / GreedyDecoder
-SentencePiece (▁) → words                      phoneme probabilities → text
++ optional KenLM rescoring at end of beam     phoneme probabilities → text
+SentencePiece (▁) → words                              │
         │                                              │
         ▼                                              ▼
                   HomopheneCorrector + LanguageModel (word-level)
+        │
+        ▼
+VisemeRescorer (CTC text → viseme-equivalent alternatives → LM-rescored)
+The "Chaplin's-second-AI" for visual ASR: swaps viseme-confusable words
+(e.g. "tasty" → "nasty") when the LM prefers the alternative in context.
         │
         ▼
 TranscriptionManager  ──► getCurrentSentence() (raw assembled)
@@ -197,6 +222,10 @@ TranscriptionManager  ──► getCurrentSentence() (raw assembled)
         ▼
 OverlayView / Compose UI
 ```
+
+**Rescoring stack status:** the LM and viseme paths are wired and unit-tested end-to-end. Their actual effect on output is gated on `KenLmScorer.isNativeLoaded`, which requires `libkenlm.so` packaged in the APK (NDK build pending — see `docs/LM_RESCORING.md`). Until JNI lands, both rescorers run but their scoring is a no-op (input-bias tiebreaker keeps the original CTC output).
+
+**V3 backend (research-only, off by default):** `MainActivity.USE_V3_BACKEND = false`. Flipping the flag swaps the CTC pipeline above for `AvHubertSeq2SeqInference` — AV-HuBERT encoder ONNX + Transformer-decoder seq2seq + BPE detokenization. See `docs/AVHUBERT_V3_BACKEND.md` for the multi-attempt research log and `app/src/main/java/com/hereliesaz/liperty/ml/AvHubertSeq2SeqInference.kt` for the orchestrator.
 
 ---
 

@@ -79,7 +79,18 @@ RUN pip install --no-cache-dir \
         "scipy" \
         "huggingface_hub>=0.27,<1.0" \
         "onnx>=1.16" \
-        "onnxruntime>=1.18"
+        "onnxruntime-training>=1.18"
+# Use onnxruntime-training (NOT plain onnxruntime alongside it) — the
+# training package is a superset that includes inference, and installing
+# both produces a broken state where its native bits don't match. The
+# inference-side ONNX export and parity checks in this image use the
+# inference API exposed by the same package.
+#
+# onnxruntime-training adds the artifacts.generate_artifacts() Python
+# API used by tools/build_avhubert_training_artifacts.py. It supplies
+# the build-side (artifact generation) half of the on-device
+# personalization pipeline; the on-device half ships as the AAR
+# onnxruntime-training-android in the Android app, not in this image.
 
 # DON'T pip install fairseq. The vendored commit's setup.py tries to
 # Cython-build .pyx files (data_utils_fast etc.) and C++-compile a
