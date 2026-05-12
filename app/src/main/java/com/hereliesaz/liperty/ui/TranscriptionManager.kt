@@ -27,7 +27,13 @@ class TranscriptionManager(
     private val languageModel = LanguageModel()
 
     // Each entry is (word, confidence) — confidence comes from the VSR model's softmax output.
+    // wordEntries = committed words (stable; appeared in a previous inference window
+    //               that the next window confirmed via overlap dedupe).
+    // liveEntries = the latest window's "new tail" — words decoded from the most
+    //               recent frames that haven't yet been confirmed by a subsequent
+    //               window. Rendered dimmer in the UI as a live preview.
     private val wordEntries = mutableListOf<Pair<String, Float>>()
+    private val liveEntries = mutableListOf<Pair<String, Float>>()
     private var selectedWordIndex = -1
 
     /** Cache of (signature, transformed-sentence) so the transformer doesn't
@@ -37,23 +43,59 @@ class TranscriptionManager(
     private var cachedTransformed: Pair<String, String>? = null
 
     /**
-     * Appends new words from an inference result.
-     * Uses a language model to automatically correct common homophenes based on context.
+     * Streaming append from an inference window.
+     *
+     * The VSR pipeline runs on a 16-frame sliding window that retains 8 frames
+     * of overlap with the previous window (see MainActivity.AUTOAVSR_SLIDE_RETAIN).
+     * So consecutive inferences naturally share their first few decoded words.
+     * Without dedupe, the visible transcript would repeat — "the quick brown the
+     * quick brown fox jumps the quick brown fox jumps over". We:
+     *
+     *   1. Promote whatever was "live" from the previous call to committed
+     *      (the new window confirmed those words by including them in its prefix).
+     *   2. Find the longest suffix of the now-committed transcript that matches
+     *      a prefix of the new window's words, and drop that prefix.
+     *   3. Whatever remains becomes the new live preview.
+     *
+     * Homophone + LM correction runs over the live tail before storage so the
+     * UI shows already-corrected words rather than flickering between hypotheses.
+     *
      * @param confidence Mean max-softmax probability for this inference window (0–1).
      */
     @Synchronized
     fun appendText(text: String, confidence: Float = 0f) {
-        if (text.isEmpty()) return
-        val newWords = text.trim().split(WHITESPACE_REGEX)
+        if (text.isEmpty()) {
+            // Empty window: don't clear live -- a transient blank between
+            // two real inferences shouldn't wipe the user's preview.
+            return
+        }
+        val newWords = text.trim().split(WHITESPACE_REGEX).filter { it.isNotEmpty() }
+        if (newWords.isEmpty()) return
 
-        for (word in newWords) {
+        // 1. Promote previous live words to committed. They survived to the next
+        //    inference, which is the strongest stability signal we have.
+        if (liveEntries.isNotEmpty()) {
+            wordEntries.addAll(liveEntries)
+            liveEntries.clear()
+        }
+
+        // 2. Suffix-prefix dedupe against the committed transcript so we only
+        //    append the new tail (words decoded from the *new* 8 frames in this
+        //    window, not the 8 overlap frames).
+        val committedTokens = wordEntries.map { it.first }
+        val overlapK = longestSuffixPrefixOverlap(committedTokens, newWords)
+        val newTail = newWords.drop(overlapK)
+
+        if (newTail.isEmpty()) return  // window was entirely overlap
+
+        // 3. Homophone+LM correction on the new tail, using the rolling "previous
+        //    word" context. Same logic as the pre-streaming version, just scoped
+        //    to the tail instead of the whole window output.
+        var prevWord = wordEntries.lastOrNull()?.first
+        for (word in newTail) {
             var bestWord = word
-            val prevWord = wordEntries.lastOrNull()?.first
-
             if (prevWord != null) {
                 val alternatives = buildAlternatives(word)
-
-                // Score them with the language model if there are alternatives
                 if (alternatives.size > 1) {
                     var bestScore = -1.0
                     val normalizedPrev = prevWord.lowercase().replace(Regex("[^a-z']"), "")
@@ -66,12 +108,37 @@ class TranscriptionManager(
                     }
                 }
             }
-
             val formattedWord = applyOriginalCasing(word, bestWord)
-            wordEntries.add(Pair(formattedWord, confidence))
+            liveEntries.add(formattedWord to confidence)
+            prevWord = formattedWord
         }
 
-        if (wordEntries.isNotEmpty()) selectedWordIndex = wordEntries.size - 1
+        // Selection points into the combined (committed + live) list so the
+        // user can keep tapping/cycling the most recent word regardless of
+        // which buffer it lives in. cycleCurrentWord routes the mutation to
+        // the right buffer based on the index.
+        val total = wordEntries.size + liveEntries.size
+        if (total > 0) selectedWordIndex = total - 1
+    }
+
+    /**
+     * Longest k such that the last k tokens of `existing` match the first k
+     * of `incoming` (case-insensitive). Used by streaming dedupe so the
+     * sliding window's overlap region doesn't double-emit words.
+     */
+    private fun longestSuffixPrefixOverlap(existing: List<String>, incoming: List<String>): Int {
+        val maxK = minOf(existing.size, incoming.size)
+        for (k in maxK downTo 1) {
+            var match = true
+            for (i in 0 until k) {
+                if (!existing[existing.size - k + i].equals(incoming[i], ignoreCase = true)) {
+                    match = false
+                    break
+                }
+            }
+            if (match) return k
+        }
+        return 0
     }
 
     private fun buildAlternatives(word: String): List<String> {
@@ -102,8 +169,12 @@ class TranscriptionManager(
         }
     }
 
+    /** Visible transcript: committed words plus the live preview tail.
+     *  Callers wanting only stable words should use [getCommittedWords]. */
     @Synchronized
-    fun getCurrentSentence(): String = wordEntries.joinToString(" ") { it.first }
+    fun getCurrentSentence(): String =
+        (wordEntries.asSequence() + liveEntries.asSequence())
+            .joinToString(" ") { it.first }
 
     /**
      * Returns the assembled sentence after the optional [transformSentence]
@@ -113,7 +184,8 @@ class TranscriptionManager(
      */
     @Synchronized
     fun getCleanedSentence(): String {
-        val current = wordEntries.joinToString(" ") { it.first }
+        val current = (wordEntries.asSequence() + liveEntries.asSequence())
+            .joinToString(" ") { it.first }
         val transformer = transformSentence ?: return current
 
         val cached = cachedTransformed
@@ -127,36 +199,65 @@ class TranscriptionManager(
     @Synchronized
     fun clear() {
         wordEntries.clear()
+        liveEntries.clear()
         selectedWordIndex = -1
     }
 
+    /** Committed words only — the stable transcript that the UI renders
+     *  fully bright. Excludes the latest window's live preview tail. */
+    @Synchronized
+    fun getCommittedWords(): List<String> = wordEntries.map { it.first }
+
+    @Synchronized
+    fun getCommittedConfidences(): List<Float> = wordEntries.map { it.second }
+
+    /** Live-preview words: latest window's new tail, not yet committed.
+     *  Rendered with reduced alpha / italic in the UI so the user can
+     *  see speech *as it's mouthed* before the next window confirms it. */
+    @Synchronized
+    fun getLiveWords(): List<String> = liveEntries.map { it.first }
+
+    @Synchronized
+    fun getLiveConfidences(): List<Float> = liveEntries.map { it.second }
+
     @Synchronized
     fun cycleCurrentWord(direction: Int) {
-        if (selectedWordIndex == -1 || selectedWordIndex >= wordEntries.size) return
+        val total = wordEntries.size + liveEntries.size
+        if (selectedWordIndex !in 0 until total) return
 
-        val currentWord = wordEntries[selectedWordIndex].first
+        // Route to whichever buffer holds the selected word.
+        val (buffer, localIdx) = if (selectedWordIndex < wordEntries.size)
+            wordEntries to selectedWordIndex
+        else
+            liveEntries to (selectedWordIndex - wordEntries.size)
+
+        val currentWord = buffer[localIdx].first
         val alternatives = buildAlternatives(currentWord)
 
         val currentIndex = alternatives.indexOfFirst { it.equals(currentWord, ignoreCase = true) }
         if (currentIndex != -1 && alternatives.isNotEmpty()) {
             var newIndex = (currentIndex + direction) % alternatives.size
             if (newIndex < 0) newIndex += alternatives.size
-            val conf = wordEntries[selectedWordIndex].second
-            wordEntries[selectedWordIndex] = Pair(alternatives[newIndex], conf)
+            val conf = buffer[localIdx].second
+            buffer[localIdx] = Pair(alternatives[newIndex], conf)
         }
     }
 
     @Synchronized
     fun selectWord(index: Int) {
-        if (index in 0 until wordEntries.size) selectedWordIndex = index
+        val total = wordEntries.size + liveEntries.size
+        if (index in 0 until total) selectedWordIndex = index
     }
 
     @Synchronized
     fun getSelectedWordIndex(): Int = selectedWordIndex
 
+    /** All visible words (committed + live), matching [getCurrentSentence]. */
     @Synchronized
-    fun getWords(): List<String> = wordEntries.map { it.first }
+    fun getWords(): List<String> =
+        (wordEntries.asSequence() + liveEntries.asSequence()).map { it.first }.toList()
 
     @Synchronized
-    fun getWordConfidences(): List<Float> = wordEntries.map { it.second }
+    fun getWordConfidences(): List<Float> =
+        (wordEntries.asSequence() + liveEntries.asSequence()).map { it.second }.toList()
 }

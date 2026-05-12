@@ -2,13 +2,18 @@ package com.hereliesaz.liperty.ui
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
-@RunWith(RobolectricTestRunner::class)
+// SDK 37 workaround: targetSdk=37 confuses Robolectric. Pinning to SDK 34
+// here matches the pattern documented in CLAUDE.md (used by
+// TranscriptionManagerTransformTest, LlmTextCleanerTest, etc.).
+@RunWith(AndroidJUnit4::class)
+@Config(sdk = [34])
 class TranscriptionManagerTest {
 
     private lateinit var context: Context
@@ -67,5 +72,54 @@ class TranscriptionManagerTest {
         manager.clear()
         assertEquals("", manager.getCurrentSentence())
         assertEquals(-1, manager.getSelectedWordIndex())
+    }
+
+    // Streaming sliding-window dedupe: the VSR pipeline retains 8 of 16
+    // frames between inferences, so consecutive windows share prefix words.
+    // Without dedupe the visible transcript would repeat itself.
+    @Test
+    fun testStreamingOverlapDedupe() {
+        manager.appendText("the quick brown")
+        // First window's words are live, awaiting confirmation.
+        assertEquals(emptyList<String>(), manager.getCommittedWords())
+        assertEquals(listOf("the", "quick", "brown"), manager.getLiveWords())
+
+        // Second window overlaps by 2 words.
+        manager.appendText("quick brown fox")
+        // The first window's words got promoted to committed.
+        assertEquals(listOf("the", "quick", "brown"), manager.getCommittedWords())
+        // Only the new tail ("fox") is live.
+        assertEquals(listOf("fox"), manager.getLiveWords())
+
+        // Combined visible transcript shouldn't duplicate.
+        assertEquals("the quick brown fox", manager.getCurrentSentence())
+    }
+
+    @Test
+    fun testStreamingFullOverlapEmitsNothing() {
+        manager.appendText("hello world")
+        manager.appendText("hello world") // identical window output
+        // "hello world" got promoted to committed by the second call; the
+        // second call's full content was overlap so nothing new is live.
+        assertEquals(listOf("hello", "world"), manager.getCommittedWords())
+        assertEquals(emptyList<String>(), manager.getLiveWords())
+        assertEquals("hello world", manager.getCurrentSentence())
+    }
+
+    @Test
+    fun testStreamingDisjointWindowsAppend() {
+        manager.appendText("first chunk")
+        manager.appendText("unrelated tail") // no overlap at all
+        // First chunk promoted, second chunk is the new live tail.
+        assertEquals(listOf("first", "chunk"), manager.getCommittedWords())
+        assertEquals(listOf("unrelated", "tail"), manager.getLiveWords())
+    }
+
+    @Test
+    fun testStreamingCaseInsensitiveDedupe() {
+        manager.appendText("HELLO World")
+        manager.appendText("hello world fox")
+        assertEquals(listOf("HELLO", "World"), manager.getCommittedWords())
+        assertEquals(listOf("fox"), manager.getLiveWords())
     }
 }

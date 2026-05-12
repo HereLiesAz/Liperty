@@ -142,6 +142,11 @@ class MainActivity : ComponentActivity() {
     // Compose State
     private val transcriptionWords = mutableStateOf(listOf<String>())
     private val wordConfidences = mutableStateOf(listOf<Float>())
+    /** Words from the latest inference window that haven't yet been confirmed
+     *  by a subsequent window. Rendered as a dimmer live-preview tail so the
+     *  user sees speech-as-it's-mouthed before the next inference commits it. */
+    private val liveTranscriptionWords = mutableStateOf(listOf<String>())
+    private val liveWordConfidences = mutableStateOf(listOf<Float>())
     private val selectedWordIndex = mutableStateOf(-1)
     private val isRecordingState = mutableStateOf(false)
     private val isBCModeState = mutableStateOf(false)
@@ -335,6 +340,8 @@ class MainActivity : ComponentActivity() {
                 previewView = previewView,
                 overlayView = overlayView,
                 transcriptionWords = transcriptionWords.value,
+                liveWords = liveTranscriptionWords.value,
+                liveWordConfidences = liveWordConfidences.value,
                 selectedWordIndex = selectedWordIndex.value,
                 onWordClick = { index ->
                     transcriptionManager.selectWord(index)
@@ -555,8 +562,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateTranscriptionUI() {
-        transcriptionWords.value = transcriptionManager.getWords()
-        wordConfidences.value = transcriptionManager.getWordConfidences()
+        // Split committed vs live: committed words render bright + clickable,
+        // live words render dim/italic as a real-time preview tail. The Compose
+        // layer concatenates them visually but styles them differently so the
+        // user sees stability at a glance.
+        transcriptionWords.value = transcriptionManager.getCommittedWords()
+        wordConfidences.value = transcriptionManager.getCommittedConfidences()
+        liveTranscriptionWords.value = transcriptionManager.getLiveWords()
+        liveWordConfidences.value = transcriptionManager.getLiveConfidences()
         selectedWordIndex.value = transcriptionManager.getSelectedWordIndex()
     }
 

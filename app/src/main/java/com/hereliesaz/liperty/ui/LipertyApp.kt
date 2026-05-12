@@ -65,6 +65,12 @@ fun LipertyApp(
     overlayView: OverlayView,
     transcriptionWords: List<String>,
     wordConfidences: List<Float> = emptyList(),
+    /** Live-preview words from the latest inference window that aren't yet
+     *  committed. Rendered at reduced alpha + italic as the dimmer tail of
+     *  the transcript so users see speech as it's mouthed before the next
+     *  window confirms it. */
+    liveWords: List<String> = emptyList(),
+    liveWordConfidences: List<Float> = emptyList(),
     selectedWordIndex: Int,
     onWordClick: (Int) -> Unit,
     isRecording: Boolean,
@@ -249,8 +255,11 @@ fun LipertyApp(
                                     .fillMaxWidth()
                                     .weight(1f)
                             ) {
-                                // Words — shown for any active mode once text arrives
-                                if (transcriptionWords.isNotEmpty()) {
+                                // Words — committed transcript + live preview tail.
+                                // Live words are the latest inference window's new tail
+                                // that hasn't been confirmed yet by the next window;
+                                // they appear dimmer + italic and aren't clickable.
+                                if (transcriptionWords.isNotEmpty() || liveWords.isNotEmpty()) {
                                     FlowRow(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -286,6 +295,18 @@ fun LipertyApp(
                                                             heatColor
                                                     )
                                                     .clickable { onWordClick(index) }
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                        liveWords.forEach { liveWord ->
+                                            Text(
+                                                text = liveWord,
+                                                color = Color.White.copy(alpha = 0.55f),
+                                                fontSize = fontSize.sp,
+                                                fontWeight = FontWeight.Light,
+                                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                                modifier = Modifier
+                                                    .padding(4.dp)
                                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                                             )
                                         }
