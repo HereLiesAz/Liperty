@@ -33,6 +33,13 @@ android {
             cmake {
                 cppFlags += "-std=c++17"
                 arguments += "-DANDROID_STL=c++_shared"
+                // 16 KB page-size support (required for Android 15+ on
+                // arm64 devices with 16 KB pages). The linker must align
+                // PT_LOAD segments to 16 KiB instead of the historical
+                // 4 KiB, otherwise the dynamic loader refuses libliperty_cv.so
+                // on such devices. See:
+                // https://developer.android.com/guide/practices/page-sizes
+                arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
             }
         }
 
@@ -78,6 +85,24 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        // Required for 16 KB page-size devices: native libs must be
+        // stored uncompressed in the APK so the dynamic loader can
+        // mmap them directly. useLegacyPackaging=false makes the .so
+        // entries STORED (not DEFLATED) with the correct alignment.
+        //
+        // Status of every .so in the APK (verified via llvm-readelf -l):
+        //   libliperty_cv.so                    16 KB-aligned (linker flag below)
+        //   libLiteRt.so                        16 KB-aligned (LiteRT 2.1.4 ships it)
+        //   libonnxruntime4j_jni.so             16 KB-aligned (ORT 1.22 ships it)
+        //   libc++_shared.so                    16 KB-aligned (NDK)
+        //   libgraphics-core.so                 16 KB-aligned
+        //   libopencv_java4.so                   4 KB-aligned (OpenCV 4.10.0 -- upgrade
+        //                                       to 4.11+ for 16 KB Android 15 devices)
+        //   libmediapipe_tasks_vision_jni.so     4 KB-aligned (MediaPipe Tasks 0.20230731;
+        //                                       upgrade to 0.10.21+ for 16 KB)
+        jniLibs {
+            useLegacyPackaging = false
         }
     }
 

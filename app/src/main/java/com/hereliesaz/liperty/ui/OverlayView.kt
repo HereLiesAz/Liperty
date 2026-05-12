@@ -28,32 +28,32 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
 
     // ── Paints ───────────────────────────────────────────────────────────────
 
-    /** Very faint dots for the full 468-point mesh — just enough to show tracking */
+    /** Dots for the full 468-point mesh */
     private val meshDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(45, 180, 220, 255)
+        color = Color.argb(180, 200, 240, 255)
         style = Paint.Style.FILL
     }
 
-    /** Subtle dots on lip landmarks */
+    /** Bright dots on lip landmarks */
     private val lipDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(120, 0, 220, 255)
+        color = Color.argb(255, 0, 240, 255)
         style = Paint.Style.FILL
     }
 
-    /** Lines connecting lip contour landmarks — semi-transparent */
+    /** Lines connecting lip contour landmarks */
     private val lipLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(110, 0, 220, 255)
+        color = Color.argb(255, 0, 240, 255)
         style = Paint.Style.STROKE
-        strokeWidth = 1.8f
+        strokeWidth = 4f
         strokeJoin = Paint.Join.ROUND
         strokeCap = Paint.Cap.ROUND
     }
 
-    /** Faint bounding box around the lip region */
+    /** Bounding box around the lip region */
     private val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(55, 0, 200, 255)
+        color = Color.argb(200, 0, 220, 255)
         style = Paint.Style.STROKE
-        strokeWidth = 2f
+        strokeWidth = 3.5f
     }
 
     // ── Lip topology ─────────────────────────────────────────────────────────
@@ -105,9 +105,9 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
         val landmarks = allLandmarks
         if (landmarks.isEmpty()) return
 
-        // 1. Full mesh — all 468 points as tiny dots
+        // 1. Full mesh — all 468 points
         for (pt in landmarks) {
-            canvas.drawCircle(pt.x, pt.y, 2f, meshDotPaint)
+            canvas.drawCircle(pt.x, pt.y, 3.5f, meshDotPaint)
         }
 
         // 2. Lip contour connections
@@ -127,7 +127,7 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
         // 3. Lip landmark dots (on top of lines)
         for (idx in allLipIndices) {
             if (idx < landmarks.size) {
-                canvas.drawCircle(landmarks[idx].x, landmarks[idx].y, 4f, lipDotPaint)
+                canvas.drawCircle(landmarks[idx].x, landmarks[idx].y, 6f, lipDotPaint)
             }
         }
 

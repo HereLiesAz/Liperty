@@ -34,10 +34,19 @@ add_library( # Sets the name of the library.
              vibraphone_jni.cpp
              AudioEngine.cpp
              LC3Wrapper.cpp
-             # KenLM JNI bridge — currently a stub returning 0 from
-             # nativeLoad so the Kotlin side gracefully no-ops. Real
-             # implementation requires vendoring KenLM source (planned).
+             # KenLM JNI bridge -- guarded by KENLM_AVAILABLE below.
+             # Falls back to a stub when arm64-v8a prebuilts are absent.
              kenlm_jni.cpp )
+
+# 16 KB page-size support for Android 15+. The dynamic linker on devices
+# with 16 KiB pages rejects shared libraries whose PT_LOAD segments are
+# only aligned to 4 KiB. The NDK toolchain's default is 4 KiB for
+# backwards compat, so we have to opt in explicitly. Safe on 4 KiB
+# devices too -- the larger alignment just wastes at most 12 KiB of
+# virtual address space per segment, which doesn't matter.
+target_link_options(liperty_cv PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384")
 
 # Searches for prebuilt libraries.
 find_library(log-lib log)

@@ -1,6 +1,10 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
-    <style name="Theme.Liperty" parent="Theme.AppCompat.Light.NoActionBar">
+    <!-- DayNight follows AppCompatDelegate.setDefaultNightMode(), which
+         LipertyApplication wires up from the "dark_theme" pref so the
+         XML-based SettingsActivity respects the same toggle that
+         LipertyTheme uses on the Compose side. -->
+    <style name="Theme.Liperty" parent="Theme.AppCompat.DayNight.NoActionBar">
         <!-- Primary brand color. -->
         <item name="colorPrimary">@color/purple_500</item>
         <item name="colorPrimaryDark">@color/purple_700</item>

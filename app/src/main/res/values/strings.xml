@@ -26,13 +26,14 @@
     <string name="nav_clear_transcript">Clear Transcript</string>
     <string name="nav_speak_text">Speak Text</string>
 
-    <!-- Mode toggles -->
-    <string name="mode_lipread_on">Lip-Read ON</string>
-    <string name="mode_lipread_off">Lip-Read OFF</string>
-    <string name="mode_bc_on">BC Larynx ON</string>
-    <string name="mode_bc_off">BC Larynx OFF</string>
-    <string name="mode_el_on">EL-Transl ON</string>
-    <string name="mode_el_off">EL-Transl OFF</string>
+    <!-- Mode toggles. Active state is shown by activeColor (see azTheme),
+         not by an ON/OFF suffix, so both on/off labels are identical. -->
+    <string name="mode_lipread_on">Lip-Read</string>
+    <string name="mode_lipread_off">Lip-Read</string>
+    <string name="mode_bc_on">BC Larynx</string>
+    <string name="mode_bc_off">BC Larynx</string>
+    <string name="mode_el_on">EL-Transl</string>
+    <string name="mode_el_off">EL-Transl</string>
     <string name="mode_camera_back">Back</string>
     <string name="mode_camera_front">Front</string>
 

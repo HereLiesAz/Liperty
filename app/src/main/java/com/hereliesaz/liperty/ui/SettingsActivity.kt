@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Bundle
 import android.widget.Switch
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import com.hereliesaz.liperty.R
 
 class SettingsActivity : AppCompatActivity() {
@@ -30,6 +31,11 @@ class SettingsActivity : AppCompatActivity() {
 
         switchDarkTheme.setOnCheckedChangeListener { _, isChecked ->
             sharedPrefs.edit().putBoolean("dark_theme", isChecked).apply()
+            // Apply immediately so the surface flips without an app restart.
+            AppCompatDelegate.setDefaultNightMode(
+                if (isChecked) AppCompatDelegate.MODE_NIGHT_YES
+                else AppCompatDelegate.MODE_NIGHT_NO
+            )
         }
     }
 }
