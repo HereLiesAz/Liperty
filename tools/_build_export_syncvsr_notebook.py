@@ -194,6 +194,19 @@ If the import path differs from the assumption below, the error message
 will point us at the correct module path inside `SyncVSR/LRS/video/`.
 """))
 cells.append(code("""\
+# Pre-import shim: espnet's asr_utils.PlotAttentionReport ends up as
+# None when matplotlib's plot bits don't resolve (common on Kaggle's
+# image where some matplotlib_inline plumbing is missing). Then
+# espnet.nets.pytorch_backend.transformer.plot tries
+#   class PlotAttentionReport(asr_utils.PlotAttentionReport):
+# and gets "NoneType takes no arguments". Replace with a stub so the
+# subclass declaration parses. We don't need attention plotting for
+# inference -- the wrapper exports encoder + CTC only.
+import espnet.asr.asr_utils as _asr_utils
+if getattr(_asr_utils, "PlotAttentionReport", None) is None:
+    _asr_utils.PlotAttentionReport = type("_StubPAR", (), {})
+    print("Patched espnet.asr.asr_utils.PlotAttentionReport with stub")
+
 # SyncVSR's LightningModule lives in lightning.py at the LRS/video
 # root (flat layout). It's called `ModelModule` and wraps espnet's
 # E2E visual-speech transformer at self.model.
