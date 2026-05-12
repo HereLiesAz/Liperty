@@ -61,16 +61,21 @@ class EncoderCTCWrapper(nn.Module):
 print("[stage2] Building wrapper ...")
 wrapper = EncoderCTCWrapper(model.model).eval()
 
-# Sanity check the forward pass.
-print("[stage2] Sanity forward (1, 1, 16, 88, 88) ...")
+# Sanity check: SyncVSR's bundled E2E expects NTCHW
+# (batch, time, channel=1, 88, 88), confirmed from the encoder's
+# first conv layer expecting input[*, *, 1, 88, 88] format.
+print("[stage2] Sanity forward NTCHW (1, 16, 1, 88, 88) ...")
 with torch.no_grad():
-    dummy = torch.randn(1, 1, 16, 88, 88)
+    dummy = torch.randn(1, 16, 1, 88, 88)
     try:
         out = wrapper(dummy)
         print(f"[stage2] Output shape: {tuple(out.shape)}")
     except Exception as e:
-        print(f"[stage2] Forward pass FAILED: {type(e).__name__}: {e}")
-        raise
+        print(f"[stage2] NTCHW forward failed ({type(e).__name__}): {e}")
+        print("[stage2] Retrying with NCTHW (1, 1, 16, 88, 88) ...")
+        dummy = torch.randn(1, 1, 16, 88, 88)
+        out = wrapper(dummy)
+        print(f"[stage2] NCTHW output shape: {tuple(out.shape)}")
 
 # ONNX export with dynamic batch + time axes.
 ONNX_PATH = WORK / "syncvsr_lrs3_visual_ctc.onnx"
