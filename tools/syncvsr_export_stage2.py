@@ -80,6 +80,11 @@ with torch.no_grad():
 # ONNX export with dynamic batch + time axes.
 ONNX_PATH = WORK / "syncvsr_lrs3_visual_ctc.onnx"
 print(f"[stage2] Exporting -> {ONNX_PATH}")
+# torch 2.10's new dynamo-based exporter trips over the espnet
+# encoder's control flow ("No initializer or constant input to node"
+# in the version_converter). Force the legacy non-dynamo path with
+# dynamo=False so torch.onnx.export uses the JIT trace + manual
+# serializer that has been stable for years.
 torch.onnx.export(
     wrapper,
     (dummy,),
@@ -87,11 +92,12 @@ torch.onnx.export(
     input_names=["video"],
     output_names=["logprobs"],
     dynamic_axes={
-        "video":    {0: "batch", 2: "time"},
+        "video":    {0: "batch", 1: "time"},     # axis 1 = T in NTCHW
         "logprobs": {0: "batch", 1: "t_out"},
     },
     opset_version=17,
     do_constant_folding=True,
+    dynamo=False,
 )
 print(f"[stage2] Exported: {ONNX_PATH} ({ONNX_PATH.stat().st_size/1e6:.1f} MB)")
 
