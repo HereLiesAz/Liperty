@@ -73,6 +73,7 @@ class MainActivity : ComponentActivity() {
         // the next — every new frame is seen by exactly two inferences.
         const val AUTOAVSR_SLIDE_RETAIN = 8
 
+
         // V3 backend (AV-HuBERT seq2seq). Pulled by setup_libs.sh from
         // HereLiesAz/liperty-avhubert-encoder. Encoder + decoder + dict
         // are mean/std-compatible with the Auto-AVSR preprocessing above,

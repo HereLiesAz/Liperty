@@ -96,6 +96,15 @@ class VSRInference(
                 inputWidth = dims.inputWidth
                 numChannels = dims.numChannels
             }
+            // ONNX models often leave the batch (N) and time (T) axes as -1
+            // (dynamic). The buffer allocator below can't handle negatives;
+            // substitute concrete values: T = the actual frame count passed
+            // in by the caller, others fall back to the channel/spatial dims
+            // the Auto-AVSR Conformer was trained on (1×88×88 grayscale).
+            if (numFrames <= 0) numFrames = frames.size
+            if (numChannels <= 0) numChannels = 1
+            if (inputHeight <= 0) inputHeight = 88
+            if (inputWidth <= 0) inputWidth = 88
             Log.d("VSRInference", "using numFrames=$numFrames ${inputWidth}x${inputHeight} ch=$numChannels layout=$inputLayout")
 
             val outputShape = engine.getOutputShape(0)
@@ -114,7 +123,19 @@ class VSRInference(
                 return VSRResult("", 0f, emptyList(), processingTime)
             }
 
-            allocateBuffersIfNeeded(outputShape, landmarkShape)
+            // The output shape from ONNX has -1 for batch (N) and time (T_out).
+            // CTC T_out depends on the encoder's stride; for Auto-AVSR it
+            // typically equals numFrames (1:1 ratio per frame in the
+            // visual-only Conformer). Use that as an upper bound so the
+            // output buffer is sized correctly. Actual T_out from the
+            // returned tensor is read after inference.
+            val concreteOutputShape = IntArray(outputShape.size).also {
+                outputShape.copyInto(it)
+                if (it[0] <= 0) it[0] = 1                 // batch
+                if (it[1] <= 0) it[1] = numFrames         // T_out upper bound
+                // it[2] (vocab) is always concrete
+            }
+            allocateBuffersIfNeeded(concreteOutputShape, landmarkShape)
 
             val currentInputBuffer = inputBuffer!!
             val currentOutputBuffer = outputBuffer!!
@@ -216,9 +237,14 @@ class VSRInference(
             }
 
             // 2. Prepare Output Buffer (already allocated)
-            val batchSize = outputShape[0]
-            val timeSteps = outputShape[1]
-            val vocabSize = outputShape[2]
+            // Use the concretized output shape -- the model's declared shape
+            // has -1 for batch and time; we substituted batch=1 and a
+            // time-upper-bound = numFrames earlier. The decoder reads
+            // [batch, T_out, vocab] floats out of the output buffer, so
+            // these must be positive concrete values.
+            val batchSize = concreteOutputShape[0]
+            val timeSteps = concreteOutputShape[1]
+            val vocabSize = concreteOutputShape[2]
             Log.d("VSRInference", "decoding: timeSteps=$timeSteps vocabSize=$vocabSize")
 
             // 3. Run Inference
@@ -244,15 +270,26 @@ class VSRInference(
                 engine.run(currentInputBuffer, currentOutputBuffer)
             }
 
+            // Refresh from the engine: ONNX models with dynamic T_out report
+            // the concrete shape only after the tensor has been produced.
+            // OnnxModelEngine.run() updates its cached output shape during
+            // run(); read it back here so the decoder loop iterates over the
+            // *actual* timesteps the model emitted (not the upper bound).
+            val actualOutputShape = engine.getOutputShape(0)
+            val actualTimeSteps = if (actualOutputShape.size >= 2 && actualOutputShape[1] > 0)
+                actualOutputShape[1] else timeSteps
+
             currentOutputBuffer.rewind()
 
             // 4. Decode
             // CTC models output raw logits. Apply softmax per timestep so the
             // BeamSearchDecoder receives proper probabilities in [0,1].
-            val probabilities = Array(timeSteps) {
+            // Iterate over the *actual* T_out from the engine, not the
+            // upper-bound timeSteps used for buffer allocation.
+            val probabilities = Array(actualTimeSteps) {
                 val logits = FloatArray(vocabSize) { currentOutputBuffer.float }
                 if (it == 0) {
-                    Log.d("VSRInference", "logits[0] sample (first 5): ${logits.take(5)}")
+                    Log.d("VSRInference", "logits[0] sample (first 5): ${logits.take(5)} actualT=$actualTimeSteps")
                 }
                 softmax(logits)
             }

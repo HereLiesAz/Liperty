@@ -141,7 +141,9 @@ class AvHubertDecoderSession(
 
     private fun ensureModelOnDisk(): String {
         val dst = File(context.filesDir, modelName)
-        val assetSize = context.assets.openFd(modelName).use { it.length }
+        // openFd() throws on compressed assets (aapt2's default for .onnx).
+        // available() reports uncompressed size for both compressed and stored.
+        val assetSize = context.assets.open(modelName).use { it.available().toLong() }
         if (dst.exists() && dst.length() == assetSize) return dst.absolutePath
         context.assets.open(modelName).use { input ->
             dst.outputStream().use { output -> input.copyTo(output) }

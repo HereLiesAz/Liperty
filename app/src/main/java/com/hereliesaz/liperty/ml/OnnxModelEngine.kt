@@ -74,12 +74,42 @@ class OnnxModelEngine(
         // so we can hand the FloatBuffer directly to ONNX with the model's shape.
         inputBuffer.rewind()
         val floatBuf: FloatBuffer = inputBuffer.asFloatBuffer()
-        val longShape = inputShape.map { it.toLong() }.toLongArray()
+
+        // Build a CONCRETE shape from the model's declared shape, which may
+        // contain -1 placeholders for batch (N) and time (T) axes. ONNX
+        // Runtime rejects negative dims when creating the input tensor, so
+        // we substitute:
+        //   - batch axis (-1): always 1 for our pipeline
+        //   - exactly-one remaining dynamic axis (T): derive from the input
+        //     buffer's float count divided by the product of the fixed dims
+        // If multiple dynamic axes remain after batch, we'd need explicit
+        // runtime info from the caller -- our current models (Auto-AVSR,
+        // AV-HuBERT visual) only have N and T dynamic, so this works.
+        val totalFloats = inputBuffer.capacity().toLong() / 4L
+        val longShape = LongArray(inputShape.size) { i ->
+            if (inputShape[i] > 0) inputShape[i].toLong()
+            else if (i == 0) 1L  // batch
+            else -1L             // placeholder, resolved below
+        }
+        // Resolve the remaining dynamic dim (typically T) from the buffer size
+        // and the known fixed dims. There should be exactly one -1 left.
+        var fixedProduct = 1L
+        for (j in longShape.indices) if (longShape[j] > 0) fixedProduct *= longShape[j]
+        for (j in longShape.indices) {
+            if (longShape[j] == -1L) {
+                longShape[j] = (totalFloats / fixedProduct).coerceAtLeast(1L)
+                fixedProduct *= longShape[j]
+            }
+        }
 
         OnnxTensor.createTensor(e, floatBuf, longShape).use { input ->
             s.run(mapOf(name to input)).use { results ->
                 @Suppress("UNCHECKED_CAST")
                 val out = results[0] as OnnxTensor
+                // Refresh outputShape with the actual returned shape so the
+                // decoder gets concrete dims (model's declared output shape
+                // has -1 for batch and T_out).
+                outputShape = out.info.shape.map { it.toInt() }.toIntArray()
                 copyTensorTo(out, outputBuffer)
             }
         }
@@ -98,7 +128,13 @@ class OnnxModelEngine(
      */
     private fun ensureModelOnDisk(): String {
         val dst = File(context.filesDir, modelName)
-        val assetSize = context.assets.openFd(modelName).use { it.length }
+        // assets.openFd() fails with "This file can not be opened as a file
+        // descriptor; it is probably compressed" for any asset aapt2 decided
+        // to deflate -- which is the default for .onnx and .bin. Read the
+        // uncompressed size via the InputStream's available() instead, which
+        // works for both compressed and uncompressed entries. Same fix is
+        // already in place for the KenLM .bin in MainActivity.
+        val assetSize = context.assets.open(modelName).use { it.available().toLong() }
         if (dst.exists() && dst.length() == assetSize) return dst.absolutePath
 
         context.assets.open(modelName).use { input ->
