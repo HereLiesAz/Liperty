@@ -164,6 +164,7 @@ dependencies {
     implementation(libs.google.material)
     implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.work.runtime)
 
     // Compose
     implementation(platform(libs.androidx.compose.bom))
