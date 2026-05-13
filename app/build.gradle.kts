@@ -157,6 +157,14 @@ android {
         file(System.getProperty("java.io.tmpdir") + "/liperty-cxx-build")
 }
 
+configurations.all {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "org.jetbrains.kotlin" && requested.name == "compose-group-mapping") {
+            useVersion("2.3.21")
+        }
+    }
+}
+
 dependencies {
 
     implementation(libs.androidx.core.ktx)
