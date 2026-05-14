@@ -197,7 +197,17 @@ for f in sorted(os.listdir(model_dir)):
     sz = os.path.getsize(os.path.join(model_dir, f)) / 1e6
     print(f"  {f}  ({sz:.1f} MB)")
 
-CTC_ONNX = os.path.join(model_dir, "syncvsr_lrs3_visual_ctc.onnx")
+# NOTE: The FP32 syncvsr_lrs3_visual_ctc.onnx on HF is corrupted —
+# Stage 2's upload_folder filtered out *.onnx.data via allow_patterns,
+# but torch.onnx.export's external-data format split the weights into
+# that companion file. ORT raises "External data path does not exist"
+# when loading it. The FP16 variant (quantized by stage2.5,
+# argmax-identical to FP32 in offline testing) is intact and is what
+# we use here. The encoder + decoder ONNX files are also fully
+# embedded and load fine. Re-uploading a self-contained FP32 ONNX is
+# a separate task (rebuild via tools/syncvsr_export_stage2.py with
+# save_as_external_data=False, or onnx.save_model merge).
+CTC_ONNX = os.path.join(model_dir, "syncvsr_lrs3_visual_ctc_fp16.onnx")
 ENC_ONNX = os.path.join(model_dir, "syncvsr_lrs3_encoder.onnx")
 DEC_ONNX = os.path.join(model_dir, "syncvsr_lrs3_decoder.onnx")
 VOCAB_PATH = os.path.join(model_dir, "syncvsr_unigram_units.txt")
