@@ -141,12 +141,23 @@ HF_USER = "HereLiesAz"
 # tools/syncvsr_export_stage3_decoder.py + tools/syncvsr_export_stage4_encoder.py.
 MODEL_REPO = f"{HF_USER}/liperty-syncvsr-onnx"
 
-# Eval shards: preprocessed LRS3 in the Liperty pipeline format. Same
-# convention as the training/eval notebooks expect:
+# Eval shards: preprocessed dataset in the Liperty pipeline format.
 #   frames: (N, T, 224, 224, 3) uint8 RGB
 #   texts:  list[str] ground-truth transcripts
-EVAL_DATA_REPO = "HereLiesAz/liperty-lrs3-preprocessed"   # adjust to whatever
-                                                          # eval shard repo you have
+#
+# What you'd want vs what's available:
+#   * IDEAL: preprocessed LRS3 (the dataset SyncVSR was trained on).
+#     A LRS3 evaluation gives the IN-DOMAIN accuracy ceiling. As of
+#     2026-05-13 no such preprocessed shard repo exists on HF — would
+#     need to build one from raw LRS3 (academic access required).
+#   * AVAILABLE: HereLiesAz/liperty-grid-preprocessed (~34 shards).
+#     GRID is a DOMAIN-SHIFT test — the model has never seen GRID
+#     speakers, lighting, or vocabulary, so absolute numbers will be
+#     LOWER than they'd be on LRS3. But the CTC-vs-seq2seq relative
+#     comparison still works, and the GRID vocabulary still has
+#     plenty of viseme-confusable pairs (bin/pin, blue/red letters,
+#     digit names) to exercise the discriminative-accuracy metric.
+EVAL_DATA_REPO = "HereLiesAz/liperty-grid-preprocessed"
 
 # Which decode paths to evaluate.
 #   'ctc'     - syncvsr_lrs3_visual_ctc.onnx + greedy / beam CTC decode
@@ -154,8 +165,12 @@ EVAL_DATA_REPO = "HereLiesAz/liperty-lrs3-preprocessed"   # adjust to whatever
 BACKENDS = ["ctc", "seq2seq"]
 
 # Limit eval. None -> use everything.
-SHARDS = None                # e.g. ["test_00.pt"] for a smoke test
-MAX_CLIPS_PER_SHARD = None   # e.g. 50 for fast iteration
+# First run: keep SHARDS to a single one and MAX_CLIPS_PER_SHARD low so
+# the seq2seq path's per-clip overhead (~10-30 s on GPU per clip due to
+# autoregressive decode) doesn't blow up the session timeout. Once
+# you've seen numbers, lift these caps for the real eval.
+SHARDS = ["s1.pt"]
+MAX_CLIPS_PER_SHARD = 50
 
 # CTC beam width (mirrors SubwordCtcBeamDecoder.kt default = 8).
 BEAM_WIDTH = 8
@@ -248,7 +263,7 @@ try:
     all_files = api.list_repo_files(EVAL_DATA_REPO, repo_type="dataset")
 except Exception as e:
     print(f"Could not list {EVAL_DATA_REPO}: {e}")
-    print(f"Set EVAL_DATA_REPO at the top of the notebook to your preprocessed LRS3 (or other) shard repo.")
+    print(f"Set EVAL_DATA_REPO at the top of the notebook to your preprocessed shard repo (GRID/TCD/LRS3).")
     raise
 
 shard_names = sorted(f for f in all_files if f.endswith(".pt"))
