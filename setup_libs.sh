@@ -301,6 +301,31 @@ download_syncvsr "syncvsr_unigram_units.txt" || true
 download_syncvsr "syncvsr_lrs3_encoder.onnx" || true
 download_syncvsr "syncvsr_lrs3_decoder.onnx" || true
 
+# Personalized SyncVSR encoder (per-user LoRA-merged). Optional — only
+# present after the user runs the calibration flow on-device, exports
+# via TrainingDataExporter, and trains offline through
+# tools/train_syncvsr_lora.ipynb (which uploads the result to
+# <user>/liperty-syncvsr-personal-lora). When present at runtime AND
+# MainActivity.SYNCVSR_USE_PERSONAL_LORA is true, replaces the
+# generic encoder. Edit SYNCVSR_PERSONAL_HF_REPO to point at your own
+# trained-LoRA repo before re-running setup_libs.sh.
+SYNCVSR_PERSONAL_HF_REPO="${SYNCVSR_PERSONAL_HF_REPO:-HereLiesAz/liperty-syncvsr-personal-lora}"
+download_personal_syncvsr() {
+    local filename="$1"
+    local dest="${TARGET_ASSETS}/${filename}"
+    if [ -f "$dest" ]; then return 0; fi
+    if command -v huggingface-cli &> /dev/null; then
+        huggingface-cli download "$SYNCVSR_PERSONAL_HF_REPO" "$filename" \
+            --local-dir "$TARGET_ASSETS" --quiet 2>&1 | tail -2 || true
+    elif command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; then
+        python -c "
+from huggingface_hub import hf_hub_download
+hf_hub_download(repo_id='$SYNCVSR_PERSONAL_HF_REPO', filename='$filename', local_dir='$TARGET_ASSETS')
+" 2>&1 | tail -2 || true
+    fi
+}
+download_personal_syncvsr "syncvsr_lrs3_encoder_personal.onnx" || true
+
 # --- AV-HuBERT V3 Backend (encoder + Transformer-decoder seq2seq) ---
 # Optional. If missing the app still works in V2 mode (Auto-AVSR CTC).
 # See docs/AVHUBERT_V3_BACKEND.md. Repo is PUBLIC so HF_TOKEN is not

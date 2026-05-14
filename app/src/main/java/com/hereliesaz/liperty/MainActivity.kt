@@ -166,6 +166,20 @@ class MainActivity : ComponentActivity() {
         const val SYNCVSR_SEQ2SEQ_ENCODER = "syncvsr_lrs3_encoder.onnx"
         const val SYNCVSR_SEQ2SEQ_DECODER = "syncvsr_lrs3_decoder.onnx"
 
+        // Personalized-LoRA encoder. When SYNCVSR_USE_PERSONAL_LORA is
+        // true AND the asset file exists, replace the generic encoder
+        // with a user-fine-tuned merged ONNX. Trained offline by
+        // tools/train_syncvsr_lora.ipynb on the user's own viseme-
+        // calibration recordings (collected by VisemeCalibrationScreen
+        // and exported via TrainingDataExporter). The merged file is a
+        // drop-in replacement — same input/output shape, same NTCHW
+        // layout, same encoder hidden dim — so we just swap the asset
+        // name in the seq2seq factory. The decoder + vocab stay shared
+        // since LoRA only adapts the encoder; the language-model side
+        // shouldn't drift to a single user.
+        const val SYNCVSR_USE_PERSONAL_LORA = false
+        const val SYNCVSR_PERSONAL_ENCODER = "syncvsr_lrs3_encoder_personal.onnx"
+
         // KenLM n-gram language model for n-best rescoring on top of CTC
         // beam search (Phase A — see docs/AVHUBERT_V3_BACKEND.md). Pulled
         // by setup_libs.sh from HereLiesAz/liperty-lm. LibriSpeech 3-gram
@@ -379,9 +393,23 @@ class MainActivity : ComponentActivity() {
                 // we leave the field null and the inference loop falls
                 // back to the CTC path via vsrInference.
                 try {
+                    // Prefer the personalized encoder when the flag is
+                    // on AND the asset is actually bundled in the APK.
+                    // Fall through to the generic encoder otherwise so
+                    // a misconfigured build still works.
+                    val encoderAsset = if (SYNCVSR_USE_PERSONAL_LORA) {
+                        try {
+                            assets.open(SYNCVSR_PERSONAL_ENCODER).close()
+                            Log.i("MainActivity", "SyncVSR: using personalized LoRA encoder")
+                            SYNCVSR_PERSONAL_ENCODER
+                        } catch (e: Exception) {
+                            Log.w("MainActivity", "Personal LoRA encoder missing; falling back to generic")
+                            SYNCVSR_SEQ2SEQ_ENCODER
+                        }
+                    } else SYNCVSR_SEQ2SEQ_ENCODER
                     syncVsrSeq2Seq = AvHubertSeq2SeqInference.createSyncVsr(
                         context = this,
-                        encoderAsset = SYNCVSR_SEQ2SEQ_ENCODER,
+                        encoderAsset = encoderAsset,
                         decoderAsset = SYNCVSR_SEQ2SEQ_DECODER,
                         vocabAsset = AUTOAVSR_VOCAB,
                         numFrames = 16,

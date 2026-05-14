@@ -73,6 +73,13 @@ fun VisemeCalibrationScreen(
     vm: VisemeCalibrationViewModel,
     onRegisterFrameCallback: (((Bitmap) -> Unit)?) -> Unit,
     onClose: () -> Unit,
+    /**
+     * Optional export hook. When provided, the "All done" card shows
+     * an "Export for training" button. Returns a human-readable path
+     * (or null on failure) — caller is responsible for surfacing a
+     * Toast / Snackbar.
+     */
+    onExportForTraining: (() -> String?)? = null,
 ) {
     val state by vm.state.collectAsState()
 
@@ -110,11 +117,24 @@ fun VisemeCalibrationScreen(
         Spacer(modifier = Modifier.weight(1f))
 
         when (val phase = state.phase) {
-            is VisemeCalibrationViewModel.Phase.Complete -> CompleteCard(
-                savedCount = state.savedIds.size,
-                onClose = onClose,
-                onRestart = { vm.restart() },
-            )
+            is VisemeCalibrationViewModel.Phase.Complete -> {
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                CompleteCard(
+                    savedCount = state.savedIds.size,
+                    onClose = onClose,
+                    onRestart = { vm.restart() },
+                    onExport = onExportForTraining?.let { invoker ->
+                        {
+                            val path = invoker()
+                            android.widget.Toast.makeText(
+                                ctx,
+                                if (path != null) "Saved to $path" else "Export failed",
+                                android.widget.Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    },
+                )
+            }
             else -> PromptCard(state)
         }
 
@@ -312,7 +332,7 @@ private fun ControlsSaving() {
 }
 
 @Composable
-private fun CompleteCard(savedCount: Int, onClose: () -> Unit, onRestart: () -> Unit) {
+private fun CompleteCard(savedCount: Int, onClose: () -> Unit, onRestart: () -> Unit, onExport: (() -> Unit)? = null) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -339,6 +359,16 @@ private fun CompleteCard(savedCount: Int, onClose: () -> Unit, onRestart: () -> 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TextButton(onClick = onRestart) {
                     Text("Record more", color = MaterialTheme.colorScheme.primary)
+                }
+                if (onExport != null) {
+                    // Export wires up TrainingDataExporter — zips the
+                    // calibration directory + saves to Downloads so the
+                    // user can upload it to a private HF dataset repo
+                    // and feed it to tools/train_syncvsr_lora.ipynb for
+                    // offline LoRA training.
+                    TextButton(onClick = onExport) {
+                        Text("Export for training", color = MaterialTheme.colorScheme.primary)
+                    }
                 }
                 Button(onClick = onClose) { Text("Close") }
             }

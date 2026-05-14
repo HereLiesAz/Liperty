@@ -556,6 +556,13 @@ fun LipertyApp(
                                 vm = vm,
                                 onRegisterFrameCallback = onRegisterCalibrationCallback,
                                 onClose = { navController.popBackStack() },
+                                onExportForTraining = {
+                                    // Bundles filesDir/viseme_calibration/ into a zip
+                                    // in Downloads. User then uploads to private HF
+                                    // dataset repo and runs tools/train_syncvsr_lora.ipynb.
+                                    val storeDir = java.io.File(ctx.filesDir, "viseme_calibration")
+                                    com.hereliesaz.liperty.personalization.TrainingDataExporter.export(ctx, storeDir)
+                                },
                             )
                         }
                     }

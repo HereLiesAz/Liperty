@@ -52,6 +52,16 @@ fun PersonalizationSettingsPanel(
     onRevokeConsent: () -> Unit,
     onDeleteAll: () -> Unit,
     onTrainNow: (() -> Unit)? = null,
+    /**
+     * Optional export hook. When non-null and there are stored
+     * recordings, a "Export for training" button appears that bundles
+     * the calibration directory into a zip and saves it to the user's
+     * Downloads folder. The user then uploads the zip to their private
+     * HF dataset repo for offline LoRA training via
+     * `tools/train_syncvsr_lora.ipynb`. Returns the absolute path
+     * (or content URI) of the written zip; null on failure.
+     */
+    onExportForTraining: (() -> String?)? = null,
 ) {
     var showRevokeConfirm by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -103,6 +113,17 @@ fun PersonalizationSettingsPanel(
                 } else {
                     if (onTrainNow != null && recordCount > 0) {
                         OutlinedButton(onClick = onTrainNow) { Text("Train now") }
+                    }
+                    if (onExportForTraining != null && recordCount > 0) {
+                        val ctx = androidx.compose.ui.platform.LocalContext.current
+                        OutlinedButton(onClick = {
+                            val path = onExportForTraining()
+                            android.widget.Toast.makeText(
+                                ctx,
+                                if (path != null) "Saved to $path" else "Export failed",
+                                android.widget.Toast.LENGTH_LONG,
+                            ).show()
+                        }) { Text("Export for training") }
                     }
                     if (recordCount > 0) {
                         OutlinedButton(onClick = { showDeleteConfirm = true }) {

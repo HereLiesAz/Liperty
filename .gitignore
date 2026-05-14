@@ -63,6 +63,7 @@ app/src/main/assets/syncvsr_lrs3_visual_ctc.onnx
 app/src/main/assets/syncvsr_lrs3_visual_ctc_fp16.onnx
 app/src/main/assets/syncvsr_lrs3_encoder.onnx
 app/src/main/assets/syncvsr_lrs3_decoder.onnx
+app/src/main/assets/syncvsr_lrs3_encoder_personal.onnx
 app/src/main/assets/syncvsr_unigram_units.txt
 app/src/main/assets/avhubert_base_vox_433h_decoder.onnx
 app/src/main/assets/avhubert_base_vox_433h_visual_encoder.onnx
