@@ -10,8 +10,20 @@ project("liperty_cv")
 # Set the OpenCV directory manually to where setup_libs.sh installs it
 set(OpenCV_DIR "${CMAKE_SOURCE_DIR}/libs/opencv/sdk/native/jni")
 
+# If we are building in Debug but only Release prebuilts exist, map them.
+set(CMAKE_MAP_IMPORTED_CONFIG_DEBUG Release)
+
 # Find the OpenCV library
 find_package(OpenCV REQUIRED)
+
+# OpenCV 4.10+ static libraries for arm64-v8a depend on KleidiCV for HAL
+# acceleration. The OpenCV CMake config defines these as imported targets
+# but might not link them correctly in all build configurations (e.g. Debug
+# builds when only Release prebuilts exist).
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+    message(STATUS "Linking KleidiCV and 3rdparty dependencies for arm64-v8a static OpenCV")
+    list(APPEND OpenCV_LIBS kleidicv_hal kleidicv kleidicv_thread tegra_hal tbb libcpufeatures ittnotify)
+endif()
 
 message(STATUS "OpenCV library status:")
 message(STATUS "    version: ${OpenCV_VERSION}")
