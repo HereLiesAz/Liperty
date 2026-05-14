@@ -409,32 +409,47 @@ else
 fi
 
 # --- TTS / Voice Cloning ONNX Models ---
-# Pre-converted ONNX models for PocketTTSEngine (voice cloning pipeline).
-# If not available from GitHub Releases, generate them locally with:
-#   pip install speechbrain TTS torch onnx onnxruntime numpy
-#   python tools/convert_tts_models.py
+# Pre-converted ONNX models for PocketTTSEngine (voice cloning pipeline),
+# pulled from HereLiesAz/liperty-pocket-tts (built by
+# tools/export_tts_to_onnx.ipynb). The previous version of this block
+# pointed at a GitHub Release tag (v0.1.0-models) that doesn't actually
+# host the .onnx files, so every fresh setup_libs.sh run got 9-byte
+# HTML stubs that ORT couldn't load.
+TTS_HF_REPO="HereLiesAz/liperty-pocket-tts"
+TTS_MODELS=(
+    "pocket_tts_speaker.onnx"
+    "pocket_tts_acoustic.onnx"
+    "pocket_tts_vocoder.onnx"
+    "pocket_tts_phoneme_map.json"
+)
 
-TTS_RELEASE_TAG="v0.1.0-models"
-TTS_MODELS=("pocket_tts_speaker.onnx" "pocket_tts_acoustic.onnx" "pocket_tts_vocoder.onnx")
+download_tts() {
+    local filename="$1"
+    local dest="${TARGET_ASSETS}/${filename}"
+    if [ -f "$dest" ] && [ "$(stat -c%s "$dest" 2>/dev/null || stat -f%z "$dest" 2>/dev/null)" -gt 1000 ]; then
+        echo "[*] ${filename} already exists."
+        return 0
+    fi
+    rm -f "$dest"   # Drop any old 9-byte stub.
+    echo "[+] Downloading ${filename} from ${TTS_HF_REPO}..."
+    if command -v huggingface-cli &> /dev/null; then
+        huggingface-cli download "$TTS_HF_REPO" "$filename" \
+            --local-dir "$TARGET_ASSETS" --quiet 2>&1 | tail -2 || true
+    elif command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; then
+        python -c "
+from huggingface_hub import hf_hub_download
+hf_hub_download(repo_id='$TTS_HF_REPO', filename='$filename', local_dir='$TARGET_ASSETS')
+" 2>&1 | tail -2 || true
+    fi
+    if [ -f "$dest" ]; then
+        echo "[+] ${filename} installed ($(stat -c%s "$dest" 2>/dev/null || stat -f%z "$dest" 2>/dev/null) bytes)."
+    else
+        echo "[!] ${filename} download failed. Generate via tools/export_tts_to_onnx.ipynb on Kaggle."
+    fi
+}
 
 for model in "${TTS_MODELS[@]}"; do
-    if [ ! -f "${TARGET_ASSETS}/${model}" ]; then
-        TTS_URL="https://github.com/HereLiesAz/Liperty/releases/download/${TTS_RELEASE_TAG}/${model}"
-        echo "[+] Downloading ${model} from GitHub Releases..."
-        if command -v curl &> /dev/null; then
-            curl -L -o "${TARGET_ASSETS}/${model}" "$TTS_URL"
-        elif command -v wget &> /dev/null; then
-            wget -O "${TARGET_ASSETS}/${model}" "$TTS_URL"
-        fi
-        if [ -f "${TARGET_ASSETS}/${model}" ] && file "${TARGET_ASSETS}/${model}" | grep -q "HTML"; then
-            echo "[!] Download failed for ${model} (got HTML). Generate locally with: python tools/convert_tts_models.py"
-            rm -f "${TARGET_ASSETS}/${model}"
-        else
-            echo "[+] ${model} installed."
-        fi
-    else
-        echo "[*] ${model} already exists."
-    fi
+    download_tts "$model"
 done
 
 # Optional: FreeVC voice conversion model (requires manual download)

@@ -24,12 +24,38 @@ class PocketTTSEngine(private val context: Context) {
     private var voiceConversionSession: OrtSession? = null
     private val converter = G2PConverter()
 
+    /**
+     * Gate for the [generateAudio] path. Until libespeak-ng is wired
+     * on Android AND [pocket_tts_phoneme_map.json] is consumed at
+     * init, the acoustic ONNX produces garbage because the token
+     * indices don't match its expected vocab. Flip to true once the
+     * phonemizer integration lands. See [generateAudio] KDoc.
+     */
+    private val espeakPhonemizerAvailable: Boolean = false
+
     companion object {
         private const val TAG = "PocketTTSEngine"
         private const val ACOUSTIC_MODEL = "pocket_tts_acoustic.onnx"
         private const val VOCODER_MODEL = "pocket_tts_vocoder.onnx"
         private const val SPEAKER_ENCODER_MODEL = "pocket_tts_speaker.onnx"
         private const val VC_MODEL = "pocket_tts_vc.onnx"
+
+        /**
+         * Output sample rate of the bundled Coqui VITS VCTK acoustic
+         * model. The model resamples internally to 22050 Hz regardless
+         * of input, so any downstream AudioTrack / AudioRouter that
+         * plays generated waveforms MUST use this rate or audio will
+         * play at the wrong pitch + speed. VoiceManager's streaming
+         * AudioTrack reads this constant.
+         */
+        const val TTS_OUTPUT_SAMPLE_RATE_HZ = 22050
+
+        /**
+         * Output sample rate the speaker encoder (SpeechBrain ECAPA)
+         * was trained on. User-recorded reference audio must be
+         * resampled to this rate before being fed to extractEmbedding.
+         */
+        const val SPEAKER_ENCODER_SAMPLE_RATE_HZ = 16000
     }
 
     /**
@@ -203,14 +229,46 @@ class PocketTTSEngine(private val context: Context) {
 
     /**
      * Generates audio from text using a specific voice state.
+     *
+     * **KNOWN GAP (as of 2026-05-14):** the tokenization path below
+     * indexes phonemes against [MLConstants.PHONEME_VOCAB], Liperty's
+     * 40-symbol ARPABET vocab. The deployed Coqui VITS VCTK acoustic
+     * ONNX (exported by tools/export_tts_to_onnx.ipynb) uses a
+     * DIFFERENT vocab — espeak-ng-derived IPA phonemes, ~100 symbols,
+     * with completely different indices. Feeding ARPABET indices into
+     * the VITS model produces semantically meaningless waveforms. To
+     * unblock real TTS:
+     *
+     *   (a) ship `pocket_tts_phoneme_map.json` from the export
+     *       notebook alongside the ONNX (setup_libs.sh now pulls it),
+     *   (b) bundle an espeak-ng phonemizer on Android (libespeak-ng
+     *       has an Android port; ~3 MB native lib), and
+     *   (c) replace the [G2PConverter] call below with
+     *       espeak.text_to_phonemes(text) then index lookup via the
+     *       loaded JSON map.
+     *
+     * Until (b) lands, this method intentionally returns null instead
+     * of silently producing garbage audio that sounds like a person
+     * speaking the wrong language. VoiceManager falls back to the
+     * system TTS in that case, which is the correct user-facing
+     * behavior.
      */
     fun generateAudio(text: String, voiceState: VoiceState, vocoderInputName: String = "mel"): FloatArray? {
         val session = acousticSession ?: return null
-        
+
+        // Fail-safe: until the espeak-ng phonemizer integration lands
+        // (see KDoc above), this path would silently produce
+        // wrong-vocab garbage audio. Return null instead so
+        // VoiceManager falls back to the system TTS.
+        if (!espeakPhonemizerAvailable) {
+            Log.w(TAG, "TTS generation disabled — espeak-ng tokenization not yet wired (see KDoc).")
+            return null
+        }
+
         try {
             // 1. Tokenize (Using pre-initialized field)
             val phonemes = converter.sentenceToPhonemes(text)
-            
+
             // Map phonemes to indices according to MLConstants.PHONEME_VOCAB
             // Since tokens are longs in ONNX, we convert to LongArray
             val vocab = MLConstants.PHONEME_VOCAB
@@ -218,7 +276,7 @@ class PocketTTSEngine(private val context: Context) {
                 val idx = vocab.indexOf(phoneme)
                 if (idx >= 0) idx.toLong() else 0L // 0 usually for blank/unknown in VALLR
             }.toLongArray()
-            
+
             // Handle edge case where no phonemes could be generated
             if (tokens.isEmpty()) return null
             

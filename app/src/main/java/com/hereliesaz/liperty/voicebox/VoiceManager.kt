@@ -6,6 +6,7 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 import android.speech.tts.TextToSpeech
 import android.util.Log
+import com.hereliesaz.liperty.voicebox.PocketTTSEngine.Companion.TTS_OUTPUT_SAMPLE_RATE_HZ
 import com.hereliesaz.liperty.voicebox.cloning.VoiceStore
 import java.io.File
 import java.util.Locale
@@ -126,7 +127,7 @@ class VoiceManager(private val context: Context, private val onInit: (Boolean) -
         if (streamingAudioTrack == null) {
             try {
                 val minBufSize = AudioTrack.getMinBufferSize(
-                    16000,
+                    TTS_OUTPUT_SAMPLE_RATE_HZ,
                     AudioFormat.CHANNEL_OUT_MONO,
                     AudioFormat.ENCODING_PCM_FLOAT
                 )
@@ -137,7 +138,7 @@ class VoiceManager(private val context: Context, private val onInit: (Boolean) -
                         .build())
                     .setAudioFormat(AudioFormat.Builder()
                         .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
-                        .setSampleRate(16000)
+                        .setSampleRate(TTS_OUTPUT_SAMPLE_RATE_HZ)
                         .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                         .build())
                     .setBufferSizeInBytes(Math.max(minBufSize, 8192))
@@ -167,7 +168,7 @@ class VoiceManager(private val context: Context, private val onInit: (Boolean) -
                     .build())
                 .setAudioFormat(AudioFormat.Builder()
                     .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
-                    .setSampleRate(16000)
+                    .setSampleRate(TTS_OUTPUT_SAMPLE_RATE_HZ)
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .build())
                 .setBufferSizeInBytes(samples.size * 4)
