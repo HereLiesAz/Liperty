@@ -98,7 +98,12 @@ cells.append(code("""\
 #      its current state where generateAudio() returns null and
 #      VoiceManager falls back to system TTS.
 !pip install -q "huggingface_hub>=0.27,<1.0" "onnx>=1.16" "onnxruntime>=1.18" "onnxscript" "numpy" "scipy"
-!pip install -q "speechbrain>=0.5.16,<1.1"
+# speechbrain >=1.0 — older 0.5.x calls torchaudio.list_audio_backends()
+# at import time, which torchaudio 2.10+ moved out of the top-level
+# module. With Kaggle's pinned torch 2.10.0+cu128, speechbrain 0.5.x
+# crashes with AttributeError on import; 1.0+ handles the attribute
+# move gracefully.
+!pip install -q "speechbrain>=1.0,<2.0"
 import importlib
 SPEECHBRAIN_OK = importlib.util.find_spec("speechbrain") is not None
 print(f"speechbrain importable: {SPEECHBRAIN_OK}")
