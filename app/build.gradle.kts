@@ -52,6 +52,10 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            // Use the debug signing config for release builds to unblock
+            // local performance testing and 'bundleRelease' runs without
+            // requiring a production keystore.
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -123,6 +127,14 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            // Exclude giant research models from the release bundle to
+            // keep it under the 4GB ZIP limit and prevent BundleTool OOM.
+            // These models are for research/dev and can be manually
+            // included or moved to Play Asset Delivery if needed for prod.
+            excludes += "**/autoavsr_lrs3_visual_ctc.onnx"
+            excludes += "**/syncvsr_lrs3_visual_ctc.onnx"
+            excludes += "**/syncvsr_lrs3_encoder.onnx"
+            excludes += "**/vallr_model.onnx"
         }
         // Required for 16 KB page-size devices: native libs must be
         // stored uncompressed in the APK so the dynamic loader can
