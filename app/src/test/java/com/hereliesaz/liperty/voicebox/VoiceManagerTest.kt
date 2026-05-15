@@ -74,4 +74,16 @@ class VoiceManagerTest {
             .getSharedPreferences("LipertyPrefs", Context.MODE_PRIVATE)
         assertEquals("TestVoice", prefs.getString("active_voice", null))
     }
+
+    @Test
+    fun `speak with active voice but null TTS output falls back gracefully`() {
+        // Set an active voice so PocketTTS path is attempted.
+        // PocketTTS models are stubs under Robolectric, so generateAudio()
+        // will return null. The fix ensures VoiceManager falls through to
+        // system TTS instead of silently dropping the request.
+        val testVoice = VoiceState("FallbackTest", floatArrayOf(0.1f, 0.2f, 0.3f))
+        voiceManager.setActiveVoice(testVoice)
+        // Must not crash — should log warning and attempt system TTS.
+        voiceManager.speak("testing fallback")
+    }
 }

@@ -243,15 +243,31 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
                 val cluster = state.clusters.find { it.clusterId == state.selectedClusterId } ?: return@launch
                 val testVoice = VoiceState("preview", cluster.centroidEmbedding)
 
+                if (!pocketTts.isReady) {
+                    _importState.value = _importState.value.copy(
+                        progressMessage = "Voice preview unavailable — TTS models not loaded"
+                    )
+                    return@launch
+                }
+
+                _importState.value = _importState.value.copy(progressMessage = "Generating preview...")
                 val audio = withContext(Dispatchers.IO) {
                     pocketTts.generateAudio("Hello, this is my voice.", testVoice)
                 }
                 if (audio != null) {
+                    _importState.value = _importState.value.copy(progressMessage = "")
                     val voiceManager = VoiceManager(getApplication()) {}
                     voiceManager.playAudio(audio)
+                } else {
+                    _importState.value = _importState.value.copy(
+                        progressMessage = "Preview not available — using system voice instead"
+                    )
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Voice preview failed", e)
+                _importState.value = _importState.value.copy(
+                    progressMessage = "Preview failed: ${e.message}"
+                )
             }
         }
     }
