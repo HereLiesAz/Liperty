@@ -127,27 +127,40 @@ class OnnxModelEngine(
     }
 
     /**
-     * Streams the bundled ONNX asset into [Context.getFilesDir] so that
-     * [OrtEnvironment.createSession] can memory-map it. Avoids loading the
-     * (~357 MB) model into the Java heap, which would risk OOM on
-     * memory-constrained devices.
+     * Ensures the ONNX model is available on disk for memory-mapped loading.
+     *
+     * Checks (in order):
+     * 1. **filesDir** — model already downloaded by [ModelDownloadManager]
+     *    or copied from assets on a previous launch.
+     * 2. **assets** — model bundled in APK (dev builds with setup_libs.sh).
+     *    Copied to filesDir for ORT session compatibility.
+     * 3. Neither — throws [IllegalStateException] (model must be downloaded
+     *    via the setup screen first).
      */
     private fun ensureModelOnDisk(): String {
         val dst = File(context.filesDir, modelName)
-        // assets.openFd() fails with "This file can not be opened as a file
-        // descriptor; it is probably compressed" for any asset aapt2 decided
-        // to deflate -- which is the default for .onnx and .bin. Read the
-        // uncompressed size via the InputStream's available() instead, which
-        // works for both compressed and uncompressed entries. Same fix is
-        // already in place for the KenLM .bin in MainActivity.
-        val assetSize = context.assets.open(modelName).use { it.available().toLong() }
-        if (dst.exists() && dst.length() == assetSize) return dst.absolutePath
 
-        context.assets.open(modelName).use { input ->
-            dst.outputStream().use { output -> input.copyTo(output) }
+        // 1. Already on disk (runtime download or previous asset copy)
+        if (dst.exists() && dst.length() > 1000) return dst.absolutePath
+
+        // 2. Try bundled assets (dev builds)
+        try {
+            val assetSize = context.assets.open(modelName).use { it.available().toLong() }
+            if (assetSize > 1000) {
+                context.assets.open(modelName).use { input ->
+                    dst.outputStream().use { output -> input.copyTo(output) }
+                }
+                Log.i("OnnxModelEngine", "Copied model from assets to ${dst.absolutePath} (${dst.length()} bytes)")
+                return dst.absolutePath
+            }
+        } catch (_: Exception) {
+            // Asset not bundled — expected for production builds
         }
-        Log.i("OnnxModelEngine", "Materialised model to ${dst.absolutePath} (${dst.length()} bytes)")
-        return dst.absolutePath
+
+        // 3. Model not available
+        throw IllegalStateException(
+            "Model '$modelName' not found. Run initial setup to download models."
+        )
     }
 
     override fun getOutputShape(outputIndex: Int): IntArray =

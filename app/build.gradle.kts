@@ -134,6 +134,16 @@ android {
             // Exclude all redundant research models from the release bundle to
             // keep it under the 4GB ZIP limit and prevent BundleTool OOM.
             // We only keep the active production model (SyncVSR FP16).
+            // ── Large models excluded from APK ────────────────────────
+            // These are downloaded on first launch by ModelDownloadManager
+            // from HuggingFace. Keeps the APK under Google Play's 150 MB
+            // AAB base-module limit. Dev builds with setup_libs.sh still
+            // have these in assets/ — the model loaders check filesDir
+            // first (runtime download), then fall back to assets (dev).
+
+            // Production VSR model (~370 MB)
+            excludes += "**/syncvsr_lrs3_visual_ctc_fp16.onnx"
+            // Research / alternate VSR models
             excludes += "**/autoavsr_lrs3_visual_ctc.onnx"
             excludes += "**/syncvsr_lrs3_visual_ctc.onnx"
             excludes += "**/syncvsr_lrs3_encoder.onnx"
@@ -141,6 +151,19 @@ android {
             excludes += "**/avhubert_base_vox_433h_visual_encoder.onnx"
             excludes += "**/avhubert_base_vox_433h_decoder.onnx"
             excludes += "**/vallr_model.onnx"
+            // Legacy TFLite models (unused with SyncVSR backend)
+            excludes += "**/vsr_model.tflite"
+            excludes += "**/vsr_lora_model.tflite"
+            excludes += "**/ssr_model.tflite"
+            excludes += "**/tramba_model.tflite"
+            excludes += "**/voice_converter.tflite"
+            // Optional large models — downloaded at runtime when needed
+            excludes += "**/librispeech_3gram.bin"
+            // TTS ONNX models — downloaded at runtime (stubs until exported)
+            excludes += "**/pocket_tts_acoustic.onnx"
+            excludes += "**/pocket_tts_speaker.onnx"
+            excludes += "**/pocket_tts_vocoder.onnx"
+            excludes += "**/pocket_tts_vc.onnx"
         }
         // Required for 16 KB page-size devices: native libs must be
         // stored uncompressed in the APK so the dynamic loader can

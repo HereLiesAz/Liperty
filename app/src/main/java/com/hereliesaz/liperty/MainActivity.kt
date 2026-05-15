@@ -319,22 +319,27 @@ class MainActivity : ComponentActivity() {
             // file isn't in assets (setup_libs.sh failure / older builds) or
             // libkenlm.so isn't packaged (JNI not yet wired — Phase A3b/c).
             val kenLmScorer: KenLmScorer? = try {
-                // KenLM expects a real on-disk path; stream the asset out so
-                // build_binary's mmap path works. Matches OnnxModelEngine's
-                // approach so the same caching semantics apply.
+                // KenLM expects a real on-disk path. Check filesDir first
+                // (runtime download), then bundled assets (dev builds).
                 val dst = java.io.File(filesDir, KENLM_MODEL)
-                // Use input stream's available() instead of openFd() because
-                // aapt2 compresses .bin assets by default, and openFd only
-                // works on uncompressed entries. The decompressed size shows
-                // up as available() on the AssetInputStream.
-                val assetSize = assets.open(KENLM_MODEL).use { it.available().toLong() }
-                if (!dst.exists() || dst.length() != assetSize) {
-                    assets.open(KENLM_MODEL).use { input ->
-                        dst.outputStream().use { output -> input.copyTo(output) }
-                    }
+                if (!dst.exists() || dst.length() < 1000) {
+                    // Try bundled asset (dev builds with setup_libs.sh)
+                    try {
+                        val assetSize = assets.open(KENLM_MODEL).use { it.available().toLong() }
+                        if (assetSize > 1000) {
+                            assets.open(KENLM_MODEL).use { input ->
+                                dst.outputStream().use { output -> input.copyTo(output) }
+                            }
+                        }
+                    } catch (_: Exception) { /* Not bundled — expected for production */ }
                 }
-                KenLmScorer.tryLoad(dst.absolutePath).also {
-                    Log.i("MainActivity", "KenLM scorer: isNativeLoaded=${it.isNativeLoaded}")
+                if (dst.exists() && dst.length() > 1000) {
+                    KenLmScorer.tryLoad(dst.absolutePath).also {
+                        Log.i("MainActivity", "KenLM scorer: isNativeLoaded=${it.isNativeLoaded}")
+                    }
+                } else {
+                    Log.i("MainActivity", "KenLM model not available — rescoring disabled")
+                    null
                 }
             } catch (e: Exception) {
                 Log.w("MainActivity", "KenLM scorer init skipped (${e.message})")

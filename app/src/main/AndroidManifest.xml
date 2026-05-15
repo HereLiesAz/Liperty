@@ -6,6 +6,10 @@
     <uses-feature android:name="android.hardware.camera.autofocus" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 
+    <!-- Network access for first-launch model downloads from HuggingFace.
+         After initial setup, the app operates fully offline. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" tools:targetApi="31" />

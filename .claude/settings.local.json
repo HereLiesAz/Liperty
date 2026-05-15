@@ -22,7 +22,8 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:www.inferless.com)",
       "WebFetch(domain:deepwiki.com)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(xargs ls -lh)"
     ]
   }
 }
