@@ -81,21 +81,54 @@ print(f"CUDA: {torch.cuda.is_available()}")
 """))
 
 cells.append(code("""\
-%%capture
-# Pin versions that are known to work for VITS ONNX export. Coqui TTS
-# >= 0.22 introduced an `inference` API that's easier to wrap; older
-# versions need to monkeypatch the forward path. SpeechBrain >= 0.5
-# is required for the EncoderClassifier ONNX-trace friendliness.
-!pip install -q \\
-    "huggingface_hub>=0.27,<1.0" \\
-    "speechbrain>=0.5.16,<1.1" \\
-    "TTS==0.22.0" \\
-    "onnx>=1.16" \\
-    "onnxruntime>=1.18" \\
-    "onnxscript" \\
-    "numpy" \\
-    "scipy"
-print("Deps installed.")
+# NOTE: NO %%capture here. Coqui TTS == 0.22.0 has brittle deps that
+# conflict with Kaggle's modern Python env (numpy / torch pins clash);
+# without --no-deps or a separate venv, the resolver silently fails
+# AND %%capture hides the failure, so downstream `import speechbrain`
+# tracebacks with no hint of what broke. We surface errors loud.
+#
+# Strategy:
+#   1. Install the GUARANTEED-to-work deps first (huggingface_hub,
+#      onnx, onnxruntime, onnxscript, numpy, scipy).
+#   2. Install speechbrain — the speaker-encoder side, which is what
+#      voice CLONING actually needs.
+#   3. Try Coqui TTS for VITS synthesis. If it fails (most common on
+#      modern Kaggle), we continue without it; the VITS export
+#      section becomes a no-op and the on-device engine stays in
+#      its current state where generateAudio() returns null and
+#      VoiceManager falls back to system TTS.
+!pip install -q "huggingface_hub>=0.27,<1.0" "onnx>=1.16" "onnxruntime>=1.18" "onnxscript" "numpy" "scipy"
+!pip install -q "speechbrain>=0.5.16,<1.1"
+import importlib
+SPEECHBRAIN_OK = importlib.util.find_spec("speechbrain") is not None
+print(f"speechbrain importable: {SPEECHBRAIN_OK}")
+assert SPEECHBRAIN_OK, "speechbrain failed to install — the speaker encoder export needs it; cannot continue."
+"""))
+
+cells.append(code("""\
+# Best-effort Coqui TTS install. If this fails (numpy/torch dep
+# conflict, common on Kaggle Python 3.12+), we mark TTS_OK=False and
+# skip the VITS section entirely. The speaker-encoder + vocoder +
+# phoneme-map outputs are still produced and uploaded; the device
+# side gets enough to do voice cloning (record + embed) without
+# synthesis, which is the larger-value half anyway.
+import subprocess, sys
+TTS_OK = False
+try:
+    r = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-q", "TTS==0.22.0"],
+        capture_output=True, text=True, timeout=600,
+    )
+    if r.returncode == 0:
+        import importlib
+        TTS_OK = importlib.util.find_spec("TTS") is not None
+    if not TTS_OK:
+        print(f"Coqui TTS install failed (rc={r.returncode}):")
+        print(r.stderr[-1500:])
+except Exception as e:
+    print(f"Coqui TTS install threw: {e!r}")
+print(f"TTS importable: {TTS_OK}")
+print("(If False, VITS section skipped; speaker encoder + vocoder + phoneme map still produced.)")
 """))
 
 cells.append(code("""\
@@ -180,7 +213,11 @@ VITS is end-to-end: phoneme IDs + speaker embedding -> waveform at 22050 Hz. ~35
 cells.append(code("""\
 ACOUSTIC_ONNX = os.path.join(WORK_DIR, "pocket_tts_acoustic.onnx")
 
-if not os.path.exists(ACOUSTIC_ONNX):
+if not TTS_OK:
+    print("Skipping VITS export — Coqui TTS not installed.")
+    print("Voice CLONING (speaker embedding) still works via the encoder above.")
+    print("Voice SYNTHESIS will need a different TTS backend; tracked as backlog.")
+elif not os.path.exists(ACOUSTIC_ONNX):
     from TTS.api import TTS
 
     print("Loading Coqui VITS VCTK ...")
@@ -220,10 +257,11 @@ if not os.path.exists(ACOUSTIC_ONNX):
         opset_version=14,
     )
 
-sess = ort.InferenceSession(ACOUSTIC_ONNX, providers=["CPUExecutionProvider"])
-print(f"Acoustic inputs: {[i.name for i in sess.get_inputs()]}")
-print(f"Acoustic outputs: {[o.name for o in sess.get_outputs()]}")
-print(f"Size: {os.path.getsize(ACOUSTIC_ONNX) / 1e6:.1f} MB")
+if TTS_OK and os.path.exists(ACOUSTIC_ONNX):
+    sess = ort.InferenceSession(ACOUSTIC_ONNX, providers=["CPUExecutionProvider"])
+    print(f"Acoustic inputs: {[i.name for i in sess.get_inputs()]}")
+    print(f"Acoustic outputs: {[o.name for o in sess.get_outputs()]}")
+    print(f"Size: {os.path.getsize(ACOUSTIC_ONNX) / 1e6:.1f} MB")
 """))
 
 cells.append(md("""\
@@ -274,7 +312,10 @@ import json as _json
 
 PHONEME_MAP_PATH = os.path.join(WORK_DIR, "pocket_tts_phoneme_map.json")
 
-if not os.path.exists(PHONEME_MAP_PATH):
+if not TTS_OK:
+    print("Skipping phoneme map dump — Coqui TTS not installed.")
+    print("Voice CLONING (recording -> speaker embedding) is unaffected.")
+elif not os.path.exists(PHONEME_MAP_PATH):
     from TTS.api import TTS
     tts = TTS(model_name="tts_models/en/vctk/vits", progress_bar=False)
     vits = tts.synthesizer.tts_model
@@ -318,15 +359,16 @@ if not os.path.exists(PHONEME_MAP_PATH):
     with open(PHONEME_MAP_PATH, "w") as f:
         _json.dump(pmap, f, indent=2, ensure_ascii=False)
 
-with open(PHONEME_MAP_PATH) as f:
-    pmap = _json.load(f)
-print(f"Phoneme map sample_rate: {pmap['sample_rate']} Hz")
-print(f"Characters ({len(pmap['characters'])}): {pmap['characters'][:20]}...")
-print(f"Phonemes ({len(pmap['phonemes'])}): {pmap['phonemes'][:20]}...")
-print(f"char_to_id entries: {len(pmap.get('char_to_id', {}))}")
-print(f"add_blank: {pmap.get('add_blank', True)}")
-blank_str = pmap.get('blank', '<blnk>')
-print(f"blank index: {pmap.get('char_to_id', {}).get(blank_str, 'NOT FOUND')}")
+if os.path.exists(PHONEME_MAP_PATH):
+    with open(PHONEME_MAP_PATH) as f:
+        pmap = _json.load(f)
+    print(f"Phoneme map sample_rate: {pmap['sample_rate']} Hz")
+    print(f"Characters ({len(pmap['characters'])}): {pmap['characters'][:20]}...")
+    print(f"Phonemes ({len(pmap['phonemes'])}): {pmap['phonemes'][:20]}...")
+    print(f"char_to_id entries: {len(pmap.get('char_to_id', {}))}")
+    print(f"add_blank: {pmap.get('add_blank', True)}")
+    blank_str = pmap.get('blank', '<blnk>')
+    print(f"blank index: {pmap.get('char_to_id', {}).get(blank_str, 'NOT FOUND')}")
 """))
 
 cells.append(md("""\
