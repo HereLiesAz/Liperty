@@ -7,13 +7,22 @@ import android.content.Context
 import android.util.Log
 import java.io.File
 import java.io.Serializable
-import java.nio.FloatBuffer
-import com.hereliesaz.liperty.ml.G2PConverter
-import com.hereliesaz.liperty.ml.MLConstants
 
 /**
  * PocketTTS Engine for on-device voice cloning and TTS.
- * Uses ONNX Runtime to execute exported Pocket-TTS models.
+ *
+ * Uses ONNX Runtime to execute four models:
+ * - **Speaker encoder** (SpeechBrain ECAPA-TDNN): audio → 192-d embedding
+ * - **Acoustic model** (Coqui VITS VCTK): phoneme ids + speaker embedding → waveform
+ * - **Vocoder** (pass-through identity): preserved for pipeline contract
+ * - **Voice conversion** (optional FreeVC): source audio + target embedding → converted audio
+ *
+ * Tokenization uses [VitsTokenizer], which loads the model's own vocabulary
+ * from `pocket_tts_phoneme_map.json` (exported alongside the ONNX by
+ * `tools/export_tts_to_onnx.ipynb`). English text is converted to IPA
+ * via [com.hereliesaz.liperty.ml.G2PConverter] and then indexed against
+ * the VITS character vocabulary, with blank-token interleaving for
+ * monotonic alignment.
  */
 class PocketTTSEngine(private val context: Context) {
 
@@ -22,16 +31,15 @@ class PocketTTSEngine(private val context: Context) {
     private var vocoderSession: OrtSession? = null
     private var speakerEncoderSession: OrtSession? = null
     private var voiceConversionSession: OrtSession? = null
-    private val converter = G2PConverter()
 
-    /**
-     * Gate for the [generateAudio] path. Until libespeak-ng is wired
-     * on Android AND [pocket_tts_phoneme_map.json] is consumed at
-     * init, the acoustic ONNX produces garbage because the token
-     * indices don't match its expected vocab. Flip to true once the
-     * phonemizer integration lands. See [generateAudio] KDoc.
-     */
-    private val espeakPhonemizerAvailable: Boolean = false
+    private val tokenizer = VitsTokenizer()
+
+    /** Whether the acoustic model output is a waveform (skip vocoder). */
+    private var acousticOutputIsWaveform = false
+
+    /** True when the acoustic session and tokenizer are both ready. */
+    val isReady: Boolean
+        get() = acousticSession != null && tokenizer.isLoaded
 
     companion object {
         private const val TAG = "PocketTTSEngine"
@@ -39,102 +47,153 @@ class PocketTTSEngine(private val context: Context) {
         private const val VOCODER_MODEL = "pocket_tts_vocoder.onnx"
         private const val SPEAKER_ENCODER_MODEL = "pocket_tts_speaker.onnx"
         private const val VC_MODEL = "pocket_tts_vc.onnx"
+        private const val PHONEME_MAP = "pocket_tts_phoneme_map.json"
+
+        /** Minimum file size to accept (rejects 9-byte HTML stubs). */
+        private const val MIN_MODEL_SIZE_BYTES = 1_000L
 
         /**
          * Output sample rate of the bundled Coqui VITS VCTK acoustic
-         * model. The model resamples internally to 22050 Hz regardless
-         * of input, so any downstream AudioTrack / AudioRouter that
-         * plays generated waveforms MUST use this rate or audio will
-         * play at the wrong pitch + speed. VoiceManager's streaming
-         * AudioTrack reads this constant.
+         * model. Downstream AudioTrack / AudioRouter MUST use this rate.
          */
         const val TTS_OUTPUT_SAMPLE_RATE_HZ = 22050
 
         /**
-         * Output sample rate the speaker encoder (SpeechBrain ECAPA)
-         * was trained on. User-recorded reference audio must be
-         * resampled to this rate before being fed to extractEmbedding.
+         * Input sample rate the speaker encoder (SpeechBrain ECAPA) expects.
+         * Reference audio must be resampled to this rate.
          */
         const val SPEAKER_ENCODER_SAMPLE_RATE_HZ = 16000
     }
 
     /**
-     * Initializes the engine by loading the ONNX models.
+     * Initializes the engine: deploys assets, loads ONNX sessions,
+     * and parses the phoneme map for tokenization.
+     *
+     * Each session is loaded independently so a failure in one
+     * (e.g., missing optional VC model) doesn't block the others.
      */
     fun initialize() {
+        // --- Phoneme map (required for TTS generation) ---
         try {
-            // Deploy models from assets if not already in filesDir
-            val acousticModelFile = copyFromAssetsIfMissing(ACOUSTIC_MODEL)
-            val vocoderModelFile = copyFromAssetsIfMissing(VOCODER_MODEL)
-            val speakerModelFile = copyFromAssetsIfMissing(SPEAKER_ENCODER_MODEL)
-            val vcModelFile = copyFromAssetsIfMissing(VC_MODEL)
-
-            if (acousticModelFile == null || vocoderModelFile == null) {
-                Log.e(TAG, "Critical PocketTTS models (acoustic/vocoder) could not be deployed.")
-                return
+            val json = context.assets.open(PHONEME_MAP).bufferedReader().use { it.readText() }
+            if (tokenizer.loadFromJson(json)) {
+                Log.i(TAG, "Phoneme map loaded successfully.")
+            } else {
+                Log.w(TAG, "Phoneme map parsed but contained no char_to_id entries.")
             }
-
-            acousticSession = ortEnv.createSession(acousticModelFile.absolutePath)
-            vocoderSession = ortEnv.createSession(vocoderModelFile.absolutePath)
-
-            if (speakerModelFile != null) speakerEncoderSession = ortEnv.createSession(speakerModelFile.absolutePath)
-            if (vcModelFile != null) voiceConversionSession = ortEnv.createSession(vcModelFile.absolutePath)
-
-            Log.i(TAG, "PocketTTS Engine initialized successfully.")
         } catch (e: Exception) {
-            Log.e(TAG, "Error initializing PocketTTS Engine: ${e.message}")
+            Log.w(TAG, "pocket_tts_phoneme_map.json not found — TTS generation disabled: ${e.message}")
         }
+
+        // --- Acoustic model (required for TTS) ---
+        try {
+            val file = deployModel(ACOUSTIC_MODEL)
+            if (file != null) {
+                acousticSession = ortEnv.createSession(file.absolutePath)
+                // Check if output is "waveform" (VITS end-to-end) vs "mel"
+                acousticSession?.let { session ->
+                    acousticOutputIsWaveform = session.outputNames.contains("waveform")
+                }
+                Log.i(TAG, "Acoustic model loaded (waveform output: $acousticOutputIsWaveform).")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load acoustic model: ${e.message}")
+        }
+
+        // --- Vocoder (optional — skipped when acoustic outputs waveform) ---
+        try {
+            val file = deployModel(VOCODER_MODEL)
+            if (file != null) {
+                vocoderSession = ortEnv.createSession(file.absolutePath)
+                Log.i(TAG, "Vocoder loaded.")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Vocoder not loaded: ${e.message}")
+        }
+
+        // --- Speaker encoder (required for voice cloning) ---
+        try {
+            val file = deployModel(SPEAKER_ENCODER_MODEL)
+            if (file != null) {
+                speakerEncoderSession = ortEnv.createSession(file.absolutePath)
+                Log.i(TAG, "Speaker encoder loaded.")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Speaker encoder not loaded: ${e.message}")
+        }
+
+        // --- Voice conversion (optional) ---
+        try {
+            val file = deployModel(VC_MODEL)
+            if (file != null) {
+                voiceConversionSession = ortEnv.createSession(file.absolutePath)
+                Log.i(TAG, "Voice conversion model loaded.")
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Voice conversion model not available (optional): ${e.message}")
+        }
+
+        Log.i(TAG, "PocketTTS init complete. isReady=$isReady")
     }
 
-    private fun copyFromAssetsIfMissing(fileName: String): File? {
+    /**
+     * Copies an asset to filesDir if not already present, validating
+     * that the file is a real model (not a 9-byte stub).
+     */
+    private fun deployModel(fileName: String): File? {
         val file = File(context.filesDir, fileName)
-        if (file.exists()) return file
+
+        // If already deployed and valid size, reuse
+        if (file.exists() && file.length() >= MIN_MODEL_SIZE_BYTES) return file
+
+        // Delete any stale stub
+        if (file.exists()) file.delete()
 
         return try {
-            context.assets.open(fileName).use { inputStream ->
-                file.outputStream().use { outputStream ->
-                    inputStream.copyTo(outputStream)
-                }
+            context.assets.open(fileName).use { input ->
+                file.outputStream().use { output -> input.copyTo(output) }
             }
-            Log.i(TAG, "Copied $fileName from assets to internal storage.")
-            file
+            if (file.length() < MIN_MODEL_SIZE_BYTES) {
+                Log.w(TAG, "$fileName is too small (${file.length()} bytes) — likely a stub. Skipping.")
+                file.delete()
+                null
+            } else {
+                Log.i(TAG, "Deployed $fileName (${file.length()} bytes).")
+                file
+            }
         } catch (e: Exception) {
-            Log.w(TAG, "Asset $fileName not found or could not be copied: ${e.message}")
+            Log.w(TAG, "Asset $fileName not found: ${e.message}")
             if (file.exists()) file.delete()
             null
         }
     }
 
+    // ── Voice Conversion ─────────────────────────────────────────────────
+
     /**
-     * Performs voice conversion mapping source audio to a target voice profile.
+     * Maps source audio to a target voice profile via the VC model.
      */
     fun performVoiceConversion(sourceAudio: FloatArray, targetVoice: VoiceState): FloatArray? {
         val vcSession = voiceConversionSession ?: return null
-        try {
-            return OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(sourceAudio), longArrayOf(1, sourceAudio.size.toLong())).use { audioTensor ->
+        return try {
+            OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(sourceAudio), longArrayOf(1, sourceAudio.size.toLong())).use { audioTensor ->
                 OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(targetVoice.embedding), longArrayOf(1, targetVoice.embedding.size.toLong())).use { voiceTensor ->
                     val inputs = mapOf("source_audio" to audioTensor, "target_embedding" to voiceTensor)
                     vcSession.run(inputs).use { result ->
-                        val tensor = result.get(0)?.value as? OnnxTensor
-                        if (tensor != null) {
-                            val floatBuffer = tensor.floatBuffer
-                            val audioOutput = FloatArray(floatBuffer.remaining())
-                            floatBuffer.get(audioOutput)
-                            audioOutput
-                        } else {
-                            null
-                        }
+                        extractFloatOutput(result)
                     }
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Voice conversion failed", e)
-            return null
+            null
         }
     }
 
+    // ── Voice Cloning (embedding extraction) ─────────────────────────────
+
     /**
-     * Extracts a voice state from a reference audio file using the speaker encoder model.
+     * Clones a voice from a single reference audio file.
      */
     fun cloneVoice(audioFile: File): VoiceState {
         return VoiceState(
@@ -144,29 +203,25 @@ class PocketTTSEngine(private val context: Context) {
     }
 
     /**
-     * Extracts a voice state from multiple reference audio files, averaging their embeddings.
+     * Clones a voice from multiple reference files, averaging embeddings.
      */
     fun cloneVoice(name: String, audioFiles: List<File>): VoiceState {
-        if (audioFiles.isEmpty()) throw IllegalArgumentException("Audio files list cannot be empty")
-        
+        require(audioFiles.isNotEmpty()) { "Audio files list cannot be empty" }
+
         val embeddings = audioFiles.map { extractEmbedding(it) }
-        val embeddingSize = embeddings[0].size
-        val averagedEmbedding = FloatArray(embeddingSize)
-
-        for (i in 0 until embeddingSize) {
+        val size = embeddings[0].size
+        val averaged = FloatArray(size)
+        for (i in 0 until size) {
             var sum = 0f
-            for (emb in embeddings) {
-                sum += emb[i]
-            }
-            averagedEmbedding[i] = sum / embeddings.size
+            for (emb in embeddings) sum += emb[i]
+            averaged[i] = sum / embeddings.size
         }
-
-        return VoiceState(name = name, embedding = averagedEmbedding)
+        return VoiceState(name = name, embedding = averaged)
     }
 
     /**
-     * Extracts a speaker embedding from raw PCM samples (16 kHz mono, normalized [-1, 1]).
-     * Keeps audio in RAM only — no temporary files written to disk.
+     * Extracts a speaker embedding from raw PCM (16 kHz mono, [-1, 1]).
+     * Audio stays in RAM only — no temporary files.
      */
     fun extractEmbeddingFromPcm(pcmSamples: FloatArray): FloatArray {
         val session = speakerEncoderSession
@@ -181,9 +236,9 @@ class PocketTTSEngine(private val context: Context) {
             session.run(inputs).use { result ->
                 val tensor = result.get(0)?.value as? OnnxTensor
                     ?: throw IllegalStateException("Failed to extract embedding")
-                val floatBuffer = tensor.floatBuffer
-                val embedding = FloatArray(floatBuffer.remaining())
-                floatBuffer.get(embedding)
+                val buf = tensor.floatBuffer
+                val embedding = FloatArray(buf.remaining())
+                buf.get(embedding)
                 return embedding
             }
         }
@@ -191,37 +246,30 @@ class PocketTTSEngine(private val context: Context) {
 
     private fun extractEmbedding(audioFile: File): FloatArray {
         Log.i(TAG, "Extracting embedding from: ${audioFile.name}")
-
-        // Minimal PCM load logic: skip 44-byte WAV header
         val bytes = audioFile.readBytes()
         val headerOffset = 44
-        val numSamples = Math.max(0, (bytes.size - headerOffset) / 2)
+        val numSamples = maxOf(0, (bytes.size - headerOffset) / 2)
         val floatSamples = FloatArray(numSamples)
         for (i in 0 until numSamples) {
             val byteIndex = headerOffset + (i * 2)
             val sample = ((bytes[byteIndex + 1].toInt() shl 8) or (bytes[byteIndex].toInt() and 0xFF)).toShort()
             floatSamples[i] = sample.toFloat() / Short.MAX_VALUE
         }
-
         return extractEmbeddingFromPcm(floatSamples)
     }
 
+    // ── TTS Generation ───────────────────────────────────────────────────
+
     /**
-     * Generates audio from text incrementally as words/tokens become available.
-     * Provides streaming output for ultra-low latency TTS.
+     * Generates audio from text incrementally (word-by-word streaming).
      */
     fun generateAudioStreaming(text: String, voiceState: VoiceState, vocoderInputName: String = "mel"): Sequence<FloatArray> {
         return sequence {
-            // Split text into meaningful chunks (e.g., sentences or phrases)
-            // For SSR, words come in one by one, but VALL-E models benefit from context.
-            // Here we prioritize latency: synthesize word-by-word if needed, or buffer slightly.
-            val tokens = text.trim().split(Regex("\\s+"))
-            for (token in tokens) {
-                if (token.isNotBlank()) {
-                    val audioChunk = generateAudio(token, voiceState, vocoderInputName)
-                    if (audioChunk != null) {
-                        yield(audioChunk)
-                    }
+            val words = text.trim().split(Regex("\\s+"))
+            for (word in words) {
+                if (word.isNotBlank()) {
+                    val chunk = generateAudio(word, voiceState, vocoderInputName)
+                    if (chunk != null) yield(chunk)
                 }
             }
         }
@@ -230,98 +278,76 @@ class PocketTTSEngine(private val context: Context) {
     /**
      * Generates audio from text using a specific voice state.
      *
-     * **KNOWN GAP (as of 2026-05-14):** the tokenization path below
-     * indexes phonemes against [MLConstants.PHONEME_VOCAB], Liperty's
-     * 40-symbol ARPABET vocab. The deployed Coqui VITS VCTK acoustic
-     * ONNX (exported by tools/export_tts_to_onnx.ipynb) uses a
-     * DIFFERENT vocab — espeak-ng-derived IPA phonemes, ~100 symbols,
-     * with completely different indices. Feeding ARPABET indices into
-     * the VITS model produces semantically meaningless waveforms. To
-     * unblock real TTS:
+     * Tokenization flow:
+     * 1. Text → IPA (via [G2PConverter] ARPABET→IPA) → character indices
+     *    (via [VitsTokenizer] using the exported `char_to_id` map)
+     * 2. Indices → ONNX acoustic model → waveform (or mel-spectrogram)
+     * 3. If mel: vocoder → waveform. If waveform: return directly.
      *
-     *   (a) ship `pocket_tts_phoneme_map.json` from the export
-     *       notebook alongside the ONNX (setup_libs.sh now pulls it),
-     *   (b) bundle an espeak-ng phonemizer on Android (libespeak-ng
-     *       has an Android port; ~3 MB native lib), and
-     *   (c) replace the [G2PConverter] call below with
-     *       espeak.text_to_phonemes(text) then index lookup via the
-     *       loaded JSON map.
-     *
-     * Until (b) lands, this method intentionally returns null instead
-     * of silently producing garbage audio that sounds like a person
-     * speaking the wrong language. VoiceManager falls back to the
-     * system TTS in that case, which is the correct user-facing
-     * behavior.
+     * Returns null if the engine is not ready (models/phoneme map missing)
+     * or if inference fails. VoiceManager falls back to system TTS.
      */
     fun generateAudio(text: String, voiceState: VoiceState, vocoderInputName: String = "mel"): FloatArray? {
         val session = acousticSession ?: return null
 
-        // Fail-safe: until the espeak-ng phonemizer integration lands
-        // (see KDoc above), this path would silently produce
-        // wrong-vocab garbage audio. Return null instead so
-        // VoiceManager falls back to the system TTS.
-        if (!espeakPhonemizerAvailable) {
-            Log.w(TAG, "TTS generation disabled — espeak-ng tokenization not yet wired (see KDoc).")
+        if (!tokenizer.isLoaded) {
+            Log.w(TAG, "TTS disabled — phoneme map not loaded.")
             return null
         }
 
-        try {
-            // 1. Tokenize (Using pre-initialized field)
-            val phonemes = converter.sentenceToPhonemes(text)
+        val tokens = tokenizer.tokenize(text)
+        if (tokens.isEmpty()) return null
 
-            // Map phonemes to indices according to MLConstants.PHONEME_VOCAB
-            // Since tokens are longs in ONNX, we convert to LongArray
-            val vocab = MLConstants.PHONEME_VOCAB
-            val tokens = phonemes.map { phoneme ->
-                val idx = vocab.indexOf(phoneme)
-                if (idx >= 0) idx.toLong() else 0L // 0 usually for blank/unknown in VALLR
-            }.toLongArray()
-
-            // Handle edge case where no phonemes could be generated
-            if (tokens.isEmpty()) return null
-            
-            return OnnxTensor.createTensor(ortEnv, java.nio.LongBuffer.wrap(tokens), longArrayOf(1, tokens.size.toLong())).use { tokenTensor ->
+        return try {
+            OnnxTensor.createTensor(ortEnv, java.nio.LongBuffer.wrap(tokens), longArrayOf(1, tokens.size.toLong())).use { tokenTensor ->
                 OnnxTensor.createTensor(ortEnv, java.nio.FloatBuffer.wrap(voiceState.embedding), longArrayOf(1, voiceState.embedding.size.toLong())).use { voiceTensor ->
-                    // 2. Acoustic Model: (tokens, voice) -> mel-spectrogram
                     val inputs = mapOf("input_ids" to tokenTensor, "speaker_ids" to voiceTensor)
                     session.run(inputs).use { result ->
-                        // 3. Vocoder: (mel-spectrogram) -> PCM
-                        val vocoder = vocoderSession ?: return@use null
-                        val melTensorOpt = result.get(0)?.value as? OnnxTensor ?: return@use null
-
-                        val vocoderInputs = mapOf(vocoderInputName to melTensorOpt)
-                        vocoder.run(vocoderInputs).use { vocoderResult ->
-                            Log.i(TAG, "Generated audio for text: $text")
-                            val tensor = vocoderResult.get(0)?.value as? OnnxTensor
-                            if (tensor != null) {
-                                val floatBuffer = tensor.floatBuffer
-                                val audioOutput = FloatArray(floatBuffer.remaining())
-                                floatBuffer.get(audioOutput)
-                                audioOutput
-                            } else null
+                        if (acousticOutputIsWaveform) {
+                            // VITS end-to-end: acoustic output IS waveform
+                            extractFloatOutput(result)
+                        } else {
+                            // Two-stage: acoustic → mel, vocoder → waveform
+                            val vocoder = vocoderSession ?: return@use null
+                            val melTensor = result.get(0)?.value as? OnnxTensor ?: return@use null
+                            vocoder.run(mapOf(vocoderInputName to melTensor)).use { vocResult ->
+                                extractFloatOutput(vocResult)
+                            }
                         }
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "TTS Generation failed", e)
-            return null
+            Log.e(TAG, "TTS generation failed", e)
+            null
         }
     }
+
+    private fun extractFloatOutput(result: OrtSession.Result): FloatArray? {
+        val tensor = result.get(0)?.value as? OnnxTensor ?: return null
+        val buf = tensor.floatBuffer
+        val output = FloatArray(buf.remaining())
+        buf.get(output)
+        return output
+    }
+
+    // ── Lifecycle ────────────────────────────────────────────────────────
 
     fun close() {
         acousticSession?.close()
         vocoderSession?.close()
         speakerEncoderSession?.close()
         voiceConversionSession?.close()
-        ortEnv.close()
+        // OrtEnvironment is a singleton; don't close it here as other
+        // engines (OnnxModelEngine) may share it.
     }
 }
 
 /**
- * Represents the identity of a cloned voice.
+ * Lightweight voice identity for runtime inference.
+ * Persisted via [com.hereliesaz.liperty.voicebox.cloning.VoiceStore].
  */
 data class VoiceState(
     val name: String,
-    val embedding: FloatArray // The latent vector representing the voice
+    val embedding: FloatArray
 ) : Serializable

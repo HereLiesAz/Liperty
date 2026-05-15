@@ -131,9 +131,15 @@ android {
             // keep it under the 4GB ZIP limit and prevent BundleTool OOM.
             // These models are for research/dev and can be manually
             // included or moved to Play Asset Delivery if needed for prod.
+            // Exclude all redundant research models from the release bundle to
+            // keep it under the 4GB ZIP limit and prevent BundleTool OOM.
+            // We only keep the active production model (SyncVSR FP16).
             excludes += "**/autoavsr_lrs3_visual_ctc.onnx"
             excludes += "**/syncvsr_lrs3_visual_ctc.onnx"
             excludes += "**/syncvsr_lrs3_encoder.onnx"
+            excludes += "**/syncvsr_lrs3_decoder.onnx"
+            excludes += "**/avhubert_base_vox_433h_visual_encoder.onnx"
+            excludes += "**/avhubert_base_vox_433h_decoder.onnx"
             excludes += "**/vallr_model.onnx"
         }
         // Required for 16 KB page-size devices: native libs must be

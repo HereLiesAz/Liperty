@@ -18,7 +18,11 @@
       "Bash(gh release:*)",
       "WebSearch",
       "Bash(grep:*)",
-      "Bash(xargs wc:*)"
+      "Bash(xargs wc:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.inferless.com)",
+      "WebFetch(domain:deepwiki.com)",
+      "Bash(python:*)"
     ]
   }
 }

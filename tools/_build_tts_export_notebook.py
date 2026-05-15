@@ -278,33 +278,55 @@ if not os.path.exists(PHONEME_MAP_PATH):
     from TTS.api import TTS
     tts = TTS(model_name="tts_models/en/vctk/vits", progress_bar=False)
     vits = tts.synthesizer.tts_model
-    # The tokenizer is on the config; characters list defines the
-    # index ordering. eSpeak phonemizer handles graphemes -> phonemes
-    # at synthesis time on Python; we'd need to port that or use the
-    # character-level input.
-    tokenizer = tts.synthesizer.tts_config.characters
-    pad = tts.synthesizer.tts_config.characters.pad or ""
-    eos = tts.synthesizer.tts_config.characters.eos or ""
-    bos = tts.synthesizer.tts_config.characters.bos or ""
-    blank = tts.synthesizer.tts_config.characters.blank or ""
-    chars = list(tts.synthesizer.tts_config.characters.characters)
-    phonemes = list(tts.synthesizer.tts_config.characters.phonemes or "")
+
+    cfg = tts.synthesizer.tts_config.characters
+    pad = cfg.pad or ""
+    eos = cfg.eos or ""
+    bos = cfg.bos or ""
+    blank = cfg.blank or ""
+    chars = list(cfg.characters or "")
+    phonemes = list(cfg.phonemes or "")
+
+    # --- Extract the ACTUAL tokenizer char_to_id mapping ---
+    # This is the ground-truth index assignment the VITS model was
+    # trained with. Using it directly on Android avoids having to
+    # reconstruct the index ordering from the config (which varies
+    # between Coqui versions and add_blank / pad settings).
+    tokenizer_obj = vits.tokenizer
+    if hasattr(tokenizer_obj, 'char_to_id'):
+        char_to_id = dict(tokenizer_obj.char_to_id)
+    elif hasattr(tokenizer_obj, 'characters') and hasattr(tokenizer_obj.characters, 'char_to_id'):
+        char_to_id = dict(tokenizer_obj.characters.char_to_id)
+    else:
+        # Fallback: build from phonemes/characters list (less reliable)
+        symbols = phonemes if phonemes else chars
+        char_to_id = {s: i for i, s in enumerate(symbols)}
+        print("WARNING: could not extract char_to_id from tokenizer, built from list")
+
+    # Detect add_blank setting
+    add_blank = getattr(tts.synthesizer.tts_config, 'add_blank', True)
 
     pmap = {
         "characters": chars,
         "phonemes": phonemes,
+        "char_to_id": char_to_id,
+        "add_blank": add_blank,
         "pad": pad, "eos": eos, "bos": bos, "blank": blank,
         "is_phoneme": True if phonemes else False,
         "sample_rate": int(tts.synthesizer.output_sample_rate),
     }
     with open(PHONEME_MAP_PATH, "w") as f:
-        _json.dump(pmap, f, indent=2)
+        _json.dump(pmap, f, indent=2, ensure_ascii=False)
 
 with open(PHONEME_MAP_PATH) as f:
     pmap = _json.load(f)
 print(f"Phoneme map sample_rate: {pmap['sample_rate']} Hz")
 print(f"Characters ({len(pmap['characters'])}): {pmap['characters'][:20]}...")
 print(f"Phonemes ({len(pmap['phonemes'])}): {pmap['phonemes'][:20]}...")
+print(f"char_to_id entries: {len(pmap.get('char_to_id', {}))}")
+print(f"add_blank: {pmap.get('add_blank', True)}")
+blank_str = pmap.get('blank', '<blnk>')
+print(f"blank index: {pmap.get('char_to_id', {}).get(blank_str, 'NOT FOUND')}")
 """))
 
 cells.append(md("""\

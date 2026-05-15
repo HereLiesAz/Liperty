@@ -89,20 +89,17 @@ class VoiceManager(private val context: Context, private val onInit: (Boolean) -
     fun speak(text: String, queueMode: Int = TextToSpeech.QUEUE_FLUSH) {
         val voice = activeVoice
         if (voice != null) {
-            // Use PocketTTS for cloned voice
             val audio = pocketTts.generateAudio(text, voice)
             if (audio != null) {
                 playAudioStatic(audio)
-            } else {
-                Log.e("VoiceManager", "Failed to generate audio with PocketTTS")
+                return
             }
+            Log.w("VoiceManager", "PocketTTS returned null, falling back to system TTS")
+        }
+        if (isSystemTtsReady) {
+            systemTts?.speak(text, queueMode, null, null)
         } else {
-            // Fallback to system TTS
-            if (isSystemTtsReady) {
-                systemTts?.speak(text, queueMode, null, null)
-            } else {
-                Log.w("VoiceManager", "TTS not ready. Cannot speak: $text")
-            }
+            Log.w("VoiceManager", "TTS not ready. Cannot speak: $text")
         }
     }
 
