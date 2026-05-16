@@ -25,7 +25,8 @@ import com.hereliesaz.liperty.voicebox.VoiceViewModel
 @Composable
 fun VoiceManagementScreen(
     vm: VoiceViewModel = viewModel(),
-    onNavigateToImportWizard: () -> Unit = {}
+    onNavigateToImportWizard: () -> Unit = {},
+    onNavigateToCoach: () -> Unit = {}
 ) {
     val state by vm.uiState.collectAsState()
 
@@ -105,7 +106,21 @@ fun VoiceManagementScreen(
             }
         }
 
-        // Import from old recordings (launches the wizard)
+        // Bank my voice (in-app coached multi-clip recording, with
+        // live quality-tier feedback). Primary path for users with
+        // progressive conditions racing the clock.
+        Button(
+            onClick = { onNavigateToCoach() },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0)),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.GraphicEq, contentDescription = null, tint = Color.White)
+            Spacer(Modifier.width(8.dp))
+            Text("Bank my voice (coached)", color = Color.White)
+        }
+
+        // Import from old recordings (voicemails, video extracts, etc.).
         Button(
             onClick = { onNavigateToImportWizard() },
             modifier = Modifier.fillMaxWidth(),

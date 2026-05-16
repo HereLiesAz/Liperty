@@ -9,6 +9,7 @@ import com.hereliesaz.liperty.voicebox.cloning.AudioPreprocessor
 import com.hereliesaz.liperty.voicebox.cloning.SpeakerClusterer
 import com.hereliesaz.liperty.voicebox.cloning.VoiceProfile
 import com.hereliesaz.liperty.voicebox.cloning.VoiceProfileBuilder
+import com.hereliesaz.liperty.voicebox.cloning.VoiceQualityTier
 import com.hereliesaz.liperty.voicebox.cloning.VoiceStore
 import com.hereliesaz.liperty.voicebox.recording.VoiceRecorder
 import androidx.core.content.edit
@@ -29,6 +30,33 @@ data class VoiceUiState(
     val isCloning: Boolean = false,
     val isNamingVoice: Boolean = false,
     val statusMessage: String = "Ready"
+)
+
+/**
+ * UI state for the coached multi-clip recording session
+ * ([VoiceViewModel.startCoachedSession]). Distinct from the
+ * import wizard's [ImportState] — this is the in-app sequential
+ * recording flow, not file import.
+ */
+data class CoachState(
+    /** Number of clips captured so far this session. */
+    val clipCount: Int = 0,
+    /** Cumulative speech duration (rounded down to whole seconds). */
+    val totalSpeechSeconds: Int = 0,
+    /** Discrete quality band, recomputed after every clip. */
+    val qualityTier: VoiceQualityTier = VoiceQualityTier.NONE,
+    /** True while the [VoiceRecorder] is actively capturing. */
+    val isRecording: Boolean = false,
+    /** True between "Save" tap and HF/disk write completing. */
+    val isSaving: Boolean = false,
+    /** Set when the saved profile is written; UI can navigate away. */
+    val isSaved: Boolean = false,
+    /** Profile name as saved (after [VoiceViewModel.finishCoachedSession]). */
+    val savedProfileName: String? = null,
+    /** Last status line shown under the recorder. */
+    val statusMessage: String = "Ready to record.",
+    /** Non-null when the most recent operation errored. */
+    val error: String? = null,
 )
 
 enum class ImportStep {
@@ -54,6 +82,14 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val TAG = "VoiceViewModel"
+
+        /**
+         * Default per-clip duration for the coached session. Five
+         * seconds is the OpenVoice v2 sweet spot — enough to
+         * capture timbre, short enough that users with progressive
+         * conditions (ALS) don't fatigue across a 10–15 clip session.
+         */
+        const val DEFAULT_CLIP_DURATION_MS: Long = 5_000L
     }
 
     private val voiceStore = VoiceStore(application)
@@ -69,8 +105,13 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
     private val _importState = MutableStateFlow(ImportState())
     val importState: StateFlow<ImportState> = _importState.asStateFlow()
 
+    private val _coachState = MutableStateFlow(CoachState())
+    val coachState: StateFlow<CoachState> = _coachState.asStateFlow()
+
     private var pendingCloningUris: List<Uri> = emptyList()
     private var pendingRecordedFile: File? = null
+    /** Captured WAV files for the active coached session (cacheDir). */
+    private val coachedClips: MutableList<File> = mutableListOf()
 
     init {
         loadVoices()
@@ -328,6 +369,174 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
     /** Resets the import wizard to the initial state. */
     fun resetImport() {
         _importState.value = ImportState()
+    }
+
+    // ── Coached Multi-Clip Recording ────────────────────────────────────
+
+    /**
+     * Begins (or resumes) a coached recording session. Clears any
+     * clips left over from a prior session that wasn't saved.
+     *
+     * The coached session is the voice-banking flow targeted at
+     * users with progressive conditions (ALS, pre-laryngectomy):
+     * they record a sequence of short clips in one sitting and
+     * watch the quality tier tick up as the embedding centroid
+     * stabilizes.
+     */
+    fun startCoachedSession() {
+        clearCoachedClipsFromDisk()
+        coachedClips.clear()
+        _coachState.value = CoachState()
+    }
+
+    /**
+     * Records one clip of [durationMs] for the coached session.
+     * On completion the WAV is appended to the in-memory list and
+     * the quality tier is recomputed. Disk writes go to cacheDir
+     * (no biometric data in user-visible storage).
+     */
+    fun recordCoachedClip(durationMs: Long = DEFAULT_CLIP_DURATION_MS) {
+        if (_coachState.value.isRecording) return
+        _coachState.value = _coachState.value.copy(
+            isRecording = true,
+            statusMessage = "Recording…"
+        )
+        voiceRecorder.startRecording(
+            durationMs = durationMs,
+            onComplete = { file, _ ->
+                // VoiceRecorder writes 16 kHz mono. The WAV header
+                // carries the rate, so PocketTTSEngine.readWavFile()
+                // resamples to 24 kHz at extraction time and
+                // wavDurationMs() reports the true duration.
+                coachedClips.add(file)
+                recomputeCoachQualityState(message = "Captured clip ${coachedClips.size}.")
+            },
+            onError = { msg ->
+                _coachState.value = _coachState.value.copy(
+                    isRecording = false,
+                    statusMessage = "Error: $msg"
+                )
+            }
+        )
+    }
+
+    /**
+     * User-initiated stop, e.g. they tapped the button mid-clip
+     * to commit what they have so far.
+     */
+    fun stopCoachedRecording() {
+        voiceRecorder.stopRecording()
+    }
+
+    /**
+     * Drops the most recently captured clip. Useful when the user
+     * coughs, the dog barks, or someone enters the room mid-clip.
+     */
+    fun discardLastCoachedClip() {
+        if (coachedClips.isEmpty()) return
+        val last = coachedClips.removeAt(coachedClips.size - 1)
+        last.delete()
+        recomputeCoachQualityState(message = "Discarded last clip.")
+    }
+
+    /**
+     * Saves the captured clips as a new voice profile (or appends
+     * them to an existing one if [appendToProfile] is non-null).
+     */
+    fun finishCoachedSession(name: String, appendToProfile: String? = null) {
+        if (coachedClips.isEmpty()) {
+            _coachState.value = _coachState.value.copy(
+                statusMessage = "No clips captured."
+            )
+            return
+        }
+        val clipsSnapshot = coachedClips.toList()
+        _coachState.value = _coachState.value.copy(
+            isSaving = true,
+            statusMessage = "Saving voice profile…"
+        )
+        viewModelScope.launch {
+            try {
+                val voiceState = withContext(Dispatchers.IO) {
+                    pocketTts.cloneVoice(appendToProfile ?: name, clipsSnapshot)
+                }
+                withContext(Dispatchers.IO) {
+                    voiceStore.saveVoice(voiceState)
+                }
+                clipsSnapshot.forEach { it.delete() }
+                coachedClips.clear()
+                _coachState.value = CoachState(
+                    isSaved = true,
+                    savedProfileName = voiceState.name,
+                    statusMessage = "Saved as ${voiceState.name}."
+                )
+                loadVoices()
+            } catch (e: Exception) {
+                Log.e(TAG, "Coached session save failed", e)
+                _coachState.value = _coachState.value.copy(
+                    isSaving = false,
+                    error = "Save failed: ${e.message}",
+                    statusMessage = "Save failed: ${e.message}"
+                )
+            }
+        }
+    }
+
+    /**
+     * Abandons the active session and removes captured clips from
+     * disk. Safe to call at any point (idempotent).
+     */
+    fun cancelCoachedSession() {
+        voiceRecorder.stopRecording()
+        clearCoachedClipsFromDisk()
+        coachedClips.clear()
+        _coachState.value = CoachState()
+    }
+
+    private fun clearCoachedClipsFromDisk() {
+        coachedClips.forEach { it.delete() }
+    }
+
+    private fun recomputeCoachQualityState(message: String) {
+        val clips = coachedClips.size
+        val totalSec = (coachedClips.sumOf { wavDurationMs(it) } / 1000L).toInt()
+        val tier = VoiceQualityTier.compute(clips, totalSec)
+        _coachState.value = _coachState.value.copy(
+            isRecording = false,
+            clipCount = clips,
+            totalSpeechSeconds = totalSec,
+            qualityTier = tier,
+            statusMessage = message
+        )
+    }
+
+    /**
+     * Reads a 16-bit PCM WAV's data-chunk length without decoding
+     * the audio. Falls back to length/2/16000 if the header isn't
+     * a standard 44-byte RIFF.
+     */
+    private fun wavDurationMs(file: File): Long {
+        val bytes = try { file.readBytes() } catch (_: Exception) { return 0L }
+        if (bytes.size < 44) return 0L
+        if (String(bytes, 0, 4) != "RIFF") {
+            // Raw PCM — assume 16 kHz mono.
+            return (bytes.size / 2L) * 1000L / 16_000L
+        }
+        val bb = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        val sampleRate = bb.getInt(24).coerceAtLeast(1)
+        val bitsPerSample = bb.getShort(34).toInt().coerceAtLeast(1)
+        // Find data chunk size.
+        var dataSize = bytes.size - 44
+        var off = 12
+        while (off + 8 < bytes.size) {
+            val tag = String(bytes, off, 4)
+            val size = bb.getInt(off + 4)
+            if (tag == "data") { dataSize = size; break }
+            off += 8 + size
+        }
+        val bytesPerSample = bitsPerSample / 8
+        val samples = dataSize.toLong() / bytesPerSample.coerceAtLeast(1)
+        return samples * 1000L / sampleRate
     }
 
     // ── Existing Recording Flow (kept for backward compat) ──────────────

@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import com.hereliesaz.liperty.voicebox.cloning.AudioPreprocessor
 import com.hereliesaz.liperty.voicebox.cloning.SpeakerClusterer
+import com.hereliesaz.liperty.voicebox.cloning.VoiceQualityTier
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -118,6 +119,76 @@ class VoiceViewModelTest {
         assertFalse(state.isRecording)
         assertFalse(state.isCloning)
         assertFalse(state.isNamingVoice)
+    }
+
+    // ── Coached recording state ──────────────────────────────────────────
+
+    @Test
+    fun `initial coach state is empty`() {
+        val state = vm.coachState.value
+        assertEquals(0, state.clipCount)
+        assertEquals(0, state.totalSpeechSeconds)
+        assertEquals(VoiceQualityTier.NONE, state.qualityTier)
+        assertFalse(state.isRecording)
+        assertFalse(state.isSaving)
+        assertFalse(state.isSaved)
+        assertNull(state.savedProfileName)
+        assertNull(state.error)
+    }
+
+    @Test
+    fun `startCoachedSession resets state`() {
+        // Simulate prior state by saving + cancel pattern.
+        vm.startCoachedSession()
+        vm.cancelCoachedSession()
+        vm.startCoachedSession()
+        val state = vm.coachState.value
+        assertEquals(0, state.clipCount)
+        assertEquals(VoiceQualityTier.NONE, state.qualityTier)
+        assertFalse(state.isRecording)
+        assertFalse(state.isSaved)
+    }
+
+    @Test
+    fun `cancelCoachedSession returns to empty state`() {
+        vm.startCoachedSession()
+        vm.cancelCoachedSession()
+        val state = vm.coachState.value
+        assertEquals(0, state.clipCount)
+        assertEquals(VoiceQualityTier.NONE, state.qualityTier)
+    }
+
+    @Test
+    fun `discardLastCoachedClip is safe when no clips captured`() {
+        // No-op — must not throw, must not advance state.
+        vm.startCoachedSession()
+        vm.discardLastCoachedClip()
+        assertEquals(0, vm.coachState.value.clipCount)
+    }
+
+    @Test
+    fun `finishCoachedSession with no clips surfaces a status message`() {
+        vm.startCoachedSession()
+        vm.finishCoachedSession("EmptyVoice")
+        val state = vm.coachState.value
+        // Should not enter the saving state, should not mark as saved.
+        assertFalse(state.isSaving)
+        assertFalse(state.isSaved)
+        assertEquals(0, state.clipCount)
+        assertTrue(state.statusMessage.contains("No clips", ignoreCase = true))
+    }
+
+    @Test
+    fun `CoachState defaults are sensible`() {
+        val state = CoachState()
+        assertEquals(0, state.clipCount)
+        assertEquals(0, state.totalSpeechSeconds)
+        assertEquals(VoiceQualityTier.NONE, state.qualityTier)
+        assertFalse(state.isRecording)
+        assertFalse(state.isSaving)
+        assertFalse(state.isSaved)
+        assertNull(state.savedProfileName)
+        assertNull(state.error)
     }
 
     @Test
