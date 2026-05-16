@@ -159,11 +159,12 @@ android {
             excludes += "**/voice_converter.tflite"
             // Optional large models — downloaded at runtime when needed
             excludes += "**/librispeech_3gram.bin"
-            // TTS ONNX models — downloaded at runtime (stubs until exported)
-            excludes += "**/pocket_tts_acoustic.onnx"
-            excludes += "**/pocket_tts_speaker.onnx"
-            excludes += "**/pocket_tts_vocoder.onnx"
-            excludes += "**/pocket_tts_vc.onnx"
+            // TTS ONNX models — OpenVoice v2 three-component pipeline,
+            // downloaded at runtime (stubs until exported by
+            // tools/export_tts_to_onnx.ipynb).
+            excludes += "**/pocket_tts_base.onnx"
+            excludes += "**/pocket_tts_se_extractor.onnx"
+            excludes += "**/pocket_tts_tone_converter.onnx"
         }
         // Required for 16 KB page-size devices: native libs must be
         // stored uncompressed in the APK so the dynamic loader can

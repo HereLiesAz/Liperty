@@ -571,6 +571,9 @@ fun LipertyApp(
                         VoiceManagementScreen(
                             onNavigateToImportWizard = {
                                 navController.navigate("voice_import_wizard")
+                            },
+                            onNavigateToCoach = {
+                                navController.navigate("voice_coach")
                             }
                         )
                     }
@@ -580,6 +583,19 @@ fun LipertyApp(
                         VoiceImportWizardScreen(
                             vm = voiceVm,
                             onDismiss = { navController.popBackStack() }
+                        )
+                    }
+
+                    composable("voice_coach") {
+                        // Coached multi-clip voice-banking flow.
+                        // Mirrors the structure of the import wizard
+                        // but captures clips in-app via VoiceRecorder
+                        // and shows a live VoiceQualityTier indicator.
+                        val voiceVm: com.hereliesaz.liperty.voicebox.VoiceViewModel =
+                            androidx.lifecycle.viewmodel.compose.viewModel()
+                        VoiceCoachScreen(
+                            vm = voiceVm,
+                            onDone = { navController.popBackStack() }
                         )
                     }
 

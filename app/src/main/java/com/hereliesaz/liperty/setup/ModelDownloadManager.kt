@@ -60,32 +60,34 @@ class ModelDownloadManager(private val context: Context) {
             description = "Language model (improves accuracy)",
             expectedSizeBytes = 27_000_000L
         ),
+        // OpenVoice v2 — zero-shot voice cloning, three ONNX components.
+        // Replaces the older VITS speaker/acoustic/vocoder split.
         ModelSpec(
-            fileName = "pocket_tts_speaker.onnx",
+            fileName = "pocket_tts_se_extractor.onnx",
             repo = "HereLiesAz/liperty-pocket-tts",
             required = false,
-            description = "Voice cloning (speaker encoder)",
-            expectedSizeBytes = 6_000_000L
+            description = "Voice cloning (speaker embedding extractor)",
+            expectedSizeBytes = 20_000_000L
         ),
         ModelSpec(
-            fileName = "pocket_tts_acoustic.onnx",
+            fileName = "pocket_tts_base.onnx",
             repo = "HereLiesAz/liperty-pocket-tts",
             required = false,
-            description = "Voice cloning (text-to-speech)",
-            expectedSizeBytes = 35_000_000L
+            description = "Voice cloning (MeloTTS base voice)",
+            expectedSizeBytes = 70_000_000L
         ),
         ModelSpec(
-            fileName = "pocket_tts_vocoder.onnx",
+            fileName = "pocket_tts_tone_converter.onnx",
             repo = "HereLiesAz/liperty-pocket-tts",
             required = false,
-            description = "Voice cloning (vocoder)",
-            expectedSizeBytes = 100_000L
+            description = "Voice cloning (tone color converter)",
+            expectedSizeBytes = 50_000_000L
         ),
         ModelSpec(
-            fileName = "pocket_tts_phoneme_map.json",
+            fileName = "pocket_tts_vocab.json",
             repo = "HereLiesAz/liperty-pocket-tts",
             required = false,
-            description = "Voice cloning (phoneme map)",
+            description = "Voice cloning (MeloTTS vocab)",
             expectedSizeBytes = 5_000L
         ),
     )
