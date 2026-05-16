@@ -132,4 +132,14 @@
     <string name="cd_play_sample">Play sample</string>
     <string name="cd_selected">Selected</string>
     <string name="cd_preview_voice">Preview voice</string>
+
+    <!-- Voice Coach (live quality-tier multi-clip recording) -->
+    <plurals name="voice_coach_clips_captured">
+        <item quantity="one">Captured: %d clip</item>
+        <item quantity="other">Captured: %d clips</item>
+    </plurals>
+    <plurals name="voice_coach_clip_count_inline">
+        <item quantity="one">%d clip</item>
+        <item quantity="other">%d clips</item>
+    </plurals>
 </resources>

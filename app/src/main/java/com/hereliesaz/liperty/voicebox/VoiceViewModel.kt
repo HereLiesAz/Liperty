@@ -45,6 +45,15 @@ data class CoachState(
     val totalSpeechSeconds: Int = 0,
     /** Discrete quality band, recomputed after every clip. */
     val qualityTier: VoiceQualityTier = VoiceQualityTier.NONE,
+    /**
+     * Pointer into the Harvard-sentence prompt list. Advances on
+     * successful capture (`recomputeCoachQualityState(advancePrompt = true)`)
+     * but stays put on discard, so retrying lands the user back on
+     * the same prompt they just attempted. Decoupling this from
+     * [clipCount] is what prevents the prompt from "jumping" when
+     * the user discards a bad clip.
+     */
+    val promptIndex: Int = 0,
     /** True while the [VoiceRecorder] is actively capturing. */
     val isRecording: Boolean = false,
     /** True between "Save" tap and HF/disk write completing. */
@@ -409,7 +418,13 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
                 // resamples to 24 kHz at extraction time and
                 // wavDurationMs() reports the true duration.
                 coachedClips.add(file)
-                recomputeCoachQualityState(message = "Captured clip ${coachedClips.size}.")
+                // Advance prompt only on successful capture; discard
+                // leaves promptIndex alone so retrying lands on the
+                // same sentence the user just attempted.
+                recomputeCoachQualityState(
+                    message = "Captured clip ${coachedClips.size}.",
+                    advancePrompt = true,
+                )
             },
             onError = { msg ->
                 _coachState.value = _coachState.value.copy(
@@ -497,46 +512,51 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
         coachedClips.forEach { it.delete() }
     }
 
-    private fun recomputeCoachQualityState(message: String) {
+    /**
+     * Recomputes the derived fields of [CoachState] (count, total
+     * seconds, quality tier) from the on-disk clip list and merges
+     * them with [message] / [advancePrompt].
+     *
+     * - Always clears any prior `error` because this helper is only
+     *   reached on success paths (clip recorded, clip discarded).
+     *   Leaving a stale error in state would freeze the status line
+     *   in error styling after the next successful recording.
+     * - [advancePrompt] = true after a successful capture; the
+     *   prompt index moves forward so the user sees a new sentence.
+     *   On discard it's false, so the user lands back on the same
+     *   prompt as their just-discarded clip and can retry it.
+     */
+    private fun recomputeCoachQualityState(message: String, advancePrompt: Boolean = false) {
         val clips = coachedClips.size
         val totalSec = (coachedClips.sumOf { wavDurationMs(it) } / 1000L).toInt()
         val tier = VoiceQualityTier.compute(clips, totalSec)
-        _coachState.value = _coachState.value.copy(
+        val prev = _coachState.value
+        _coachState.value = prev.copy(
             isRecording = false,
             clipCount = clips,
             totalSpeechSeconds = totalSec,
             qualityTier = tier,
-            statusMessage = message
+            promptIndex = if (advancePrompt) prev.promptIndex + 1 else prev.promptIndex,
+            statusMessage = message,
+            error = null,
         )
     }
 
     /**
-     * Reads a 16-bit PCM WAV's data-chunk length without decoding
-     * the audio. Falls back to length/2/16000 if the header isn't
-     * a standard 44-byte RIFF.
+     * Header-only duration for a recorded WAV clip via [WavHeader].
+     * Streams at most a few hundred bytes rather than loading the
+     * whole file — relevant if the user backgrounds the app mid-
+     * session and the OS swaps out memory.
+     *
+     * Falls back to assuming 16 kHz mono raw PCM (matching what
+     * [VoiceRecorder] writes) when the header isn't parseable.
      */
     private fun wavDurationMs(file: File): Long {
-        val bytes = try { file.readBytes() } catch (_: Exception) { return 0L }
-        if (bytes.size < 44) return 0L
-        if (String(bytes, 0, 4) != "RIFF") {
-            // Raw PCM — assume 16 kHz mono.
-            return (bytes.size / 2L) * 1000L / 16_000L
-        }
-        val bb = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
-        val sampleRate = bb.getInt(24).coerceAtLeast(1)
-        val bitsPerSample = bb.getShort(34).toInt().coerceAtLeast(1)
-        // Find data chunk size.
-        var dataSize = bytes.size - 44
-        var off = 12
-        while (off + 8 < bytes.size) {
-            val tag = String(bytes, off, 4)
-            val size = bb.getInt(off + 4)
-            if (tag == "data") { dataSize = size; break }
-            off += 8 + size
-        }
-        val bytesPerSample = bitsPerSample / 8
-        val samples = dataSize.toLong() / bytesPerSample.coerceAtLeast(1)
-        return samples * 1000L / sampleRate
+        val header = WavHeader.read(file)
+        if (header != null) return header.durationMs
+        val len = try { file.length() } catch (_: Exception) { return 0L }
+        if (len <= 44) return 0L
+        return ((len - 44) / 2L) * 1000L / 16_000L
     }
 
     // ── Existing Recording Flow (kept for backward compat) ──────────────

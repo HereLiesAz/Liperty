@@ -56,6 +56,10 @@ enum class VoiceQualityTier(
          * argument requires multiple clips, not just more audio).
          */
         fun compute(clipCount: Int, totalSeconds: Int): VoiceQualityTier {
+            // `entries` returns the cached immutable enum list rather
+            // than allocating a new array per call like `values()`
+            // does — matters here because compute() runs on every
+            // recomposition of the live tier indicator.
             val candidates = entries.filter { tier ->
                 clipCount >= tier.minClips && totalSeconds >= tier.minSeconds
             }

@@ -184,11 +184,31 @@ class VoiceViewModelTest {
         assertEquals(0, state.clipCount)
         assertEquals(0, state.totalSpeechSeconds)
         assertEquals(VoiceQualityTier.NONE, state.qualityTier)
+        assertEquals(0, state.promptIndex)
         assertFalse(state.isRecording)
         assertFalse(state.isSaving)
         assertFalse(state.isSaved)
         assertNull(state.savedProfileName)
         assertNull(state.error)
+    }
+
+    @Test
+    fun `CoachState copy preserves promptIndex when advancePrompt is not set`() {
+        // recomputeCoachQualityState() with advancePrompt = false
+        // (the discard path) must leave promptIndex untouched so the
+        // user lands back on the same Harvard sentence after discard.
+        val mid = CoachState(promptIndex = 4, clipCount = 5)
+        val afterDiscard = mid.copy(clipCount = 4)
+        assertEquals(4, afterDiscard.promptIndex)
+    }
+
+    @Test
+    fun `CoachState copy can reset error explicitly`() {
+        // recomputeCoachQualityState() clears `error` on every
+        // success path. Verify the copy semantics support this.
+        val errored = CoachState(error = "Recording failed")
+        val recovered = errored.copy(error = null, statusMessage = "Captured clip 1.")
+        assertNull(recovered.error)
     }
 
     @Test
