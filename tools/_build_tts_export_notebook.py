@@ -196,7 +196,7 @@ if not os.path.exists(SPEAKER_ONNX):
         input_names=["audio"],
         output_names=["embedding"],
         dynamic_axes={"audio": {1: "audio_length"}},
-        opset_version=14,
+        opset_version=18,
     )
 
 import onnxruntime as ort
@@ -259,7 +259,7 @@ elif not os.path.exists(ACOUSTIC_ONNX):
             "input_ids": {1: "text_length"},
             "waveform":  {1: "audio_length"},
         },
-        opset_version=14,
+        opset_version=18,
     )
 
 if TTS_OK and os.path.exists(ACOUSTIC_ONNX):
@@ -292,7 +292,7 @@ if not os.path.exists(VOCODER_ONNX):
         input_names=["mel"],
         output_names=["waveform"],
         dynamic_axes={"mel": {1: "t"}, "waveform": {1: "t"}},
-        opset_version=14,
+        opset_version=18,
     )
 
 sess = ort.InferenceSession(VOCODER_ONNX, providers=["CPUExecutionProvider"])
