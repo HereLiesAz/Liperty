@@ -392,7 +392,7 @@ class PocketTTSEngine(private val context: Context) {
         val buf = ByteArray(STREAM_BUFFER_BYTES - (STREAM_BUFFER_BYTES % frameBytes))
         var frameIdx = 0
 
-        file.inputStream().buffered().use { input ->
+        file.inputStream().use { input ->
             // Skip past RIFF + chunks up to the start of data.
             var skipRemaining = header.dataOffsetBytes
             while (skipRemaining > 0) {
