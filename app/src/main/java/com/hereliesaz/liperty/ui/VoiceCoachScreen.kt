@@ -42,11 +42,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.hereliesaz.liperty.R
 import com.hereliesaz.liperty.voicebox.VoiceViewModel
 import com.hereliesaz.liperty.voicebox.cloning.VoiceQualityTier
 
@@ -157,8 +159,12 @@ fun VoiceCoachScreen(
         )
 
         // ── Script card ──────────────────────────────────────────
-        val script = remember(state.clipCount) {
-            HARVARD_PROMPTS[state.clipCount % HARVARD_PROMPTS.size]
+        // Tied to promptIndex (not clipCount) so a discard leaves
+        // the user on the same prompt they just attempted, ready to
+        // retry. The VM advances promptIndex on successful capture
+        // only — see VoiceViewModel.recomputeCoachQualityState.
+        val script = remember(state.promptIndex) {
+            HARVARD_PROMPTS[state.promptIndex % HARVARD_PROMPTS.size]
         }
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -297,7 +303,11 @@ private fun QualityTierCard(
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = "$clipCount clip(s) · ${totalSeconds}s",
+                    text = "${pluralStringResource(
+                        id = R.plurals.voice_coach_clip_count_inline,
+                        count = clipCount,
+                        clipCount,
+                    )} · ${totalSeconds}s",
                     color = Color(0xFF808099),
                     fontSize = 12.sp,
                 )
@@ -381,7 +391,11 @@ private fun CapturedClipsList(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Captured: $clipCount clip(s)",
+                    text = pluralStringResource(
+                        id = R.plurals.voice_coach_clips_captured,
+                        count = clipCount,
+                        clipCount,
+                    ),
                     color = Color.White,
                     fontSize = 12.sp,
                 )

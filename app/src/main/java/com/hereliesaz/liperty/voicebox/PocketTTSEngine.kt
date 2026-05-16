@@ -7,8 +7,6 @@ import android.content.Context
 import android.util.Log
 import java.io.File
 import java.io.Serializable
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import java.nio.LongBuffer
 
@@ -121,6 +119,23 @@ class PocketTTSEngine(private val context: Context) {
          * higher = stronger timbre transfer but more artifacts.
          */
         const val DEFAULT_TAU: Float = 0.3f
+
+        /**
+         * Hard cap on the WAV data chunk we'll decode from a single
+         * reference file. 24 kHz mono 16-bit PCM = 48 KB/s, so this
+         * is ~14 minutes of audio per clip — well past the OpenVoice
+         * v2 sweet spot of 5-30 s. Guards against malicious or
+         * malformed headers declaring multi-GB data chunks.
+         */
+        const val MAX_REFERENCE_AUDIO_BYTES: Long = 40L * 1024L * 1024L
+
+        /**
+         * I/O buffer size used when streaming PCM samples through
+         * the mono downmixer. Sized to handle ~85 ms of 48 kHz
+         * stereo audio per read while staying nicely under the
+         * Android L1 cache for typical mid-range hardware.
+         */
+        private const val STREAM_BUFFER_BYTES = 32_768
     }
 
     /**
@@ -317,74 +332,137 @@ class PocketTTSEngine(private val context: Context) {
     }
 
     /**
-     * Minimal WAV reader (16-bit PCM mono). Honors the sample rate
-     * declared in the header so a user-supplied 16/22.05/44.1/48 kHz
-     * clip (voicemail, video extract, voice memo) can be resampled
-     * to the 24 kHz the extractor expects.
+     * Streaming WAV reader (16-bit PCM, any channel count). Honors
+     * the sample rate declared in the header so a user-supplied
+     * 16/22.05/44.1/48 kHz clip (voicemail, video extract, voice
+     * memo) is resampled to the 24 kHz the extractor expects.
+     *
+     * Reads at most the header up front (a few hundred bytes via
+     * [WavHeader.read]), then streams the data chunk into a
+     * `FloatArray` of mono samples — never holding the full file
+     * in a `ByteArray`. This keeps memory pressure proportional to
+     * the audio length rather than the file size, which matters
+     * for long voicemails or long video extracts.
      *
      * Falls back to assuming 24 kHz mono PCM if the header is
      * unparseable, matching the previous behavior.
+     *
+     * Bounded at [MAX_REFERENCE_AUDIO_BYTES] to avoid a malicious
+     * or corrupted header that declares a multi-GB data chunk
+     * from OOM'ing the app.
      */
-    private fun readWavFile(file: File): Pair<FloatArray, Int> {
-        val bytes = file.readBytes()
-        if (bytes.size < 44 || String(bytes, 0, 4) != "RIFF") {
-            // Not a WAV header — assume raw 16-bit PCM at 24 kHz.
-            return decodePcm16(bytes, 0) to SE_EXTRACTOR_SAMPLE_RATE_HZ
+    internal fun readWavFile(file: File): Pair<FloatArray, Int> {
+        val header = WavHeader.read(file)
+        if (header == null) {
+            // Not a parseable RIFF/WAVE — fall back to raw 16-bit
+            // PCM at the extractor's native rate. Read a bounded
+            // window from the file.
+            val raw = readBoundedBytes(file, 0L, MAX_REFERENCE_AUDIO_BYTES)
+            return decodePcm16(raw) to SE_EXTRACTOR_SAMPLE_RATE_HZ
         }
-        val bb = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        val sampleRate = bb.getInt(24)
-        val numChannels = bb.getShort(22).toInt()
-        val bitsPerSample = bb.getShort(34).toInt()
-
-        // Find the "data" subchunk — its offset is not always 44.
-        var dataOffset = 12
-        while (dataOffset < bytes.size - 8) {
-            val tag = String(bytes, dataOffset, 4)
-            val size = bb.getInt(dataOffset + 4)
-            if (tag == "data") {
-                dataOffset += 8
-                break
-            }
-            dataOffset += 8 + size
+        if (header.bitsPerSample != 16) {
+            Log.w(
+                TAG,
+                "WAV bitsPerSample=${header.bitsPerSample} (only 16 supported); " +
+                    "falling back to raw decode."
+            )
+            val raw = readBoundedBytes(file, header.dataOffsetBytes, MAX_REFERENCE_AUDIO_BYTES)
+            return decodePcm16(raw) to header.sampleRate
         }
-        if (dataOffset >= bytes.size) {
-            return decodePcm16(bytes, 44) to SE_EXTRACTOR_SAMPLE_RATE_HZ
-        }
-
-        if (bitsPerSample != 16) {
-            Log.w(TAG, "WAV bitsPerSample=$bitsPerSample (only 16 supported); falling back.")
-        }
-        val mono = decodePcm16Channels(bytes, dataOffset, numChannels)
-        return mono to sampleRate
+        val maxDataBytes = MAX_REFERENCE_AUDIO_BYTES.coerceAtMost(header.dataSizeBytes)
+        val mono = decodePcm16Streaming(file, header, maxDataBytes)
+        return mono to header.sampleRate
     }
 
-    private fun decodePcm16(bytes: ByteArray, headerOffset: Int): FloatArray {
-        val n = maxOf(0, (bytes.size - headerOffset) / 2)
+    /**
+     * Streams [maxBytes] of 16-bit PCM data starting at
+     * [header]`.dataOffsetBytes`, downmixing to mono on the fly.
+     * Allocates exactly one `FloatArray` of the final mono length —
+     * no transient `ByteArray` of the full data chunk.
+     */
+    private fun decodePcm16Streaming(
+        file: File,
+        header: WavHeader,
+        maxBytes: Long,
+    ): FloatArray {
+        val channels = header.channels.coerceAtLeast(1)
+        val frameBytes = channels * 2
+        val totalFrames = (maxBytes / frameBytes.toLong()).toInt()
+        val out = FloatArray(totalFrames)
+        val buf = ByteArray(STREAM_BUFFER_BYTES - (STREAM_BUFFER_BYTES % frameBytes))
+        var frameIdx = 0
+
+        file.inputStream().use { input ->
+            // Skip past RIFF + chunks up to the start of data.
+            var skipRemaining = header.dataOffsetBytes
+            while (skipRemaining > 0) {
+                val skipped = input.skip(skipRemaining)
+                if (skipped <= 0) break
+                skipRemaining -= skipped
+            }
+            var consumedFromData = 0L
+            while (frameIdx < totalFrames) {
+                val want = minOf(buf.size.toLong(), maxBytes - consumedFromData).toInt()
+                if (want <= 0) break
+                val read = input.read(buf, 0, want)
+                if (read <= 0) break
+                consumedFromData += read
+                // Decode this chunk into the mono FloatArray.
+                var byteIdx = 0
+                val readFrames = read / frameBytes
+                for (i in 0 until readFrames) {
+                    if (frameIdx >= totalFrames) break
+                    var sum = 0
+                    for (c in 0 until channels) {
+                        val lo = buf[byteIdx].toInt() and 0xFF
+                        val hi = buf[byteIdx + 1].toInt()
+                        sum += ((hi shl 8) or lo).toShort().toInt()
+                        byteIdx += 2
+                    }
+                    out[frameIdx++] = (sum.toFloat() / channels) / Short.MAX_VALUE
+                }
+            }
+        }
+        // If we read fewer frames than expected (truncated file),
+        // return only the populated prefix.
+        return if (frameIdx == totalFrames) out else out.copyOf(frameIdx)
+    }
+
+    /**
+     * Reads at most [maxBytes] starting at [offset] from [file].
+     * Used only on the unparseable-header fallback path.
+     */
+    private fun readBoundedBytes(file: File, offset: Long, maxBytes: Long): ByteArray {
+        val capped = maxBytes.coerceAtMost(file.length() - offset).coerceAtLeast(0L).toInt()
+        if (capped <= 0) return ByteArray(0)
+        val out = ByteArray(capped)
+        file.inputStream().buffered().use { input ->
+            var remaining = offset
+            while (remaining > 0) {
+                val skipped = input.skip(remaining)
+                if (skipped <= 0) break
+                remaining -= skipped
+            }
+            var read = 0
+            while (read < capped) {
+                val n = input.read(out, read, capped - read)
+                if (n <= 0) break
+                read += n
+            }
+            if (read < capped) return out.copyOf(read)
+        }
+        return out
+    }
+
+    private fun decodePcm16(bytes: ByteArray): FloatArray {
+        val n = bytes.size / 2
         val out = FloatArray(n)
-        var idx = headerOffset
+        var idx = 0
         for (i in 0 until n) {
             val sample = ((bytes[idx + 1].toInt() shl 8) or
                 (bytes[idx].toInt() and 0xFF)).toShort()
             out[i] = sample.toFloat() / Short.MAX_VALUE
             idx += 2
-        }
-        return out
-    }
-
-    private fun decodePcm16Channels(bytes: ByteArray, offset: Int, channels: Int): FloatArray {
-        if (channels <= 1) return decodePcm16(bytes, offset)
-        val frameBytes = channels * 2
-        val frames = (bytes.size - offset) / frameBytes
-        val out = FloatArray(frames)
-        for (i in 0 until frames) {
-            var sum = 0
-            val frameStart = offset + i * frameBytes
-            for (c in 0 until channels) {
-                val s = ((bytes[frameStart + c * 2 + 1].toInt() shl 8) or
-                    (bytes[frameStart + c * 2].toInt() and 0xFF)).toShort()
-                sum += s.toInt()
-            }
-            out[i] = (sum.toFloat() / channels) / Short.MAX_VALUE
         }
         return out
     }

@@ -57,7 +57,7 @@ class VoiceQualityTierTest {
     @Test
     fun `filledDots increase monotonically with rank`() {
         var prev = -1
-        for (tier in VoiceQualityTier.values().sortedBy { it.rank }) {
+        for (tier in VoiceQualityTier.entries.sortedBy { it.rank }) {
             val dots = tier.filledDots
             assert(dots >= prev) {
                 "${tier.name} has $dots dots but previous rank had $prev"
@@ -72,7 +72,7 @@ class VoiceQualityTierTest {
         // Each tier should require at least as many clips AND at
         // least as much speech as the previous tier — otherwise the
         // bands aren't monotonic in user effort and the UI can flicker.
-        val tiers = VoiceQualityTier.values().sortedBy { it.rank }
+        val tiers = VoiceQualityTier.entries.sortedBy { it.rank }
         for (i in 1 until tiers.size) {
             assert(tiers[i].minClips >= tiers[i - 1].minClips) {
                 "${tiers[i].name} requires fewer clips than ${tiers[i - 1].name}"
