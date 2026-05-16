@@ -47,7 +47,10 @@ google-services.json
 *.hprof
 /.kotlin/sessions/
 
-# External Data & Model Bundles (provisioned via setup_libs.sh)
+# Research artifacts
+VALLR/
+
+# External data, caches, bundles
 data/
 tools/external/
 tools/.cache/
@@ -55,33 +58,23 @@ avsr_vallr_others.zip
 tools.zip
 VALLR.zip
 app/src/main/assets.zip
-app/src/main/assets/vallr_model.tflite
 vallr_model.onnx
 
-# OpenCV Android SDK (1.4 GB; re-downloaded by setup_libs.sh).
-# Was tracked in git by accident; removed in the commit that added
-# this entry.
+# All ML model assets and binary blobs provisioned by setup_libs.sh.
+# Only small hand-crafted text assets (homophones.json, viseme_map*.txt)
+# are tracked; everything else is downloaded at build time.
+app/src/main/assets/*.tflite
+app/src/main/assets/*.onnx
+app/src/main/assets/*.task
+app/src/main/assets/*.bin
+app/src/main/assets/*.json
+!app/src/main/assets/homophones.json
+app/src/main/assets/unigram5000_units.txt
+app/src/main/assets/syncvsr_unigram_units.txt
+app/src/main/assets/avhubert_base_vox_433h_dict.txt
+
+# OpenCV Android SDK (re-downloaded by setup_libs.sh)
 app/src/main/cpp/libs/opencv/
 
-# KenLM Android prebuilts (~13 MB; pulled from HF by setup_libs.sh).
+# KenLM Android prebuilts (pulled from HF by setup_libs.sh)
 app/src/main/cpp/kenlm/
-
-# Auto-AVSR / AV-HuBERT / KenLM / PocketTTS model assets pulled by
-# setup_libs.sh from HuggingFace / GitHub Releases. Tens of MB to GB
-# each, and version-coupled to setup_libs.sh -- not safe to track.
-app/src/main/assets/autoavsr_lrs3_visual_ctc.onnx
-app/src/main/assets/syncvsr_lrs3_visual_ctc.onnx
-app/src/main/assets/syncvsr_lrs3_visual_ctc_fp16.onnx
-app/src/main/assets/syncvsr_lrs3_encoder.onnx
-app/src/main/assets/syncvsr_lrs3_decoder.onnx
-app/src/main/assets/syncvsr_lrs3_encoder_personal.onnx
-app/src/main/assets/syncvsr_unigram_units.txt
-app/src/main/assets/avhubert_base_vox_433h_decoder.onnx
-app/src/main/assets/avhubert_base_vox_433h_visual_encoder.onnx
-app/src/main/assets/avhubert_base_vox_433h_dict.txt
-app/src/main/assets/unigram5000_units.txt
-app/src/main/assets/librispeech_3gram.bin
-app/src/main/assets/pocket_tts_acoustic.onnx
-app/src/main/assets/pocket_tts_speaker.onnx
-app/src/main/assets/pocket_tts_vocoder.onnx
-app/src/main/assets/pocket_tts_vc.onnx
