@@ -70,7 +70,7 @@ find_library(jnigraphics-lib jnigraphics)
 # real lm::ngram::Model API. When absent (CI / fresh checkout before
 # setup_libs.sh runs), kenlm_jni.cpp falls back to its stub which
 # reports load failure and the Kotlin layer no-ops cleanly.
-set(KENLM_NDK_DIR ${CMAKE_SOURCE_DIR}/kenlm/android-arm64)
+set(KENLM_NDK_DIR "${CMAKE_SOURCE_DIR}/kenlm/android-arm64")
 # Prebuilts are cross-compiled for arm64-v8a only (see
 # tools/kaggle_build_kenlm_android.py). armeabi-v7a / x86_64 builds
 # fall through to the stub -- KenLmScorer.isNativeLoaded then reports
@@ -78,16 +78,20 @@ set(KENLM_NDK_DIR ${CMAKE_SOURCE_DIR}/kenlm/android-arm64)
 # all modern Android devices are arm64, so this only matters for
 # legacy 32-bit hardware.
 if(ANDROID_ABI STREQUAL "arm64-v8a"
-   AND EXISTS ${KENLM_NDK_DIR}/libkenlm.a
-   AND EXISTS ${KENLM_NDK_DIR}/libkenlm_util.a)
+   AND EXISTS "${KENLM_NDK_DIR}/libkenlm.a"
+   AND EXISTS "${KENLM_NDK_DIR}/libkenlm_util.a")
     message(STATUS "KenLM NDK prebuilts found (arm64-v8a): enabling JNI bridge")
     add_library(kenlm STATIC IMPORTED)
     set_target_properties(kenlm PROPERTIES
-        IMPORTED_LOCATION ${KENLM_NDK_DIR}/libkenlm.a)
+        IMPORTED_LOCATION "${KENLM_NDK_DIR}/libkenlm.a"
+        IMPORTED_LOCATION_DEBUG "${KENLM_NDK_DIR}/libkenlm.a"
+        IMPORTED_LOCATION_RELEASE "${KENLM_NDK_DIR}/libkenlm.a")
     add_library(kenlm_util STATIC IMPORTED)
     set_target_properties(kenlm_util PROPERTIES
-        IMPORTED_LOCATION ${KENLM_NDK_DIR}/libkenlm_util.a)
-    target_include_directories(liperty_cv PRIVATE ${KENLM_NDK_DIR}/include)
+        IMPORTED_LOCATION "${KENLM_NDK_DIR}/libkenlm_util.a"
+        IMPORTED_LOCATION_DEBUG "${KENLM_NDK_DIR}/libkenlm_util.a"
+        IMPORTED_LOCATION_RELEASE "${KENLM_NDK_DIR}/libkenlm_util.a")
+    target_include_directories(liperty_cv PRIVATE "${KENLM_NDK_DIR}/include")
     target_compile_definitions(liperty_cv PRIVATE KENLM_AVAILABLE=1)
     target_link_libraries(liperty_cv kenlm kenlm_util z)
 else()

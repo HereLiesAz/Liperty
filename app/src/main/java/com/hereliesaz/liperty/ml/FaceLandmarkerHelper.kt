@@ -9,6 +9,7 @@ import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
+import java.io.File
 import kotlin.math.atan2
 
 class FaceLandmarkerHelper(
@@ -41,8 +42,15 @@ class FaceLandmarkerHelper(
     @Synchronized
     private fun setupFaceLandmarker() {
         try {
+            // Prefer downloaded model in filesDir; fall back to bundled asset (dev builds)
+            val modelFile = File(context.filesDir, "face_landmarker.task")
+            val modelPath = if (modelFile.exists() && modelFile.length() > 1000)
+                modelFile.absolutePath
+            else
+                "face_landmarker.task"
+
             val baseOptions = BaseOptions.builder()
-                .setModelAssetPath("face_landmarker.task") // Uses BlazeFace (Short/Full Range)
+                .setModelAssetPath(modelPath)
                 .build()
 
             val options = FaceLandmarker.FaceLandmarkerOptions.builder()

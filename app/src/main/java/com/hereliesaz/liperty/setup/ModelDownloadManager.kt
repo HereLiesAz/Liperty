@@ -25,6 +25,10 @@ class ModelDownloadManager(private val context: Context) {
         private const val TAG = "ModelDownloadManager"
         private const val PREFS_NAME = "ModelDownloadPrefs"
         private const val KEY_SETUP_COMPLETE = "setup_complete"
+        private const val KEY_SETUP_VERSION = "setup_version"
+
+        /** Bump when the required model manifest changes (forces re-check). */
+        private const val CURRENT_SETUP_VERSION = 2
 
         /** HuggingFace CDN pattern — follows redirect to CF/S3 edge. */
         private const val HF_BASE = "https://huggingface.co"
@@ -42,10 +46,30 @@ class ModelDownloadManager(private val context: Context) {
         val repo: String,
         val required: Boolean,
         val description: String,
-        val expectedSizeBytes: Long = -1L
+        val expectedSizeBytes: Long = -1L,
+        /** Override HF URL for non-HuggingFace sources (e.g. MediaPipe CDN). */
+        val customUrl: String? = null
     )
 
     val models: List<ModelSpec> = listOf(
+        // MediaPipe face/hand detection — required for the VSR pipeline
+        ModelSpec(
+            fileName = "face_landmarker.task",
+            repo = "",
+            required = true,
+            description = "Face detection model",
+            expectedSizeBytes = 3_800_000L,
+            customUrl = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+        ),
+        ModelSpec(
+            fileName = "hand_landmarker.task",
+            repo = "",
+            required = false,
+            description = "Hand gesture model",
+            expectedSizeBytes = 7_900_000L,
+            customUrl = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+        ),
+        // Production VSR model
         ModelSpec(
             fileName = "syncvsr_lrs3_visual_ctc_fp16.onnx",
             repo = "HereLiesAz/liperty-syncvsr-onnx",
@@ -121,9 +145,16 @@ class ModelDownloadManager(private val context: Context) {
     /** True if all required models are present on disk. */
     fun isSetupComplete(): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        if (prefs.getBoolean(KEY_SETUP_COMPLETE, false)) return true
+        val storedVersion = prefs.getInt(KEY_SETUP_VERSION, 0)
 
-        // Also check if models exist from a dev build (setup_libs.sh)
+        // Version mismatch — manifest changed (new required models added)
+        if (storedVersion < CURRENT_SETUP_VERSION) {
+            prefs.edit().putBoolean(KEY_SETUP_COMPLETE, false).apply()
+        } else if (prefs.getBoolean(KEY_SETUP_COMPLETE, false)) {
+            return true
+        }
+
+        // Check if all required models exist (filesDir or bundled assets)
         val allRequiredPresent = models.filter { it.required }.all { spec ->
             val inFilesDir = File(context.filesDir, spec.fileName)
             val inAssets = try {
@@ -133,7 +164,10 @@ class ModelDownloadManager(private val context: Context) {
         }
 
         if (allRequiredPresent) {
-            prefs.edit().putBoolean(KEY_SETUP_COMPLETE, true).apply()
+            prefs.edit()
+                .putBoolean(KEY_SETUP_COMPLETE, true)
+                .putInt(KEY_SETUP_VERSION, CURRENT_SETUP_VERSION)
+                .apply()
         }
         return allRequiredPresent
     }
@@ -187,7 +221,10 @@ class ModelDownloadManager(private val context: Context) {
         }
         if (allRequiredDone) {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit().putBoolean(KEY_SETUP_COMPLETE, true).apply()
+                .edit()
+                .putBoolean(KEY_SETUP_COMPLETE, true)
+                .putInt(KEY_SETUP_VERSION, CURRENT_SETUP_VERSION)
+                .apply()
         }
         _state.value = _state.value.copy(isComplete = allRequiredDone)
     }
@@ -204,7 +241,10 @@ class ModelDownloadManager(private val context: Context) {
             }
             if (allRequiredDone) {
                 context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                    .edit().putBoolean(KEY_SETUP_COMPLETE, true).apply()
+                    .edit()
+                    .putBoolean(KEY_SETUP_COMPLETE, true)
+                    .putInt(KEY_SETUP_VERSION, CURRENT_SETUP_VERSION)
+                    .apply()
                 _state.value = _state.value.copy(isComplete = true, error = null)
             }
         } catch (e: Exception) {
@@ -250,8 +290,8 @@ class ModelDownloadManager(private val context: Context) {
             // Asset not bundled — expected for production builds
         }
 
-        // Download from HuggingFace
-        val url = hfUrl(spec.repo, spec.fileName)
+        // Download from source (custom URL or HuggingFace)
+        val url = spec.customUrl ?: hfUrl(spec.repo, spec.fileName)
 
         updateModelState(spec.fileName) {
             it.copy(status = Status.DOWNLOADING, progressBytes = 0)

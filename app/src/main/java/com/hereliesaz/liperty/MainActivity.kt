@@ -40,8 +40,10 @@ import com.hereliesaz.liperty.ml.TFLiteEngine
 import com.hereliesaz.liperty.ml.VSRInference
 import com.hereliesaz.liperty.ml.VocabularyLoader
 import com.hereliesaz.liperty.ml.SSRInference
+import com.hereliesaz.liperty.setup.ModelDownloadManager
 import com.hereliesaz.liperty.ui.LipertyApp
 import com.hereliesaz.liperty.ui.OverlayView
+import com.hereliesaz.liperty.ui.SetupScreen
 import com.hereliesaz.liperty.ui.SettingsActivity
 import com.hereliesaz.liperty.ui.TranscriptionManager
 import com.hereliesaz.liperty.utils.BitmapPool
@@ -49,6 +51,8 @@ import com.hereliesaz.liperty.utils.ImageUtils
 import com.hereliesaz.liperty.utils.PerformanceMonitor
 import com.hereliesaz.liperty.utils.RectKalmanFilter
 import com.hereliesaz.liperty.voicebox.VoiceManager
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -263,6 +267,11 @@ class MainActivity : ComponentActivity() {
     // missing instead of force-closing.
     @Volatile private var coreInitialized = false
 
+    // First-launch model download state
+    private lateinit var downloadManager: ModelDownloadManager
+    private enum class AppState { AWAITING_SETUP, READY }
+    private val appState = mutableStateOf(AppState.READY)
+
     // Tracks whether BC/EL was active before onPause so we can restore on resume
     @Volatile private var wasBCActiveBeforePause = false
     @Volatile private var wasELActiveBeforePause = false
@@ -294,36 +303,132 @@ class MainActivity : ComponentActivity() {
             )
         }
 
+        // Check if first-run model download is needed
+        downloadManager = ModelDownloadManager(this)
+        if (downloadManager.isSetupComplete()) {
+            appState.value = AppState.READY
+            initializeCoreComponents()
+        } else {
+            appState.value = AppState.AWAITING_SETUP
+        }
+
+        setContent {
+            when (appState.value) {
+                AppState.AWAITING_SETUP -> {
+                    val downloadState by downloadManager.state.collectAsState()
+                    SetupScreen(
+                        downloadState = downloadState,
+                        onStartDownload = {
+                            lifecycleScope.launch { downloadManager.downloadAll(skipOptional = false) }
+                        },
+                        onRetryModel = { fileName ->
+                            lifecycleScope.launch { downloadManager.retryModel(fileName) }
+                        },
+                        onSkipOptional = {
+                            lifecycleScope.launch { downloadManager.downloadAll(skipOptional = true) }
+                        },
+                        onContinue = {
+                            initializeCoreComponents()
+                            appState.value = AppState.READY
+                            // Now trigger permission/consent flow
+                            if (allPermissionsGranted()) {
+                                checkConsentAndStart()
+                            } else {
+                                requestPermissions()
+                            }
+                        }
+                    )
+                }
+                AppState.READY -> {
+                    LipertyApp(
+                        previewView = previewView,
+                        overlayView = overlayView,
+                        transcriptionWords = transcriptionWords.value,
+                        liveWords = liveTranscriptionWords.value,
+                        liveWordConfidences = liveWordConfidences.value,
+                        selectedWordIndex = selectedWordIndex.value,
+                        onWordClick = { index ->
+                            transcriptionManager.selectWord(index)
+                            updateTranscriptionUI()
+                        },
+                        wordConfidences = wordConfidences.value,
+                        isRecording = isRecordingState.value,
+                        onSwitchCamera = { toggleCamera() },
+                        onOpenSettings = { startActivity(Intent(this, SettingsActivity::class.java)) },
+                        onClearTranscript = {
+                            transcriptionManager.clear()
+                            updateTranscriptionUI()
+                            if (coreInitialized) frameBuffer.clearAndRecycle()
+                        },
+                        onSpeak = { speakText() },
+                        onToggleBC = { toggleBCMode() },
+                        onToggleLipRead = { isLipReadModeState.value = !isLipReadModeState.value },
+                        onToggleEL = { toggleELMode() },
+                        isPaused = isPausedState.value,
+                        isBCActive = isBCModeState.value,
+                        isLipReadActive = isLipReadModeState.value,
+                        isELActive = isELModeState.value,
+                        currentLensFacing = if (currentLensFacing == CameraSelector.LENS_FACING_BACK) 1 else 0,
+                        vsrSensitivity = vsrSensitivity.value,
+                        onVsrSensitivityChange = { value ->
+                            vsrSensitivity.value = value
+                            if (coreInitialized) faceLandmarkerHelper.updateConfidence(value, value)
+                        },
+                        larynxSensitivity = larynxSensitivity.value,
+                        onLarynxSensitivityChange = {
+                            larynxSensitivity.value = it
+                            if (coreInitialized) laryngealSensor.setSensitivity(it)
+                        },
+                        carrierF0 = carrierF0State.value,
+                        onCarrierF0Change = { hz ->
+                            carrierF0State.value = hz
+                            if (coreInitialized) laryngealSensor.setCarrierF0(hz)
+                        },
+                        isDarkTheme = isDarkTheme.value,
+                        onRegisterCalibrationCallback = { cb ->
+                            calibrationCallback = cb
+                        }
+                    )
+                }
+            }
+        }
+
+        // For returning users (setup already complete), trigger permission/consent immediately
+        if (appState.value == AppState.READY) {
+            if (allPermissionsGranted()) {
+                checkConsentAndStart()
+            } else {
+                requestPermissions()
+            }
+        }
+    }
+
+    private fun requestPermissions() {
+        val perms = mutableListOf(
+            Manifest.permission.CAMERA,
+            Manifest.permission.RECORD_AUDIO
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            perms.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+        requestPermissionsLauncher.launch(perms.toTypedArray())
+    }
+
+    private fun initializeCoreComponents() {
         try {
             cameraManager = CameraManager(this)
             faceLandmarkerHelper = FaceLandmarkerHelper(this)
             handGestureHelper = HandGestureHelper(this)
             laryngealSensor = LaryngealSensor(this)
-            // Auto-AVSR (Chaplin's LRS3_V_WER19.1, exported via
-            // tools/export_autoavsr_to_onnx.ipynb) is the active backend.
-            // 88x88 grayscale mouth ROI, normalized to mean=0.421 std=0.165,
-            // emits log-softmax over 5049 SentencePiece subword tokens.
             val vsrEngine = OnnxModelEngine(
                 this,
                 modelName = AUTOAVSR_MODEL,
                 expectedInputLayout = VSR_INPUT_LAYOUT,
             )
             val subwordVocab = VocabularyLoader.loadFromAssets(this, AUTOAVSR_VOCAB, blank = "<blank>")
-            // Beam search over the 5049-token vocabulary. Beam width 8 picked
-            // to match Chaplin's effective recognizer cost (Chaplin uses
-            // beam_size=40 at greedy LM-scoring, but we have no LM and a
-            // smaller-width search is enough to recover from greedy's
-            // path-collapse mistakes).
-            // Try to load the KenLM language model for n-best rescoring on
-            // top of CTC beam search. Gracefully no-ops if either the .bin
-            // file isn't in assets (setup_libs.sh failure / older builds) or
-            // libkenlm.so isn't packaged (JNI not yet wired — Phase A3b/c).
             val kenLmScorer: KenLmScorer? = try {
-                // KenLM expects a real on-disk path. Check filesDir first
-                // (runtime download), then bundled assets (dev builds).
                 val dst = java.io.File(filesDir, KENLM_MODEL)
                 if (!dst.exists() || dst.length() < 1000) {
-                    // Try bundled asset (dev builds with setup_libs.sh)
                     try {
                         val assetSize = assets.open(KENLM_MODEL).use { it.available().toLong() }
                         if (assetSize > 1000) {
@@ -353,10 +458,6 @@ class MainActivity : ComponentActivity() {
                 lmWeight = if (kenLmScorer?.isNativeLoaded == true) KENLM_WEIGHT else 0f,
             )
 
-            // Viseme rescorer is independent of the JNI status — it only
-            // needs the viseme index asset and a LanguageModelScorer (any
-            // one will do; if KenLM isn't native-loaded, the rescorer
-            // gracefully no-ops because every candidate scores 0).
             visemeRescorer = try {
                 val idx = VisemeIndex.loadFromAssets(this, VISEME_INDEX)
                 val lm = kenLmScorer ?: com.hereliesaz.liperty.ml.NoopLanguageModelScorer()
@@ -374,14 +475,9 @@ class MainActivity : ComponentActivity() {
                 customDecoder = subwordDecoder::decode,
             )
             ssrInference = SSRInference(TFLiteEngine(this, "ssr_model.tflite"))
-            // Auto-AVSR's encoder accepts variable T; 16 frames keeps cadence
-            // close to the legacy VideoMAE pipeline.
             frameBuffer = FrameBuffer(capacity = 16)
 
             if (USE_V3_BACKEND) {
-                // Optional: build the AV-HuBERT seq2seq backend in parallel.
-                // Asset misses (model files not on disk) are non-fatal —
-                // we leave avhubertV3 null and the pipeline falls back to V2.
                 try {
                     avhubertV3 = AvHubertSeq2SeqInference.create(this).also {
                         Log.i("MainActivity", "V3 AV-HuBERT seq2seq backend constructed")
@@ -393,15 +489,7 @@ class MainActivity : ComponentActivity() {
             }
 
             if (VSR_BACKEND == BACKEND_SYNC_VSR && SYNCVSR_USE_SEQ2SEQ) {
-                // SyncVSR seq2seq path. Asset misses (the encoder/decoder
-                // ONNX files not bundled by setup_libs.sh) are non-fatal —
-                // we leave the field null and the inference loop falls
-                // back to the CTC path via vsrInference.
                 try {
-                    // Prefer the personalized encoder when the flag is
-                    // on AND the asset is actually bundled in the APK.
-                    // Fall through to the generic encoder otherwise so
-                    // a misconfigured build still works.
                     val encoderAsset = if (SYNCVSR_USE_PERSONAL_LORA) {
                         try {
                             assets.open(SYNCVSR_PERSONAL_ENCODER).close()
@@ -432,9 +520,7 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, getString(R.string.common_init_error, e.message ?: ""), Toast.LENGTH_LONG).show()
         }
 
-        // Initialize TFLite in background — only if the lateinit fields above
-        // were successfully constructed. Touching them otherwise would throw
-        // UninitializedPropertyAccessException and crash the activity.
+        // Background initialization
         if (coreInitialized) {
             lifecycleScope.launch(Dispatchers.Default) {
                 vsrInference.initialize()
@@ -456,12 +542,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Initialize VoiceManager. PocketTTSEngine's ctor calls
-        // OrtEnvironment.getEnvironment() as a property initializer, which
-        // triggers ONNX Runtime native-lib loading and throws RuntimeException
-        // if the .so isn't packaged. Without this guard, that takes down the
-        // whole activity — onDestroy already tolerates voiceManager being
-        // uninitialized (::voiceManager.isInitialized).
+        // Initialize VoiceManager
         try {
             voiceManager = VoiceManager(this) { ready ->
                 if (ready) {
@@ -473,71 +554,6 @@ class MainActivity : ComponentActivity() {
         } catch (t: Throwable) {
             Log.e("MainActivity", "VoiceManager construction failed — TTS/voice cloning disabled", t)
             Toast.makeText(this, getString(R.string.common_voice_unavailable), Toast.LENGTH_LONG).show()
-        }
-
-        setContent {
-            LipertyApp(
-                previewView = previewView,
-                overlayView = overlayView,
-                transcriptionWords = transcriptionWords.value,
-                liveWords = liveTranscriptionWords.value,
-                liveWordConfidences = liveWordConfidences.value,
-                selectedWordIndex = selectedWordIndex.value,
-                onWordClick = { index ->
-                    transcriptionManager.selectWord(index)
-                    updateTranscriptionUI()
-                },
-                wordConfidences = wordConfidences.value,
-                isRecording = isRecordingState.value,
-                onSwitchCamera = { toggleCamera() },
-                onOpenSettings = { startActivity(Intent(this, SettingsActivity::class.java)) },
-                onClearTranscript = {
-                    transcriptionManager.clear()
-                    updateTranscriptionUI()
-                    if (coreInitialized) frameBuffer.clearAndRecycle()
-                },
-                onSpeak = { speakText() },
-                onToggleBC = { toggleBCMode() },
-                onToggleLipRead = { isLipReadModeState.value = !isLipReadModeState.value },
-                onToggleEL = { toggleELMode() },
-                isPaused = isPausedState.value,
-                isBCActive = isBCModeState.value,
-                isLipReadActive = isLipReadModeState.value,
-                isELActive = isELModeState.value,
-                currentLensFacing = if (currentLensFacing == CameraSelector.LENS_FACING_BACK) 1 else 0,
-                vsrSensitivity = vsrSensitivity.value,
-                onVsrSensitivityChange = { value ->
-                    vsrSensitivity.value = value
-                    if (coreInitialized) faceLandmarkerHelper.updateConfidence(value, value)
-                },
-                larynxSensitivity = larynxSensitivity.value,
-                onLarynxSensitivityChange = {
-                    larynxSensitivity.value = it
-                    if (coreInitialized) laryngealSensor.setSensitivity(it)
-                },
-                carrierF0 = carrierF0State.value,
-                onCarrierF0Change = { hz ->
-                    carrierF0State.value = hz
-                    if (coreInitialized) laryngealSensor.setCarrierF0(hz)
-                },
-                isDarkTheme = isDarkTheme.value,
-                onRegisterCalibrationCallback = { cb ->
-                    calibrationCallback = cb
-                }
-            )
-        }
-
-        if (allPermissionsGranted()) {
-            checkConsentAndStart()
-        } else {
-            val perms = mutableListOf(
-                Manifest.permission.CAMERA,
-                Manifest.permission.RECORD_AUDIO
-            )
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                perms.add(Manifest.permission.BLUETOOTH_CONNECT)
-            }
-            requestPermissionsLauncher.launch(perms.toTypedArray())
         }
     }
 

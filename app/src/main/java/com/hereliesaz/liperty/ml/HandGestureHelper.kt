@@ -8,6 +8,7 @@ import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
+import java.io.File
 
 class HandGestureHelper(val context: Context) {
 
@@ -25,8 +26,14 @@ class HandGestureHelper(val context: Context) {
 
     private fun setupHandLandmarker() {
         try {
+            val modelFile = File(context.filesDir, "hand_landmarker.task")
+            val modelPath = if (modelFile.exists() && modelFile.length() > 1000)
+                modelFile.absolutePath
+            else
+                "hand_landmarker.task"
+
             val baseOptions = BaseOptions.builder()
-                .setModelAssetPath("hand_landmarker.task")
+                .setModelAssetPath(modelPath)
                 .build()
 
             val options = HandLandmarker.HandLandmarkerOptions.builder()

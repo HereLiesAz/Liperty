@@ -60,6 +60,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // arm64-only for release — covers 95%+ of modern devices.
+            // Debug keeps all 3 ABIs for emulator testing.
+            ndk {
+                abiFilters.clear()
+                abiFilters.add("arm64-v8a")
+            }
         }
     }
     compileOptions {
@@ -124,26 +130,39 @@ android {
                 }
             }
     }
+    // ── Production asset pruning ─────────────────────────────────────
+    // AGP's packaging.resources.excludes does NOT apply to Android assets
+    // (only Java classpath resources). We must prune large ML binaries via
+    // a task hook on mergeAssets — same pattern as the unit-test hook above.
+    // These files are downloaded at runtime by ModelDownloadManager.
+    val productionPruneRegex = Regex(
+        """\.(onnx|tflite)$|^librispeech_3gram\.bin$|_landmarker\.task$"""
+    )
+    listOf("Debug", "Release").forEach { variant ->
+        tasks.matching { it.name == "merge${variant}Assets" }
+            .configureEach {
+                doLast {
+                    outputs.files.forEach { f ->
+                        if (!f.exists()) return@forEach
+                        if (!f.absolutePath.startsWith(buildDirPath)) return@forEach
+                        f.walkTopDown().forEach { child ->
+                            if (child.isFile && productionPruneRegex.containsMatchIn(child.name)) {
+                                logger.lifecycle("Pruning ${child.name} from $variant assets (runtime download)")
+                                child.delete()
+                            }
+                        }
+                    }
+                }
+            }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
-            // Exclude giant research models from the release bundle to
-            // keep it under the 4GB ZIP limit and prevent BundleTool OOM.
-            // These models are for research/dev and can be manually
-            // included or moved to Play Asset Delivery if needed for prod.
-            // Exclude all redundant research models from the release bundle to
-            // keep it under the 4GB ZIP limit and prevent BundleTool OOM.
-            // We only keep the active production model (SyncVSR FP16).
-            // ── Large models excluded from APK ────────────────────────
-            // These are downloaded on first launch by ModelDownloadManager
-            // from HuggingFace. Keeps the APK under Google Play's 150 MB
-            // AAB base-module limit. Dev builds with setup_libs.sh still
-            // have these in assets/ — the model loaders check filesDir
-            // first (runtime download), then fall back to assets (dev).
-
-            // Production VSR model (~370 MB)
+            // NOTE: The excludes below are belt-and-suspenders documentation.
+            // They do NOT actually work for Android assets in AGP 9 — the
+            // productionPruneRegex task hook above is what actually strips them.
             excludes += "**/syncvsr_lrs3_visual_ctc_fp16.onnx"
-            // Research / alternate VSR models
             excludes += "**/autoavsr_lrs3_visual_ctc.onnx"
             excludes += "**/syncvsr_lrs3_visual_ctc.onnx"
             excludes += "**/syncvsr_lrs3_encoder.onnx"
@@ -151,20 +170,16 @@ android {
             excludes += "**/avhubert_base_vox_433h_visual_encoder.onnx"
             excludes += "**/avhubert_base_vox_433h_decoder.onnx"
             excludes += "**/vallr_model.onnx"
-            // Legacy TFLite models (unused with SyncVSR backend)
             excludes += "**/vsr_model.tflite"
             excludes += "**/vsr_lora_model.tflite"
             excludes += "**/ssr_model.tflite"
             excludes += "**/tramba_model.tflite"
             excludes += "**/voice_converter.tflite"
-            // Optional large models — downloaded at runtime when needed
             excludes += "**/librispeech_3gram.bin"
-            // TTS ONNX models — OpenVoice v2 three-component pipeline,
-            // downloaded at runtime (stubs until exported by
-            // tools/export_tts_to_onnx.ipynb).
             excludes += "**/pocket_tts_base.onnx"
             excludes += "**/pocket_tts_se_extractor.onnx"
             excludes += "**/pocket_tts_tone_converter.onnx"
+            excludes += "**/*_landmarker.task"
         }
         // Required for 16 KB page-size devices: native libs must be
         // stored uncompressed in the APK so the dynamic loader can
@@ -244,6 +259,9 @@ dependencies {
     implementation(libs.mediapipe.tasks.vision)
 
     // LiteRT (formerly TensorFlow Lite)
+    // Note: litert-select-tf-ops removed from production — the production
+    // backend is ONNX (SyncVSR), and legacy TFLite models requiring flex ops
+    // are not shipped in the APK. Saves ~192 MB of native libs.
     implementation(libs.tflite)
     implementation(libs.tfliteGpu) {
         exclude(group = "com.google.ai.edge.litert", module = "litert-api")
@@ -251,7 +269,6 @@ dependencies {
     implementation(libs.tfliteSupport) {
         exclude(group = "com.google.ai.edge.litert", module = "litert-api")
     }
-    implementation(libs.tfliteSelectTfOps)
     testImplementation(libs.tflite)
     testImplementation(libs.tfliteGpu)
     testImplementation(libs.tfliteSupport)
