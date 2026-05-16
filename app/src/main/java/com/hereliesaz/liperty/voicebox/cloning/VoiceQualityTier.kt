@@ -56,7 +56,7 @@ enum class VoiceQualityTier(
          * argument requires multiple clips, not just more audio).
          */
         fun compute(clipCount: Int, totalSeconds: Int): VoiceQualityTier {
-            val candidates = values().filter { tier ->
+            val candidates = entries.filter { tier ->
                 clipCount >= tier.minClips && totalSeconds >= tier.minSeconds
             }
             return candidates.maxByOrNull { it.rank } ?: NONE
