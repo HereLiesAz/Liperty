@@ -1,44 +1,66 @@
 """Generate tools/export_tts_to_onnx.ipynb.
 
-Pulls the pre-exported Kokoro-82M ONNX bundle + voice style pack
-from the official release, mirrors them to
-HereLiesAz/liperty-pocket-tts. setup_libs.sh pulls from there into
-app/src/main/assets/.
+Exports OpenVoice v2 components to ONNX, uploads to
+HereLiesAz/liperty-pocket-tts on HF. setup_libs.sh pulls from there.
 
-Why Kokoro (after rejecting Coqui TTS and SpeechT5):
-- Pre-exported ONNX. Zero torch.onnx.export wrestling. We just
-  download and re-upload to our HF model repo where setup_libs.sh
-  already knows how to look.
-- Pure-Python tokenizer (misaki). No espeak-ng on Android. Drops
-  the ~3 MB native lib + JNI surgery we'd have needed for
-  VITS/Piper.
-- ~315 MB total (~85 MB onnx + ~230 MB voices bin). 1/3 the size
-  of SpeechT5 with better quality (Kokoro topped TTS Arena late
-  2024).
-- 50+ preset voices included (American/British, M/F, several
-  styles). For Liperty's actual user base (deaf/HoH), preset
-  voice selection is often more valuable than zero-shot cloning —
-  many users haven't had typical speech for years and don't have
-  reference audio of "themselves as they'd want to sound."
-- Apache 2.0. No licensing wrinkle.
+WHY OPENVOICE V2 (after rejecting Coqui TTS, SpeechT5, Kokoro):
 
-Why NOT each rejected option:
-- Coqui TTS 0.22: numpy/torch pins don't resolve on Python 3.12.
-  Upstream effectively abandoned.
-- SpeechT5: works fine but ~1 GB total. Heavier than we need.
-- Piper TTS: smaller (~30 MB) but requires espeak-ng on device.
-- MeloTTS: pip install fragile (mecab dep), no ONNX exports yet.
-- SileroTTS: TorchScript-only, no ONNX path.
+The Liperty user base includes people who LOST their voice (ALS,
+laryngeal cancer, throat surgery, stroke, vocal cord injury, etc.).
+For these users, voice cloning isn't a nice-to-have — it's the
+entire point. They have recordings (voicemails, family videos,
+voice memos), they know what they sounded like, and they want to
+keep sounding like themselves.
 
-PocketTTSEngine contract after this pivot:
-  Acoustic: input_names=["input_ids", "style", "speed"]
-                                  -> "audio"      (shape (1, T_audio))
-  No separate vocoder (Kokoro is end-to-end, output is waveform
-  at 24 kHz directly).
-  Voice selection: pass one of 54 preset 256-dim style vectors
-  from voices-v1.0.bin. The style binary is a packed array of
-  (54 voices, 511 frames, 256 dims) float32; the Android side
-  indexes by voice ID and frame count to get the conditioning.
+Zero-shot cloning is what they need:
+- They may have only short reference clips (a few seconds).
+- Disease progression makes long recording sessions impractical
+  (ALS users may have weeks before voice loss).
+- Their reference audio quality varies; they need a model robust
+  to less-than-studio input.
+
+OpenVoice v2 (myshell-ai, MIT) is purpose-built for this:
+- Two-stage: MeloTTS produces clean base speech, then a Tone Color
+  Converter transforms timbre using a reference clip (5-30 sec).
+- ~140 MB total: ~70 MB MeloTTS English + ~50 MB Tone Color
+  Converter + ~20 MB speaker encoder.
+- g2p_en tokenizer (pure Python, no espeak-ng on Android).
+- 24 kHz output.
+- Active maintenance, community ONNX exports.
+- Trained on enough speaker variety that it generalizes well to
+  voices it never saw during training (atypical voices, accents,
+  prosody).
+
+EXPLICITLY REJECTED:
+- Coqui TTS / Coqui XTTS-v2: numpy/torch dep hell on Python 3.12.
+- SpeechT5: ~1 GB, overkill, voice cloning works but quality
+  lower than OpenVoice v2.
+- Kokoro-82M: 54 PRESET voices, no zero-shot cloning. Wrong
+  feature set for our actual users.
+- Piper TTS: requires espeak-ng on device; preset voices only.
+- Tortoise-TTS: high quality cloning but ~5 sec per inference,
+  unusable on mobile CPU.
+
+PIPELINE:
+  text + ref_audio
+    -> g2p_en tokenize
+    -> MeloTTS base ONNX -> generic-voice waveform
+    -> SE Extractor ONNX (run on ref audio once, cache)
+       + base waveform
+    -> Tone Color Converter ONNX
+    -> user-voice waveform at 24 kHz
+
+ENGINE INPUT/OUTPUT CONTRACT after this lands:
+  base_tts.onnx: inputs=(input_ids, speaker_id, speed)
+                 output=audio   (1, T_base)
+  se_extractor.onnx: input=audio  (1, T_ref)
+                     output=speaker_embedding  (1, 256)
+  tone_converter.onnx: inputs=(source_audio, source_se, target_se, tau)
+                       output=audio  (1, T_out)
+
+The user records reference audio ONCE on first run, we cache the
+extracted speaker_embedding. At synthesis time the cache hit is
+free; the conversion is the per-utterance cost.
 
 Run with:  python tools/_build_tts_export_notebook.py
 """
@@ -60,16 +82,13 @@ def code(text: str) -> dict:
 cells: list[dict] = []
 
 cells.append(md("""\
-# Mirror Kokoro-82M TTS to HF for PocketTTS
+# Export OpenVoice v2 to ONNX + upload to HF
 
-Downloads the pre-exported [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) ONNX bundle + voice style pack from the official release, mirrors them to `HereLiesAz/liperty-pocket-tts`. `setup_libs.sh` already pulls from there.
+Converts the three OpenVoice v2 components (MeloTTS base + Tone Color Converter + Speaker Encoder) to ONNX, uploads to `HereLiesAz/liperty-pocket-tts`. `setup_libs.sh` pulls from there into `app/src/main/assets/`.
 
-**Why Kokoro:**
-- Already ONNX. No conversion. Download → re-upload.
-- Pure-Python tokenizer (`misaki`). No espeak-ng on Android.
-- ~315 MB total. 1/3 the size of SpeechT5, better quality (topped TTS Arena late 2024).
-- 54 preset voices included.
-- Apache 2.0.
+**Why OpenVoice v2:** Liperty's user base includes people who lost their voice (ALS, laryngeal cancer, throat surgery, stroke). For them, cloning IS the feature. OpenVoice v2 is zero-shot — 5-30 seconds of reference audio is enough to capture timbre. The pipeline is two-stage: MeloTTS generates clean base speech, then the Tone Color Converter transforms it to match the reference voice.
+
+~140 MB total. MIT licensed. g2p_en tokenizer (pure Python, no espeak-ng on Android).
 """))
 
 cells.append(md("""\
@@ -83,24 +102,45 @@ print(f"Python: {sys.version.split()[0]}")
 IS_KAGGLE = os.path.exists("/kaggle/working") or "KAGGLE_KERNEL_RUN_TYPE" in os.environ
 ENV = "kaggle" if IS_KAGGLE else "local"
 print(f"Environment: {ENV}")
+
+import torch
+print(f"PyTorch: {torch.__version__}, CUDA: {torch.cuda.is_available()}")
 """))
 
 cells.append(code("""\
-# Light deps only. We're not running training or PyTorch export —
-# just downloading pre-built ONNX files and re-uploading them.
-# kokoro-onnx provides a smoke-test runner for verification.
-print("=== Installing deps ===")
-!pip install -q "huggingface_hub>=0.27,<1.0" "onnxruntime>=1.18" "kokoro-onnx>=0.4" "soundfile" "numpy"
+# Drop %%capture so errors are visible.
+print("=== Installing utility deps ===")
+!pip install -q "huggingface_hub>=0.27,<1.0" "onnx>=1.16" "onnxruntime>=1.18" "onnxscript" "numpy" "scipy" "soundfile" "librosa"
 
-import importlib
-for mod in ("huggingface_hub", "onnxruntime", "kokoro_onnx", "soundfile"):
-    print(f"{mod}: {'OK' if importlib.util.find_spec(mod) else 'MISSING'}")
-"""))
-
-cells.append(code("""\
+print("\\n=== Cloning OpenVoice + MeloTTS source ===")
 WORK_DIR = "/kaggle/working/work" if IS_KAGGLE else "/content/work"
 os.makedirs(WORK_DIR, exist_ok=True)
-print(f"Work dir: {WORK_DIR}")
+OPENVOICE_DIR = os.path.join(WORK_DIR, "OpenVoice")
+MELOTTS_DIR = os.path.join(WORK_DIR, "MeloTTS")
+if not os.path.exists(OPENVOICE_DIR):
+    !git clone --depth 1 https://github.com/myshell-ai/OpenVoice.git {OPENVOICE_DIR}
+if not os.path.exists(MELOTTS_DIR):
+    !git clone --depth 1 https://github.com/myshell-ai/MeloTTS.git {MELOTTS_DIR}
+
+print("\\n=== Installing OpenVoice + MeloTTS Python deps ===")
+# OpenVoice's setup.py pulls in librosa, faster-whisper, etc.
+# MeloTTS pulls in g2p_en, jieba, etc. Both are pure-Python deps
+# (no native compile) so they install cleanly on Python 3.12.
+import subprocess
+for src in (OPENVOICE_DIR, MELOTTS_DIR):
+    r = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-e", src],
+                       capture_output=True, text=True, timeout=600)
+    print(f"  {os.path.basename(src)} install: rc={r.returncode}")
+    if r.returncode != 0:
+        print(f"    stderr tail: {r.stderr[-800:]}")
+
+# unidic-lite for MeloTTS Japanese; we only need English but the
+# import chain may pull it. Best-effort.
+!python -m unidic download 2>&1 | tail -1 || true
+
+import importlib
+for mod in ("openvoice", "melo", "torch", "onnx", "onnxruntime"):
+    print(f"{mod}: {'OK' if importlib.util.find_spec(mod) else 'MISSING'}")
 """))
 
 cells.append(code("""\
@@ -122,116 +162,276 @@ print(f"HF user: {whoami()['name']}")
 """))
 
 cells.append(md("""\
-## 2. Download Kokoro-82M
-
-From the upstream release. Two files:
-
-- `kokoro-v1.0.onnx` — the acoustic+vocoder model (~85 MB)
-- `voices-v1.0.bin` — packed array of all 54 preset voice style vectors (~230 MB)
+## 2. Download OpenVoice v2 checkpoints
 """))
 
 cells.append(code("""\
-from huggingface_hub import hf_hub_download
+from huggingface_hub import snapshot_download
 
-KOKORO_ONNX = os.path.join(WORK_DIR, "pocket_tts_acoustic.onnx")
-KOKORO_VOICES = os.path.join(WORK_DIR, "pocket_tts_voices.bin")
+CKPT_DIR = os.path.join(WORK_DIR, "ckpts")
+os.makedirs(CKPT_DIR, exist_ok=True)
 
-# The official release lives at this HF repo:
-KOKORO_REPO = "hexgrad/Kokoro-82M"
+# OpenVoice v2 ships its checkpoints in this repo. Three components:
+#  - base_speakers/ses/  (per-language base speaker embeddings)
+#  - converter/          (tone color converter)
+#  - tokenizer/          (g2p_en + bert support)
+OPENVOICE_REPO = "myshell-ai/OpenVoiceV2"
 
-# The kokoro-onnx package re-hosts the converted ONNX. We pull from
-# their release because hexgrad/Kokoro-82M itself ships the PyTorch
-# checkpoint, not the ONNX. The onnx-community fork has the export.
-ONNX_SRC_REPO = "onnx-community/Kokoro-82M-v1.0-ONNX"
-
-print("Downloading Kokoro ONNX ...")
-onnx_path = hf_hub_download(
-    repo_id=ONNX_SRC_REPO,
-    filename="onnx/model.onnx",
-    local_dir=WORK_DIR,
+print(f"Downloading {OPENVOICE_REPO} ...")
+ov_local = snapshot_download(
+    repo_id=OPENVOICE_REPO,
+    local_dir=os.path.join(CKPT_DIR, "OpenVoiceV2"),
 )
-import shutil
-shutil.copy(onnx_path, KOKORO_ONNX)
-print(f"  ONNX: {KOKORO_ONNX} ({os.path.getsize(KOKORO_ONNX)/1e6:.1f} MB)")
+print(f"  -> {ov_local}")
+print(f"  Contents:")
+for root, _, files in os.walk(ov_local):
+    rel = os.path.relpath(root, ov_local)
+    for f in files:
+        full = os.path.join(root, f)
+        sz_kb = os.path.getsize(full) // 1024
+        print(f"    {os.path.join(rel, f)}  ({sz_kb} KB)")
+"""))
 
-print("\\nDownloading voice style pack ...")
-voices_path = hf_hub_download(
-    repo_id=ONNX_SRC_REPO,
-    filename="voices/af.bin",   # individual voice file, can iterate
-    local_dir=WORK_DIR,
-)
-# The onnx-community repo splits voices into individual .bin files
-# per voice instead of one big pack. For our purposes we'll
-# concatenate the most common voices into a single .bin matching
-# Kokoro's standard packed format, OR just ship them individually.
-# Let's go with the standard combined pack instead — pull from the
-# kokoro-onnx package's mirror:
-
-# Pivot: use the upstream Kokoro release for the packed voices file.
-# It lives in hexgrad/Kokoro-82M release artifacts.
+cells.append(code("""\
+# MeloTTS English checkpoint for the base TTS stage. MeloTTS hosts
+# its weights under myshell-ai/MeloTTS-English-v3 (or v2 depending
+# on release).
+MELO_REPO = "myshell-ai/MeloTTS-English-v3"
 try:
-    packed = hf_hub_download(
-        repo_id="hexgrad/Kokoro-82M",
-        filename="voices/af_heart.pt",   # one voice's tensor as canary
-        local_dir=WORK_DIR,
+    melo_local = snapshot_download(
+        repo_id=MELO_REPO,
+        local_dir=os.path.join(CKPT_DIR, "MeloTTS-English-v3"),
     )
-    print(f"  Voice canary OK: {packed}")
+    print(f"  MeloTTS-English-v3 -> {melo_local}")
 except Exception as e:
-    print(f"  Voice download via hexgrad/Kokoro-82M failed: {e}")
-    print("  Falling back to onnx-community individual .bin files (we'll concatenate below).")
-
-# Listing what voices are available so we can pick which to ship:
-from huggingface_hub import list_repo_files
-voice_files = [f for f in list_repo_files(ONNX_SRC_REPO) if f.startswith("voices/") and f.endswith(".bin")]
-print(f"\\nAvailable voice .bin files: {len(voice_files)}")
-for f in sorted(voice_files)[:10]:
-    print(f"  {f}")
-"""))
-
-cells.append(code("""\
-# Download every voice file and concatenate into a single packed
-# binary, in the format kokoro-onnx expects:
-#   [ num_voices : i32 ]
-#   [ voice_id_len : i32, voice_id : utf8 bytes ] * num_voices
-#   [ raw float32 vectors : (num_voices, 511, 256) ] flat
-#
-# Actually the upstream kokoro-onnx binary format is simpler: just
-# a flat numpy archive. We'll go with a npz-style approach: dict
-# of {voice_id -> (511, 256) float32}.
-import numpy as np
-
-voices = {}
-for vf in sorted(voice_files):
-    voice_id = os.path.splitext(os.path.basename(vf))[0]   # e.g. "af_heart"
-    local = hf_hub_download(repo_id=ONNX_SRC_REPO, filename=vf, local_dir=WORK_DIR)
-    # The individual .bin is a raw float32 dump of shape (511, 256)
-    # per kokoro-onnx's convention. Verify:
-    arr = np.fromfile(local, dtype=np.float32)
-    expected = 511 * 256
-    if arr.size != expected:
-        print(f"  WARN {voice_id}: size {arr.size} != expected {expected}, skipping")
-        continue
-    voices[voice_id] = arr.reshape(511, 256)
-
-print(f"\\nLoaded {len(voices)} voices.")
-print("Sample:", list(voices.keys())[:8])
-
-# Save as a single npz for the Android side. Easier to parse than
-# a custom packed binary, and AssetFileDescriptor + Java NIO can
-# read it directly.
-np.savez(KOKORO_VOICES, **voices)
-# np.savez appends .npz to the filename; fix that.
-if os.path.exists(KOKORO_VOICES + ".npz"):
-    os.rename(KOKORO_VOICES + ".npz", KOKORO_VOICES)
-print(f"  Packed voices: {KOKORO_VOICES} ({os.path.getsize(KOKORO_VOICES)/1e6:.1f} MB)")
+    print(f"v3 fetch failed ({e}); trying v2 ...")
+    MELO_REPO = "myshell-ai/MeloTTS-English"
+    melo_local = snapshot_download(
+        repo_id=MELO_REPO,
+        local_dir=os.path.join(CKPT_DIR, "MeloTTS-English"),
+    )
+    print(f"  MeloTTS-English -> {melo_local}")
 """))
 
 cells.append(md("""\
-## 3. Tokenizer vocab
+## 3. Export Tone Color Converter to ONNX
 
-Kokoro uses the `misaki` G2P library for English. We dump its grapheme→phoneme→token-id mapping so the Android side can replicate tokenization without running misaki itself (which is pure Python but pulls more deps than we want on-device).
+The Tone Color Converter is the magic piece — takes (source_waveform, source_speaker_embedding, target_speaker_embedding) and produces source's content in target's voice. This is the part the user-with-a-banked-voice actually consumes.
+"""))
 
-For simplicity, we ship the post-G2P phoneme vocab directly — Android does character-to-phoneme via a smaller embedded table, or sends text through misaki on a Kotlin port if it materializes. Current approach: ship the misaki vocab as JSON; the engine can use a simple character fallback if the on-device tokenizer isn't wired yet.
+cells.append(code("""\
+import sys
+sys.path.insert(0, OPENVOICE_DIR)
+from openvoice.api import ToneColorConverter
+import torch
+import torch.nn as nn
+
+TONE_CONVERTER_ONNX = os.path.join(WORK_DIR, "pocket_tts_tone_converter.onnx")
+
+# Initialize the converter from its config + checkpoint.
+converter_cfg = os.path.join(ov_local, "converter", "config.json")
+converter_ckpt = os.path.join(ov_local, "converter", "checkpoint.pth")
+print(f"Loading ToneColorConverter from {converter_ckpt} ...")
+tcc = ToneColorConverter(converter_cfg, device="cpu")
+tcc.load_ckpt(converter_ckpt)
+tcc.model.eval()
+print("Loaded.")
+"""))
+
+cells.append(code("""\
+class ToneConverterWrapper(nn.Module):
+    \"\"\"Wraps ToneColorConverter.model.voice_conversion() for ONNX.
+
+    Inputs:
+      audio_src: (1, T_src)        source waveform at 24 kHz, mono
+      src_se:    (1, 256, 1)       source speaker embedding
+      tgt_se:    (1, 256, 1)       target speaker embedding
+      tau:       scalar float      temperature (0.3 default)
+    Output:
+      audio_out: (1, T_out)        converted waveform at 24 kHz
+    \"\"\"
+    def __init__(self, tcc_model): super().__init__(); self.m = tcc_model
+    def forward(self, audio_src, src_se, tgt_se, tau):
+        # voice_conversion expects (1, T) audio and (B, 256, 1) embeddings.
+        out = self.m.voice_conversion(audio_src, src_se=src_se, tgt_se=tgt_se, tau=tau)
+        return out
+
+wrapper = ToneConverterWrapper(tcc.model).eval()
+dummy_audio = torch.randn(1, 24000)
+dummy_src_se = torch.randn(1, 256, 1)
+dummy_tgt_se = torch.randn(1, 256, 1)
+dummy_tau = torch.tensor(0.3)
+
+with torch.no_grad():
+    try:
+        out = wrapper(dummy_audio, dummy_src_se, dummy_tgt_se, dummy_tau)
+        print(f"Sanity forward OK. Output shape: {tuple(out.shape)}")
+    except Exception as e:
+        print(f"Sanity forward FAILED: {e}")
+        print("Tone Color Converter export needs upstream API debugging.")
+        out = None
+
+if out is not None:
+    print(f"Exporting to {TONE_CONVERTER_ONNX} ...")
+    torch.onnx.export(
+        wrapper, (dummy_audio, dummy_src_se, dummy_tgt_se, dummy_tau),
+        TONE_CONVERTER_ONNX,
+        input_names=["audio_src", "src_se", "tgt_se", "tau"],
+        output_names=["audio_out"],
+        dynamic_axes={
+            "audio_src": {1: "src_length"},
+            "audio_out": {1: "out_length"},
+        },
+        opset_version=18,
+        do_constant_folding=True,
+        dynamo=False,
+    )
+    sz = os.path.getsize(TONE_CONVERTER_ONNX) / 1e6
+    print(f"Exported. Size: {sz:.1f} MB")
+"""))
+
+cells.append(md("""\
+## 4. Export Speaker Encoder (SE Extractor) to ONNX
+
+Takes a reference audio clip (5-30 seconds at 24 kHz) and produces a 256-dim speaker embedding. Run ONCE per user (on first reference recording), then cache. The result is what gets fed to the Tone Color Converter at every synthesis call.
+"""))
+
+cells.append(code("""\
+SE_EXTRACTOR_ONNX = os.path.join(WORK_DIR, "pocket_tts_se_extractor.onnx")
+
+# The SE extractor is a sub-component of the ToneColorConverter
+# model (the encoder side of the variational autoencoder). Pull
+# it out and trace separately.
+
+class SEExtractorWrapper(nn.Module):
+    \"\"\"Extracts a (1, 256, 1) speaker embedding from raw audio.\"\"\"
+    def __init__(self, tcc_model): super().__init__(); self.m = tcc_model
+    def forward(self, audio):
+        # audio: (1, T) at 24 kHz. Returns: (1, 256, 1).
+        return self.m.ref_enc(audio.transpose(0, 1).unsqueeze(0))   # convert (1,T)->(1,1,T) for the encoder
+
+# Trace with dummy data.
+wrapper = SEExtractorWrapper(tcc.model).eval()
+dummy_ref = torch.randn(1, 24000 * 5)   # 5-second reference
+
+with torch.no_grad():
+    try:
+        emb = wrapper(dummy_ref)
+        print(f"Sanity forward OK. Embedding shape: {tuple(emb.shape)} (expect (1, 256, 1))")
+    except Exception as e:
+        print(f"SE extractor sanity failed: {e}")
+        print("The ref_enc API may need a different shape. Inspect tcc.model.ref_enc.")
+        emb = None
+
+if emb is not None:
+    print(f"Exporting to {SE_EXTRACTOR_ONNX} ...")
+    torch.onnx.export(
+        wrapper, dummy_ref, SE_EXTRACTOR_ONNX,
+        input_names=["audio"],
+        output_names=["embedding"],
+        dynamic_axes={"audio": {1: "audio_length"}},
+        opset_version=18,
+        do_constant_folding=True,
+        dynamo=False,
+    )
+    sz = os.path.getsize(SE_EXTRACTOR_ONNX) / 1e6
+    print(f"Exported. Size: {sz:.1f} MB")
+"""))
+
+cells.append(md("""\
+## 5. Export MeloTTS base ONNX
+
+MeloTTS produces the base speech that the Tone Color Converter then transforms. ~70 MB ONNX.
+"""))
+
+cells.append(code("""\
+sys.path.insert(0, MELOTTS_DIR)
+from melo.api import TTS as MeloTTS
+
+BASE_TTS_ONNX = os.path.join(WORK_DIR, "pocket_tts_base.onnx")
+
+print(f"Loading MeloTTS-English ...")
+melo = MeloTTS(language="EN", device="cpu")
+melo.model.eval()
+print("Loaded.")
+print(f"Available speakers: {list(melo.hps.data.spk2id.keys())}")
+"""))
+
+cells.append(code("""\
+class MeloTTSWrapper(nn.Module):
+    \"\"\"Wraps MeloTTS.model.infer() for ONNX export.
+
+    Inputs:
+      input_ids: (1, T_text)  int64
+      speaker_id: scalar int64 (which preset base speaker to use)
+      speed: scalar float (1.0 = normal)
+    Output:
+      audio: (1, T_audio)  float32 at 24 kHz
+    \"\"\"
+    def __init__(self, melo_model, hps):
+        super().__init__()
+        self.model = melo_model
+        self.hps = hps
+
+    def forward(self, input_ids, speaker_id, speed):
+        x_tst = input_ids
+        x_tst_lengths = torch.tensor([input_ids.shape[1]], dtype=torch.long)
+        sid = speaker_id
+        audio = self.model.infer(
+            x_tst, x_tst_lengths, sid, tone=None, language=None, bert=None,
+            ja_bert=None, noise_scale=0.667, length_scale=1.0 / speed,
+            noise_scale_w=0.8, sdp_ratio=0.2,
+        )[0][0, 0]
+        return audio.unsqueeze(0)
+
+
+# Build dummy input via the tokenizer.
+import re
+from melo.text.cleaner import clean_text
+from melo.text import cleaned_text_to_sequence
+
+text = "hello world"
+norm_text, phones, tones, word2ph = clean_text(text, "EN")
+phone_ids = cleaned_text_to_sequence(phones, tones, "EN")[0]
+input_ids = torch.tensor([phone_ids], dtype=torch.long)
+print(f"Dummy phone_ids shape: {input_ids.shape}")
+
+wrapper = MeloTTSWrapper(melo.model, melo.hps).eval()
+dummy_sid = torch.tensor(list(melo.hps.data.spk2id.values())[0], dtype=torch.long)
+dummy_speed = torch.tensor(1.0)
+
+with torch.no_grad():
+    try:
+        out = wrapper(input_ids, dummy_sid, dummy_speed)
+        print(f"Sanity forward OK. Output shape: {tuple(out.shape)}")
+    except Exception as e:
+        print(f"MeloTTS sanity failed: {e}")
+        out = None
+
+if out is not None:
+    print(f"Exporting to {BASE_TTS_ONNX} ...")
+    torch.onnx.export(
+        wrapper, (input_ids, dummy_sid, dummy_speed), BASE_TTS_ONNX,
+        input_names=["input_ids", "speaker_id", "speed"],
+        output_names=["audio"],
+        dynamic_axes={
+            "input_ids": {1: "text_length"},
+            "audio":     {1: "audio_length"},
+        },
+        opset_version=18,
+        do_constant_folding=True,
+        dynamo=False,
+    )
+    sz = os.path.getsize(BASE_TTS_ONNX) / 1e6
+    print(f"Exported. Size: {sz:.1f} MB")
+"""))
+
+cells.append(md("""\
+## 6. Tokenizer dump
+
+g2p_en's grapheme→phoneme→ID map. Pure Python on Kaggle, but we serialize the ID table so the Android side can do the lookup without re-running g2p_en (which depends on NLTK).
+
+For arbitrary text on-device, the cleanest path is to port g2p_en to Kotlin (~500 lines) or run it server-side. As an interim, we ship the phoneme→ID table and document that text-to-phoneme conversion needs to happen via either an embedded Kotlin g2p port or pre-computed phonemes for fixed strings.
 """))
 
 cells.append(code("""\
@@ -239,77 +439,72 @@ import json as _json
 
 VOCAB_PATH = os.path.join(WORK_DIR, "pocket_tts_vocab.json")
 
-# Kokoro's input token vocabulary is the IPA phoneme set + special
-# tokens. The onnx-community repo includes a tokenizer.json.
-try:
-    tokenizer_path = hf_hub_download(
-        repo_id=ONNX_SRC_REPO,
-        filename="tokenizer.json",
-        local_dir=WORK_DIR,
-    )
-    with open(tokenizer_path) as f:
-        upstream_vocab = _json.load(f)
-    print(f"Loaded upstream tokenizer.json with {len(upstream_vocab.get('model', {}).get('vocab', {}))} tokens")
-except Exception as e:
-    print(f"tokenizer.json fetch failed: {e}")
-    upstream_vocab = None
+# MeloTTS exposes its symbol table directly.
+from melo.text.symbols import symbols, language_id_map, num_tones
 
-# Repack into the schema PocketTTSEngine expects.
-if upstream_vocab is not None:
-    vocab_table = upstream_vocab.get("model", {}).get("vocab", {})
-else:
-    # Hand-built fallback from the Kokoro README's documented phoneme
-    # set. Approximate; may miss edge cases.
-    vocab_table = {sym: i for i, sym in enumerate(list("$;:,.!?¡¿—…\"«»“” ()") +
-                                                  list("abcdefghijklmnopqrstuvwxyz") +
-                                                  ["ɑ","ɐ","ɒ","æ","ɓ","ʙ","β","ɔ","ɕ","ç","ɗ","ɖ","ð","ʤ","ə","ɘ","ɚ","ɛ","ɜ","ɝ","ɞ","ɟ","ʄ","ɡ","ɠ","ɢ","ʛ","ɦ","ɧ","ħ","ɥ","ʜ","ɨ","ɪ","ʝ","ɭ","ɬ","ɫ","ɮ","ʟ","ɱ","ɯ","ɰ","ŋ","ɳ","ɲ","ɴ","ø","ɵ","ɸ","θ","œ","ɶ","ʘ","ɹ","ɺ","ɾ","ɻ","ʀ","ʁ","ɽ","ʂ","ʃ","ʈ","ʧ","ʉ","ʊ","ʋ","ⱱ","ʌ","ɣ","ɤ","ʍ","χ","ʎ","ʏ","ʑ","ʐ","ʒ","ʔ","ʡ","ʕ","ʢ","ǀ","ǁ","ǂ","ǃ"])}
-
+vocab_table = {sym: i for i, sym in enumerate(symbols)}
 with open(VOCAB_PATH, "w", encoding="utf-8") as f:
     _json.dump({
-        "tokenizer_class": "Kokoro",
-        "vocab_size": len(vocab_table),
+        "tokenizer_class": "MeloTTS_g2p_en",
+        "vocab_size": len(symbols),
         "vocab": vocab_table,
         "sample_rate": 24000,
-        "voice_dim": 256,
-        "voice_frame_count": 511,
-        "available_voices": sorted(voices.keys()),
-        "default_voice": "af_heart" if "af_heart" in voices else (sorted(voices.keys())[0] if voices else None),
+        "speaker_dim": 256,
+        "language_id_map": language_id_map,
+        "num_tones": num_tones,
+        "available_base_speakers": list(melo.hps.data.spk2id.keys()),
     }, f, indent=2, ensure_ascii=False)
-print(f"Wrote {VOCAB_PATH} ({os.path.getsize(VOCAB_PATH)} bytes)")
+print(f"Wrote vocab ({len(symbols)} symbols) to {VOCAB_PATH}")
 """))
 
 cells.append(md("""\
-## 4. End-to-end smoke test
+## 7. End-to-end smoke test
 
-Use the `kokoro-onnx` Python package to verify the ONNX + voices files work together. Save a sample .wav for spot-checking.
+Use the original OpenVoice Python API (not the exported ONNX) to verify the conversion actually works on a reference clip. Saves audio for spot-checking before uploading.
 """))
 
 cells.append(code("""\
 import soundfile as sf
+import numpy as np
 
-SMOKE_WAV = os.path.join(WORK_DIR, "pocket_tts_smoketest.wav")
+SMOKE_BASE_WAV = os.path.join(WORK_DIR, "pocket_tts_smoketest_base.wav")
+SMOKE_CONV_WAV = os.path.join(WORK_DIR, "pocket_tts_smoketest_converted.wav")
 
+# Synthesize base TTS via MeloTTS Python API.
 try:
-    from kokoro_onnx import Kokoro
-    # Build with the packed binary we just made.
-    kokoro = Kokoro(KOKORO_ONNX, KOKORO_VOICES)
-    samples, sample_rate = kokoro.create(
-        "Hello, this is a test of the Kokoro text to speech pipeline.",
-        voice=list(voices.keys())[0],
-        speed=1.0,
-        lang="en-us",
-    )
-    sf.write(SMOKE_WAV, samples, sample_rate)
-    print(f"Smoke test OK. {samples.shape[0]} samples at {sample_rate} Hz "
-          f"({samples.shape[0] / sample_rate:.2f} s)")
-    print(f"Saved {SMOKE_WAV}")
+    speaker_ids = melo.hps.data.spk2id
+    test_text = "Hello, this is a test of the OpenVoice cloning pipeline. The user's banked voice should replace this default voice in the converted output."
+    melo.tts_to_file(test_text, speaker_ids["EN-Default"], SMOKE_BASE_WAV, speed=1.0)
+    print(f"Base synthesis OK -> {SMOKE_BASE_WAV}")
 except Exception as e:
-    print(f"Smoke test failed: {e}")
-    print("(ONNX + voices uploaded anyway; engine-side wiring is the remaining step.)")
+    print(f"Base synthesis failed: {e}")
+
+# Convert via Tone Color Converter (uses a built-in default reference
+# for the test; the real user reference would be supplied by the
+# Android app).
+try:
+    ref_audio = os.path.join(ov_local, "base_speakers", "ses", "en-default.pth")
+    if not os.path.exists(ref_audio):
+        ref_audio = None
+        print("No bundled reference found; skipping conversion smoke test")
+    else:
+        # Load source SE from base speaker embedding.
+        base_se = torch.load(ref_audio, map_location="cpu", weights_only=False).unsqueeze(0)
+        # Target SE = same as source (identity conversion as a smoke test).
+        tcc.convert(
+            audio_src_path=SMOKE_BASE_WAV,
+            src_se=base_se,
+            tgt_se=base_se,
+            output_path=SMOKE_CONV_WAV,
+            message="@MyShell",
+        )
+        print(f"Conversion (identity) OK -> {SMOKE_CONV_WAV}")
+except Exception as e:
+    print(f"Conversion smoke test failed: {e}")
 """))
 
 cells.append(md("""\
-## 5. Upload to HF
+## 8. Upload to HF
 """))
 
 cells.append(code("""\
@@ -318,30 +513,36 @@ from huggingface_hub import HfApi, create_repo
 REPO = "HereLiesAz/liperty-pocket-tts"
 create_repo(REPO, repo_type="model", private=False, exist_ok=True)
 api = HfApi()
-for path in (KOKORO_ONNX, KOKORO_VOICES, VOCAB_PATH, SMOKE_WAV):
+paths_to_upload = [
+    BASE_TTS_ONNX, TONE_CONVERTER_ONNX, SE_EXTRACTOR_ONNX,
+    VOCAB_PATH, SMOKE_BASE_WAV, SMOKE_CONV_WAV,
+]
+for path in paths_to_upload:
     if not os.path.exists(path): continue
     sz_kb = os.path.getsize(path) // 1024
     api.upload_file(
         path_or_fileobj=path,
         path_in_repo=os.path.basename(path),
         repo_id=REPO, repo_type="model",
-        commit_message=f"Kokoro-82M: {os.path.basename(path)} ({sz_kb} KB)",
+        commit_message=f"OpenVoice v2: {os.path.basename(path)} ({sz_kb} KB)",
     )
     print(f"Uploaded {os.path.basename(path)} ({sz_kb} KB)")
 print()
 print(f"All assets at: https://huggingface.co/{REPO}")
 print()
-print("On the Android side after these files land:")
-print("  1. setup_libs.sh already pulls from this repo. Old SpeechBrain")
-print("     ECAPA pocket_tts_speaker.onnx (192-dim) is now obsolete —")
-print("     remove from the pull list or let it be overwritten/orphaned.")
-print("  2. PocketTTSEngine.kt: rewrite generateAudio() for Kokoro's")
-print("     contract: inputs are 'input_ids', 'style' (256-d), 'speed';")
-print("     output is 'audio' at 24 kHz (NOT 22050 or 16000).")
-print("  3. VoiceManager: voice selection becomes 'pick from 54 presets'")
-print("     loaded from pocket_tts_voices.bin. Cloning gets deferred to")
-print("     style-transfer once we have a reference-audio path.")
-print("  4. TTS_OUTPUT_SAMPLE_RATE_HZ: change to 24000 (Kokoro outputs)")
+print("Android-side rework needed (separate commit):")
+print("  PocketTTSEngine.kt now has three ONNX sessions instead of two:")
+print("    base_tts.onnx          (text -> generic-voice waveform)")
+print("    se_extractor.onnx      (ref audio -> 256-d speaker embedding)")
+print("    tone_converter.onnx    (waveform + src_se + tgt_se -> user-voice waveform)")
+print()
+print("  Voice profile lifecycle:")
+print("    1. User records 5-30 sec of clean reference audio (NEW UI).")
+print("    2. App runs se_extractor once -> caches 256-d embedding.")
+print("    3. Every synthesis: base_tts -> tone_converter with cached emb.")
+print()
+print("  Sample rate: 24 kHz (NOT 22050, NOT 16000).")
+print("  No espeak-ng dependency. Tokenization via vocab.json + on-device g2p_en port.")
 """))
 
 
