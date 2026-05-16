@@ -416,11 +416,16 @@ fi
 # host the .onnx files, so every fresh setup_libs.sh run got 9-byte
 # HTML stubs that ORT couldn't load.
 TTS_HF_REPO="HereLiesAz/liperty-pocket-tts"
+# OpenVoice v2 two-stage pipeline:
+#   base.onnx          — MeloTTS English base TTS (~70 MB)
+#   se_extractor.onnx  — Speaker Embedding extractor, 256-d (~20 MB)
+#   tone_converter.onnx — timbre transfer, ref voice → cloned (~50 MB)
+#   vocab.json         — MeloTTS symbol table (~5 KB)
 TTS_MODELS=(
-    "pocket_tts_speaker.onnx"
-    "pocket_tts_acoustic.onnx"
-    "pocket_tts_vocoder.onnx"
-    "pocket_tts_phoneme_map.json"
+    "pocket_tts_base.onnx"
+    "pocket_tts_se_extractor.onnx"
+    "pocket_tts_tone_converter.onnx"
+    "pocket_tts_vocab.json"
 )
 
 download_tts() {
@@ -452,12 +457,9 @@ for model in "${TTS_MODELS[@]}"; do
     download_tts "$model"
 done
 
-# Optional: FreeVC voice conversion model (requires manual download)
-if [ ! -f "${TARGET_ASSETS}/pocket_tts_vc.onnx" ]; then
-    echo "[*] pocket_tts_vc.onnx not found. Voice conversion is optional."
-    echo "    To enable: download FreeVC from https://github.com/OlaWod/FreeVC"
-    echo "    then run: python tools/convert_tts_models.py --freevc"
-fi
+# OpenVoice v2 replaced the optional FreeVC path with the bundled
+# Tone Color Converter (pocket_tts_tone_converter.onnx). No extra
+# voice-conversion download required.
 
 # Fallback/Utility: Face and Hand Landmarkers (if still missing after assets.zip)
 FACE_TASK_URL="https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
