@@ -275,7 +275,7 @@ class ModelDownloadManager(private val context: Context) {
 
     private suspend fun downloadFile(
         urlStr: String, dest: File, modelKey: String
-    ) = withContext(Dispatchers.IO) {
+    ): Unit = withContext(Dispatchers.IO) {
         var conn: HttpURLConnection? = null
         try {
             val url = URL(urlStr)

@@ -71,7 +71,7 @@ data class WavHeader(
          */
         fun read(stream: InputStream): WavHeader? {
             val dis = DataInputStream(stream)
-            try {
+            return try {
                 // RIFF header.
                 val riff = readAscii(dis, 4)
                 if (riff != "RIFF") return null
