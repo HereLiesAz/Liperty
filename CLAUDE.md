@@ -8,7 +8,7 @@ This file provides guidance to Claude (and other AI coding assistants) when work
 
 ### Key Characteristics
 - **Platform**: Android (Kotlin-first, minSdk 26 / targetSdk 37)
-- **ML Stack**: ONNX Runtime Mobile (primary; serves the Auto-AVSR Conformer encoder), TensorFlow Lite / LiteRT (secondary; legacy + small auxiliary models), MediaPipe Tasks Vision, OpenCV 4.10.0 (C++ via NDK)
+- **ML Stack**: ONNX Runtime Mobile (primary; serves the Auto-AVSR Conformer encoder), TensorFlow Lite / LiteRT (secondary; legacy + small auxiliary models), MediaPipe Tasks Vision, OpenCV 4.13.0 (C++ via NDK)
 - **UI**: Jetpack Compose + Material 3
 - **Privacy**: Fully offline; zero cloud dependencies. Biometric data lives only in RAM.
 - **Hardware acceleration**: ONNX Runtime CPU (XNNPACK), TFLite GPU Delegate (primary for TFLite path), NNAPI/Hexagon (fallback), CPU (last resort)
@@ -94,38 +94,21 @@ Liperty/
 │       │   │       ├── BitmapPool.kt
 │       │   │       └── PerformanceMonitor.kt
 │       │   └── res/                   # Android resources
-│       ├── test/java/                 # Robolectric unit tests (23 files)
+│       ├── test/java/                 # Robolectric unit tests
 │       └── androidTest/java/          # Espresso instrumented tests
-├── VALLR/                             # Research model (Python, ICCV 2025)
-│   ├── Models/
-│   └── Data/
-├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── TODO.md                        # 8-phase roadmap
-│   ├── RESEARCH.md
-│   ├── USER_GUIDE.md
-│   ├── LEGAL.md
-│   ├── MODEL_CONVERSION.md
-│   ├── AVHUBERT_V3_BACKEND.md         # V3 seq2seq research log (10 attempts, ongoing)
-│   ├── LM_RESCORING.md                # KenLM + viseme-aware rescoring architecture
-│   ├── PERSONALIZATION.md             # On-device per-user training plan (Steps 1-3)
-│   ├── RESEARCH_PAPER.md              # System paper: architecture + results + limitations
-│   └── PRIVACY_POLICY.md
-├── tools/                             # Python notebook generators + .ipynb training/eval pipelines
-│   ├── _build_export_autoavsr_notebook.py / export_autoavsr_to_onnx.ipynb
-│   ├── _build_notebook.py             / train_grid_tcd_resumable.ipynb       # pixel V1
-│   ├── _build_landmark_notebook.py    / train_landmark_lrs3_resumable.ipynb  # landmark-only V2
-│   ├── _build_landmark_preprocess_notebook.py / preprocess_landmarks_resumable.ipynb
-│   ├── _build_personal_lora_notebook.py / train_personal_lora_resumable.ipynb # LoRA adaptation
-│   ├── _build_eval_notebook.py        / eval_autoavsr.ipynb                  # offline WER eval
+├── docs/                              # All project documentation
+├── docker/                            # Dockerfiles for KenLM/V3 export builds
+├── tools/                             # Notebook generators + .ipynb pipelines (Kaggle/Colab)
+│   ├── _build_*.py                    # Python generators → .ipynb
+│   ├── *.ipynb                        # Generated notebooks (training, export, eval)
+│   └── *.py                           # Standalone utilities (build_viseme_*, convert_*, etc.)
 ├── gradle/
 │   └── libs.versions.toml            # Centralized version catalog
 ├── build.gradle.kts                   # Root Gradle config
 ├── settings.gradle.kts                # Multi-module (OpenCV included dynamically)
 ├── gradle.properties                  # JVM heap = 2 GB
 ├── version.properties                 # Major=0, Minor=1, Patch=0
-├── setup_libs.sh                      # Downloads OpenCV + MediaPipe model
-└── AGENTS.md                          # Guidance for Warp (warp.dev)
+└── setup_libs.sh                      # Downloads OpenCV, MediaPipe, all ML models from HF
 ```
 
 ---
@@ -136,7 +119,7 @@ Liperty/
 - **JDK 17** (enforced by CI/CD and `build.gradle.kts`)
 - **Android SDK** compileSdk 36, buildToolsVersion matching AGP 9.2.1
 - **CMake 3.22.1+** and NDK (for C++ OpenCV integration)
-- **Python 3** (for `tools/` model scripts and `VALLR/`)
+- **Python 3** (for `tools/` model scripts)
 
 ### 1. Dependency Initialization (Required before first build)
 OpenCV binaries and ML model files are **not committed to git**.
@@ -146,10 +129,16 @@ OpenCV binaries and ML model files are **not committed to git**.
 ```
 
 This script:
-- Downloads OpenCV Android SDK v4.10.0 and patches its `build.gradle` for AGP 9 / Java 17 compatibility
-- Downloads the MediaPipe Face Landmarker `.task` file into `app/src/main/assets/`
-- Pulls the Auto-AVSR ONNX model + `unigram5000_units.txt` vocab from `HereLiesAz/liperty-autoavsr-onnx` (the output of `tools/export_autoavsr_to_onnx.ipynb`) into `app/src/main/assets/`. The on-device app loads these via `OnnxModelEngine` and `VocabularyLoader`.
-- Generates a dummy VSR TFLite stub if a real model is absent (only used by the legacy phoneme path)
+- Downloads OpenCV Android SDK v4.13.0 and patches its `build.gradle` for AGP 9 / Java 17 compatibility
+- Downloads MediaPipe Face & Hand Landmarker `.task` files
+- Pulls Auto-AVSR ONNX model + vocab from `HereLiesAz/liperty-autoavsr-onnx`
+- Pulls SyncVSR ONNX models from `HereLiesAz/liperty-syncvsr-onnx`
+- Pulls AV-HuBERT V3 encoder/decoder from `HereLiesAz/liperty-avhubert-encoder`
+- Pulls KenLM binary + NDK prebuilts from `HereLiesAz/liperty-lm`
+- Pulls PocketTTS voice cloning ONNX models from `HereLiesAz/liperty-pocket-tts`
+- Extracts legacy TFLite stubs + viseme data from a Google Drive assets bundle
+
+**All binary assets in `app/src/main/assets/` are gitignored.** Only small hand-crafted text files (`homophones.json`, `viseme_map*.txt`) are tracked.
 
 ### 2. Build Commands
 
@@ -333,7 +322,7 @@ All versions are centralized in `gradle/libs.versions.toml`. When adding or upgr
 | CameraX | 1.6.0 |
 | TFLite (LiteRT) | 2.1.4 |
 | MediaPipe Tasks Vision | 0.20230731 |
-| OpenCV | 4.5.3.0 |
+| OpenCV | 4.13.0 |
 | Robolectric | 4.16.1 |
 
 ---
@@ -348,7 +337,6 @@ All versions are centralized in `gradle/libs.versions.toml`. When adding or upgr
   - `train_landmark_lrs3_resumable.ipynb` — landmark-only V2 (uses `e1lephant/lrs3-landmark` shards; the point of the LRS3 landmark releases is exactly that landmark-only training is competitive)
   - `train_personal_lora_resumable.ipynb` — per-user LoRA adaptation on top of a pretrained encoder
   - `eval_autoavsr.ipynb` — offline WER/CER evaluation against held-out shards, mirrors deployment exactly (same ONNX, vocab, mean/std, decoders)
-- **VALLR model** (`VALLR/`): Reference Python implementation of the ICCV 2025 paper. Initially explored as a deployment path; superseded by Auto-AVSR for the visual-only frontend. Kept as research scaffolding — do not modify VALLR Python code without understanding the paper. The `VideoMAEModel.from_pretrained("MCG-NJU/videomae-base", ...)` initialization (with explicit per-submodule init for downsampling/adapter/ctc_head only) is intentional for finetuning.
 - **OpenCV via NDK**: OpenCV is included as an Android module (not AAR) and linked into a shared library via CMake. The `settings.gradle.kts` dynamically includes it after `setup_libs.sh` runs.
 - **No cloud ML services**: ARCore API key is present for optional future AR overlays only, not for inference.
 
