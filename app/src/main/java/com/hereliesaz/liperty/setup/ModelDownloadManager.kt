@@ -85,35 +85,38 @@ class ModelDownloadManager(private val context: Context) {
             expectedSizeBytes = 27_000_000L
         ),
         // OpenVoice v2 — zero-shot voice cloning, three ONNX components.
-        // Replaces the older VITS speaker/acoustic/vocoder split.
-        ModelSpec(
-            fileName = "pocket_tts_se_extractor.onnx",
-            repo = "HereLiesAz/liperty-pocket-tts",
-            required = false,
-            description = "Voice cloning (speaker embedding extractor)",
-            expectedSizeBytes = 20_000_000L
-        ),
-        ModelSpec(
-            fileName = "pocket_tts_base.onnx",
-            repo = "HereLiesAz/liperty-pocket-tts",
-            required = false,
-            description = "Voice cloning (MeloTTS base voice)",
-            expectedSizeBytes = 70_000_000L
-        ),
-        ModelSpec(
-            fileName = "pocket_tts_tone_converter.onnx",
-            repo = "HereLiesAz/liperty-pocket-tts",
-            required = false,
-            description = "Voice cloning (tone color converter)",
-            expectedSizeBytes = 50_000_000L
-        ),
-        ModelSpec(
-            fileName = "pocket_tts_vocab.json",
-            repo = "HereLiesAz/liperty-pocket-tts",
-            required = false,
-            description = "Voice cloning (MeloTTS vocab)",
-            expectedSizeBytes = 5_000L
-        ),
+        // NOT YET UPLOADED to HuggingFace — commented out until
+        // tools/export_tts_to_onnx.ipynb is run and results pushed to
+        // HereLiesAz/liperty-pocket-tts. Until then, voice cloning is
+        // disabled at runtime (PocketTTSEngine handles missing files).
+        // ModelSpec(
+        //     fileName = "pocket_tts_se_extractor.onnx",
+        //     repo = "HereLiesAz/liperty-pocket-tts",
+        //     required = false,
+        //     description = "Voice cloning (speaker embedding extractor)",
+        //     expectedSizeBytes = 20_000_000L
+        // ),
+        // ModelSpec(
+        //     fileName = "pocket_tts_base.onnx",
+        //     repo = "HereLiesAz/liperty-pocket-tts",
+        //     required = false,
+        //     description = "Voice cloning (MeloTTS base voice)",
+        //     expectedSizeBytes = 70_000_000L
+        // ),
+        // ModelSpec(
+        //     fileName = "pocket_tts_tone_converter.onnx",
+        //     repo = "HereLiesAz/liperty-pocket-tts",
+        //     required = false,
+        //     description = "Voice cloning (tone color converter)",
+        //     expectedSizeBytes = 50_000_000L
+        // ),
+        // ModelSpec(
+        //     fileName = "pocket_tts_vocab.json",
+        //     repo = "HereLiesAz/liperty-pocket-tts",
+        //     required = false,
+        //     description = "Voice cloning (MeloTTS vocab)",
+        //     expectedSizeBytes = 5_000L
+        // ),
     )
 
     // ── Download state ────────────────────────────────────────────────
