@@ -78,3 +78,4 @@ app/src/main/cpp/libs/opencv/
 
 # KenLM Android prebuilts (pulled from HF by setup_libs.sh)
 app/src/main/cpp/kenlm/
+/nul
