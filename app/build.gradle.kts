@@ -3,6 +3,19 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+fun runGitCommand(vararg args: String): String {
+    return try {
+        val process = ProcessBuilder("git", *args)
+            .directory(file(".."))
+            .start()
+        val output = process.inputStream.bufferedReader().readText().trim()
+        process.waitFor()
+        output
+    } catch (e: Exception) {
+        ""
+    }
+}
+
 val versionProps = providers.fileContents(layout.projectDirectory.file("../version.properties"))
     .asText.get().lines().associate {
         val parts = it.split("=", limit = 2)
@@ -10,8 +23,16 @@ val versionProps = providers.fileContents(layout.projectDirectory.file("../versi
     }
 val vMajor = versionProps["versionMajor"]?.toIntOrNull() ?: 0
 val vMinor = versionProps["versionMinor"]?.toIntOrNull() ?: 1
-val vPatch = versionProps["versionPatch"]?.toIntOrNull() ?: 0
-val vBuild = (project.findProperty("versionBuild") as? String)?.toIntOrNull() ?: 0
+val vBuild = (project.findProperty("versionBuild") as? String)?.toIntOrNull() ?: (runGitCommand("rev-list", "--count", "HEAD").toIntOrNull() ?: 0)
+val vPatch = run {
+    val blame = runGitCommand("blame", "-L/versionMinor=/,+1", "version.properties")
+    val minorCommit = if (blame.contains(" ")) blame.split(" ")[0].replace("^", "") else ""
+    if (minorCommit.isNotEmpty()) {
+        runGitCommand("rev-list", "--count", "$minorCommit..HEAD").toIntOrNull() ?: 0
+    } else {
+        versionProps["versionPatch"]?.toIntOrNull() ?: 0
+    }
+}
 
 android {
     namespace = "com.hereliesaz.liperty"
@@ -21,7 +42,7 @@ android {
         applicationId = "com.hereliesaz.liperty"
         minSdk = 26
         targetSdk = 37
-        versionCode = vMajor * 10000 + vMinor * 100 + vPatch
+        versionCode = 1000 + vBuild
         versionName = "$vMajor.$vMinor.$vPatch.$vBuild"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
