@@ -515,9 +515,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
             coreInitialized = true
+        } catch (e: LinkageError) {
+            // LinkageError covers UnsatisfiedLinkError / NoClassDefFoundError /
+            // ExceptionInInitializerError from native ML libs (MediaPipe, ONNX
+            // Runtime, KenLM JNI). Narrower than Throwable: VirtualMachineError
+            // (OOM / StackOverflow) shouldn't be swallowed here.
+            onInitFailure(e)
         } catch (e: Exception) {
-            Log.e("MainActivity", "Failed to initialize components", e)
-            Toast.makeText(this, getString(R.string.common_init_error, e.message ?: ""), Toast.LENGTH_LONG).show()
+            onInitFailure(e)
         }
 
         // Background initialization
@@ -555,6 +560,13 @@ class MainActivity : ComponentActivity() {
             Log.e("MainActivity", "VoiceManager construction failed — TTS/voice cloning disabled", t)
             Toast.makeText(this, getString(R.string.common_voice_unavailable), Toast.LENGTH_LONG).show()
         }
+    }
+
+    private fun onInitFailure(t: Throwable) {
+        val suffix = t.message?.let { ": $it" } ?: ""
+        val tag = "${t.javaClass.name}$suffix"
+        Log.e("MainActivity", "Failed to initialize components: $tag", t)
+        Toast.makeText(this, getString(R.string.common_init_error, tag), Toast.LENGTH_LONG).show()
     }
 
     override fun onPause() {
