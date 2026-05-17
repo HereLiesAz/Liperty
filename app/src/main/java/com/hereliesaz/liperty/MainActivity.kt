@@ -563,10 +563,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun onInitFailure(t: Throwable) {
-        val suffix = t.message?.let { ": $it" } ?: ""
-        val tag = "${t.javaClass.name}$suffix"
-        Log.e("MainActivity", "Failed to initialize components: $tag", t)
-        Toast.makeText(this, getString(R.string.common_init_error, tag), Toast.LENGTH_LONG).show()
+        Log.e("MainActivity", "Failed to initialize components: $t", t)
+        Toast.makeText(this, getString(R.string.common_init_error, t.toString()), Toast.LENGTH_LONG).show()
     }
 
     override fun onPause() {

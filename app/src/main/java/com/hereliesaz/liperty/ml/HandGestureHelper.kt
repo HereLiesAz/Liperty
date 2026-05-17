@@ -55,9 +55,7 @@ class HandGestureHelper(val context: Context) {
     }
 
     private fun logInitFailure(t: Throwable) {
-        val suffix = t.message?.let { ": $it" } ?: ""
-        Log.e("HandGestureHelper",
-            "HandLandmarker init failed: ${t.javaClass.name}$suffix", t)
+        Log.e("HandGestureHelper", "HandLandmarker init failed: $t", t)
         handLandmarker = null
     }
 

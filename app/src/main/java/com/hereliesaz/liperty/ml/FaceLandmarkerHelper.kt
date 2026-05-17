@@ -74,9 +74,7 @@ class FaceLandmarkerHelper(
     }
 
     private fun logInitFailure(t: Throwable) {
-        val suffix = t.message?.let { ": $it" } ?: ""
-        Log.e("FaceLandmarkerHelper",
-            "FaceLandmarker init failed: ${t.javaClass.name}$suffix", t)
+        Log.e("FaceLandmarkerHelper", "FaceLandmarker init failed: $t", t)
         faceLandmarker = null
     }
 
