@@ -62,9 +62,22 @@ class FaceLandmarkerHelper(
                 .build()
 
             faceLandmarker = FaceLandmarker.createFromOptions(context, options)
+        } catch (e: LinkageError) {
+            // LinkageError covers UnsatisfiedLinkError / NoClassDefFoundError /
+            // ExceptionInInitializerError from MediaPipe's native-lib path.
+            // Narrower than Throwable: VirtualMachineError (OOM / StackOverflow)
+            // leaves the VM in an indeterminate state and shouldn't be swallowed.
+            logInitFailure(e)
         } catch (e: Exception) {
-            Log.e("FaceLandmarkerHelper", "Error initializing FaceLandmarker", e)
+            logInitFailure(e)
         }
+    }
+
+    private fun logInitFailure(t: Throwable) {
+        val suffix = t.message?.let { ": $it" } ?: ""
+        Log.e("FaceLandmarkerHelper",
+            "FaceLandmarker init failed: ${t.javaClass.name}$suffix", t)
+        faceLandmarker = null
     }
 
     @Synchronized
