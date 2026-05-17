@@ -62,15 +62,22 @@ class FaceLandmarkerHelper(
                 .build()
 
             faceLandmarker = FaceLandmarker.createFromOptions(context, options)
-        } catch (t: Throwable) {
-            // Throwable, not Exception: MediaPipe native-library failures
-            // surface as UnsatisfiedLinkError / ExceptionInInitializerError,
-            // which are Errors. Letting them propagate force-closes MainActivity
-            // before the outer init can show a Toast.
-            Log.e("FaceLandmarkerHelper",
-                "FaceLandmarker init failed: ${t.javaClass.name}: ${t.message}", t)
-            faceLandmarker = null
+        } catch (e: LinkageError) {
+            // LinkageError covers UnsatisfiedLinkError / NoClassDefFoundError /
+            // ExceptionInInitializerError from MediaPipe's native-lib path.
+            // Narrower than Throwable: VirtualMachineError (OOM / StackOverflow)
+            // leaves the VM in an indeterminate state and shouldn't be swallowed.
+            logInitFailure(e)
+        } catch (e: Exception) {
+            logInitFailure(e)
         }
+    }
+
+    private fun logInitFailure(t: Throwable) {
+        val suffix = t.message?.let { ": $it" } ?: ""
+        Log.e("FaceLandmarkerHelper",
+            "FaceLandmarker init failed: ${t.javaClass.name}$suffix", t)
+        faceLandmarker = null
     }
 
     @Synchronized
