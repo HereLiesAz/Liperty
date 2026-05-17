@@ -43,9 +43,20 @@ class HandGestureHelper(val context: Context) {
                 .build()
 
             handLandmarker = HandLandmarker.createFromOptions(context, options)
+        } catch (e: LinkageError) {
+            // LinkageError covers UnsatisfiedLinkError / NoClassDefFoundError /
+            // ExceptionInInitializerError from MediaPipe's native-lib path.
+            // Narrower than Throwable: VirtualMachineError (OOM / StackOverflow)
+            // leaves the VM in an indeterminate state and shouldn't be swallowed.
+            logInitFailure(e)
         } catch (e: Exception) {
-            Log.e("HandGestureHelper", "Error initializing HandLandmarker. Make sure hand_landmarker.task is in assets", e)
+            logInitFailure(e)
         }
+    }
+
+    private fun logInitFailure(t: Throwable) {
+        Log.e("HandGestureHelper", "HandLandmarker init failed: $t", t)
+        handLandmarker = null
     }
 
     fun detectSynchronously(imageBitmap: Bitmap): HandGesture? {
