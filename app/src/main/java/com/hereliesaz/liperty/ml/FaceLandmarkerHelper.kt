@@ -62,8 +62,14 @@ class FaceLandmarkerHelper(
                 .build()
 
             faceLandmarker = FaceLandmarker.createFromOptions(context, options)
-        } catch (e: Exception) {
-            Log.e("FaceLandmarkerHelper", "Error initializing FaceLandmarker", e)
+        } catch (t: Throwable) {
+            // Throwable, not Exception: MediaPipe native-library failures
+            // surface as UnsatisfiedLinkError / ExceptionInInitializerError,
+            // which are Errors. Letting them propagate force-closes MainActivity
+            // before the outer init can show a Toast.
+            Log.e("FaceLandmarkerHelper",
+                "FaceLandmarker init failed: ${t.javaClass.name}: ${t.message}", t)
+            faceLandmarker = null
         }
     }
 

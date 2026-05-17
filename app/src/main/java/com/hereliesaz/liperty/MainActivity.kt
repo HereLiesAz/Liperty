@@ -515,9 +515,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
             coreInitialized = true
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Failed to initialize components", e)
-            Toast.makeText(this, getString(R.string.common_init_error, e.message ?: ""), Toast.LENGTH_LONG).show()
+        } catch (t: Throwable) {
+            // Throwable, not Exception: native ML libs (MediaPipe, ONNX Runtime,
+            // KenLM JNI) can fail with UnsatisfiedLinkError / NoClassDefFoundError,
+            // which aren't Exceptions. Force-closing here drops the user back to
+            // the launcher with no Toast and no log surface beyond AndroidRuntime.
+            val tag = "${t.javaClass.name}: ${t.message ?: ""}"
+            Log.e("MainActivity", "Failed to initialize components: $tag", t)
+            Toast.makeText(this, getString(R.string.common_init_error, tag), Toast.LENGTH_LONG).show()
         }
 
         // Background initialization
