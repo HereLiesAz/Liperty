@@ -113,6 +113,29 @@ class ModelDownloadManager(private val context: Context) {
             description = "Voice cloning (MeloTTS vocab)",
             expectedSizeBytes = 6_200L
         ),
+        // On-device training artifacts (personalization Step 3)
+        // ~820 MB total; optional — app works fine without them.
+        ModelSpec(
+            fileName = "training/training_model.onnx",
+            repo = "HereLiesAz/liperty-v3-training-artifacts",
+            required = false,
+            description = "Personalization training model",
+            expectedSizeBytes = 410_600_000L
+        ),
+        ModelSpec(
+            fileName = "training/eval_model.onnx",
+            repo = "HereLiesAz/liperty-v3-training-artifacts",
+            required = false,
+            description = "Personalization evaluation model",
+            expectedSizeBytes = 410_800_000L
+        ),
+        ModelSpec(
+            fileName = "training/optimizer_model.onnx",
+            repo = "HereLiesAz/liperty-v3-training-artifacts",
+            required = false,
+            description = "Personalization optimizer",
+            expectedSizeBytes = 538L
+        ),
     )
 
     // ── Download state ────────────────────────────────────────────────
