@@ -617,10 +617,13 @@ class PocketTTSEngine(private val context: Context) {
             LongBuffer.wrap(tokens),
             longArrayOf(1, tokens.size.toLong())
         ).use { tokenTensor ->
+            // speaker_id is 1-D (1,), not scalar — the exported MeloTTS
+            // graph needs sid.dim()==1 so emb_g(sid).unsqueeze(-1) yields
+            // the 3-D (1, gin_channels, 1) speaker conditioning tensor.
             OnnxTensor.createTensor(
                 ortEnv,
                 LongBuffer.wrap(longArrayOf(DEFAULT_BASE_SPEAKER_ID)),
-                longArrayOf()
+                longArrayOf(1)
             ).use { sidTensor ->
                 OnnxTensor.createTensor(
                     ortEnv,
