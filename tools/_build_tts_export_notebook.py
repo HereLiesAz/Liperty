@@ -135,72 +135,95 @@ for dep in PRE_DEPS:
 """))
 
 cells.append(code("""\
+import os, sys, re, subprocess
+
 print("=== Installing core deps ===")
-!pip install -q "huggingface_hub>=0.27,<1.0" "onnx>=1.16,<1.18" "onnxruntime>=1.18,<1.21" "onnxscript>=0.1" "numpy>=1.26" "scipy>=1.12" "soundfile>=0.12" "librosa>=0.10"
+subprocess.run(
+    [sys.executable, "-m", "pip", "install", "-q",
+     "huggingface_hub>=1.15.0", "onnx>=1.16,<1.18", "onnxruntime>=1.18,<1.21",
+     "onnxscript>=0.1", "numpy>=1.26", "scipy>=1.12", "soundfile>=0.12",
+     "librosa>=0.10"],
+    check=True,
+)
 
 print("\\n=== Cloning OpenVoice + MeloTTS source ===")
 WORK_DIR = "/kaggle/working/work" if IS_KAGGLE else "/content/work"
 os.makedirs(WORK_DIR, exist_ok=True)
 OPENVOICE_DIR = os.path.join(WORK_DIR, "OpenVoice")
 MELOTTS_DIR = os.path.join(WORK_DIR, "MeloTTS")
-if not os.path.exists(OPENVOICE_DIR):
-    !git clone --depth 1 https://github.com/myshell-ai/OpenVoice.git {OPENVOICE_DIR}
-if not os.path.exists(MELOTTS_DIR):
-    !git clone --depth 1 https://github.com/myshell-ai/MeloTTS.git {MELOTTS_DIR}
+for url, dst in [
+    ("https://github.com/myshell-ai/OpenVoice.git", OPENVOICE_DIR),
+    ("https://github.com/myshell-ai/MeloTTS.git", MELOTTS_DIR),
+]:
+    if not os.path.exists(dst):
+        subprocess.run(["git", "clone", "--depth", "1", url, dst], check=True)
 
-# Patch MeloTTS setup.py for Python 3.12 (distutils removal)
+# Patch MeloTTS / OpenVoice setup.py for Python 3.12 (distutils removal).
+# Best-effort; we install from requirements.txt directly below so setup.py
+# never has to execute, but the patch is harmless if it stays.
 if sys.version_info >= (3, 12):
     for d in (OPENVOICE_DIR, MELOTTS_DIR):
         sp = os.path.join(d, "setup.py")
         if os.path.exists(sp):
             txt = open(sp).read()
             if "from distutils" in txt:
-                txt = txt.replace("from distutils", "from setuptools._distutils")
-                open(sp, "w").write(txt)
+                open(sp, "w").write(txt.replace("from distutils", "from setuptools._distutils"))
                 print(f"  Patched {os.path.basename(d)}/setup.py for Python 3.12")
 
-print("\\n=== Installing OpenVoice + MeloTTS ===")
-import subprocess
-for src in (OPENVOICE_DIR, MELOTTS_DIR):
-    r = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-e", src],
-                       capture_output=True, text=True, timeout=600)
-    print(f"  {os.path.basename(src)} install: rc={r.returncode}")
+# Install runtime deps from each package's requirements.txt directly.
+# `pip install -e .` fails because OpenVoice's pyproject.toml chokes on
+# Python 3.12 (ancient numpy pin, etc.). We bypass setup.py entirely
+# by installing requirements.txt and adding the source dir to sys.path.
+# Strip strict ==X.Y.Z pins so pip can resolve modern wheels.
+print("\\n=== Installing requirements (bypassing broken setup.py) ===")
+for d in (OPENVOICE_DIR, MELOTTS_DIR):
+    req = os.path.join(d, "requirements.txt")
+    if not os.path.exists(req):
+        print(f"  {os.path.basename(d)}: no requirements.txt, skipping")
+        continue
+    txt = re.sub(r"==[0-9\\.]+", "", open(req).read())
+    open(req, "w").write(txt)
+    print(f"  Stripped pins from {os.path.basename(d)}/requirements.txt")
+    r = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-q", "-r", req],
+        capture_output=True, text=True, timeout=900,
+    )
+    print(f"  {os.path.basename(d)} deps install: rc={r.returncode}")
     if r.returncode != 0:
-        print(f"    stderr tail: {r.stderr[-800:]}")
+        # NOT fatal: many of these packages declare optional deps that
+        # fail on Kaggle (gradio, wavmark wheel, etc.) but we don't need
+        # them for the ONNX export. Continue and let import verification
+        # decide.
+        print(f"    stderr (last 1200 chars):\\n{r.stderr[-1200:]}")
+
+# Make the cloned repos importable without `pip install -e`.
+sys.path.insert(0, OPENVOICE_DIR)
+sys.path.insert(0, MELOTTS_DIR)
 
 # unidic-lite for MeloTTS Japanese; we only need English but the
-# import chain may pull it. Best-effort.
-!python -m unidic download 2>&1 | tail -1 || true
-
-# Verify imports actually succeed (not just find_spec which passes
-# on broken installs).
-def _verify_import(name):
-    try:
-        __import__(name)
-        return True
-    except Exception as e:
-        return str(e)
+# import chain may pull it.
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "unidic-lite"], check=False)
 
 print("\\n=== Import verification ===")
 CRITICAL = ["openvoice", "melo", "torch", "onnx", "onnxruntime", "g2p_en"]
 all_ok = True
 for mod in CRITICAL + ["unidecode", "librosa"]:
-    result = _verify_import(mod)
-    is_critical = mod in CRITICAL
-    if result is True:
+    try:
+        __import__(mod)
         print(f"  {mod}: OK")
-    else:
+    except Exception as e:
+        is_critical = mod in CRITICAL
         tag = "CRITICAL" if is_critical else "optional"
-        print(f"  {mod}: IMPORT FAILED ({tag}) - {result}")
+        print(f"  {mod}: IMPORT FAILED ({tag}) - {e}")
         if is_critical:
             all_ok = False
 
 if not all_ok:
     raise RuntimeError(
-        "Critical modules failed to import. Check pip install output above. "
+        "Critical modules failed to import. Check pip output above. "
         "On Python 3.12 Kaggle, you may need to restart the kernel after installs."
     )
-print("\\nAll critical modules verified.")
+print("\\n=== Setup complete ===")
 """))
 
 cells.append(code("""\
@@ -299,8 +322,14 @@ print("Loaded.")
 """))
 
 cells.append(code("""\
+from openvoice.mel_processing import spectrogram_torch
+
 class ToneConverterWrapper(nn.Module):
     \"\"\"Wraps ToneColorConverter.model.voice_conversion() for ONNX.
+
+    voice_conversion() expects a linear spectrogram, not raw audio. We
+    compute the spectrogram inside the ONNX graph so the Android consumer
+    only needs to pass raw audio.
 
     Inputs:
       audio_src: (1, T_src)        source waveform at 24 kHz, mono
@@ -310,13 +339,25 @@ class ToneConverterWrapper(nn.Module):
     Output:
       audio_out: (1, T_out)        converted waveform at 24 kHz
     \"\"\"
-    def __init__(self, tcc_model): super().__init__(); self.m = tcc_model
-    def forward(self, audio_src, src_se, tgt_se, tau):
-        # voice_conversion expects (1, T) audio and (B, 256, 1) embeddings.
-        out = self.m.voice_conversion(audio_src, src_se=src_se, tgt_se=tgt_se, tau=tau)
-        return out
+    def __init__(self, tcc_obj):
+        super().__init__()
+        self.m = tcc_obj.model
+        self.hps = tcc_obj.hps   # STFT hyperparameters
 
-wrapper = ToneConverterWrapper(tcc.model).eval()
+    def forward(self, audio_src, src_se, tgt_se, tau):
+        spec = spectrogram_torch(
+            audio_src,
+            self.hps.data.filter_length,
+            self.hps.data.sampling_rate,
+            self.hps.data.hop_length,
+            self.hps.data.win_length,
+            center=False,
+        )
+        spec_lengths = torch.tensor([spec.shape[2]], dtype=torch.long, device=spec.device)
+        out = self.m.voice_conversion(spec, spec_lengths, sid_src=src_se, sid_tgt=tgt_se, tau=tau)
+        return out[0]
+
+wrapper = ToneConverterWrapper(tcc).eval()
 dummy_audio = torch.randn(1, 24000)
 dummy_src_se = torch.randn(1, 256, 1)
 dummy_tgt_se = torch.randn(1, 256, 1)
@@ -364,14 +405,34 @@ SE_EXTRACTOR_ONNX = os.path.join(WORK_DIR, "pocket_tts_se_extractor.onnx")
 # it out and trace separately.
 
 class SEExtractorWrapper(nn.Module):
-    \"\"\"Extracts a (1, 256, 1) speaker embedding from raw audio.\"\"\"
-    def __init__(self, tcc_model): super().__init__(); self.m = tcc_model
+    \"\"\"Extracts a (1, 256, 1) speaker embedding from raw audio.
+
+    The ToneColorConverter's reference encoder consumes a linear
+    spectrogram (B, T, F), not raw audio. We compute the spectrogram
+    inside the graph so the Android consumer just passes a 24 kHz
+    waveform.
+    \"\"\"
+    def __init__(self, tcc_obj):
+        super().__init__()
+        self.m = tcc_obj.model
+        self.hps = tcc_obj.hps   # STFT hyperparameters
+
     def forward(self, audio):
         # audio: (1, T) at 24 kHz. Returns: (1, 256, 1).
-        return self.m.ref_enc(audio.transpose(0, 1).unsqueeze(0))   # convert (1,T)->(1,1,T) for the encoder
+        spec = spectrogram_torch(
+            audio,
+            self.hps.data.filter_length,
+            self.hps.data.sampling_rate,
+            self.hps.data.hop_length,
+            self.hps.data.win_length,
+            center=False,
+        )
+        # ref_enc expects (batch, time, freq); spec is (batch, freq, time).
+        se = self.m.ref_enc(spec.transpose(1, 2)).unsqueeze(-1)
+        return se
 
 # Trace with dummy data.
-wrapper = SEExtractorWrapper(tcc.model).eval()
+wrapper = SEExtractorWrapper(tcc).eval()
 dummy_ref = torch.randn(1, 24000 * 5)   # 5-second reference
 
 with torch.no_grad():
@@ -437,9 +498,17 @@ class MeloTTSWrapper(nn.Module):
         x_tst = input_ids
         x_tst_lengths = torch.tensor([input_ids.shape[1]], dtype=torch.long)
         sid = speaker_id
+        # MeloTTS-EN-v3 requires non-None BERT/tone/language; passing None
+        # causes a conv1d NoneType crash. Mock with zeros: BERT large is
+        # 1024-d, ja_bert is 768-d, tone/language are per-phone int64.
+        T = input_ids.shape[1]
+        bert = torch.zeros(1, 1024, T, dtype=torch.float32)
+        ja_bert = torch.zeros(1, 768, T, dtype=torch.float32)
+        tone = torch.zeros_like(input_ids)
+        language = torch.zeros_like(input_ids)
         audio = self.model.infer(
-            x_tst, x_tst_lengths, sid, tone=None, language=None, bert=None,
-            ja_bert=None, noise_scale=0.667, length_scale=1.0 / speed,
+            x_tst, x_tst_lengths, sid, tone=tone, language=language, bert=bert,
+            ja_bert=ja_bert, noise_scale=0.667, length_scale=1.0 / speed,
             noise_scale_w=0.8, sdp_ratio=0.2,
         )[0][0, 0]
         return audio.unsqueeze(0)
