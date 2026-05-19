@@ -559,7 +559,10 @@ input_ids = torch.tensor([phone_ids], dtype=torch.long)
 print(f"Dummy phone_ids shape: {input_ids.shape}")
 
 wrapper = MeloTTSWrapper(melo.model, melo.hps).eval()
-dummy_sid = torch.tensor(list(melo.hps.data.spk2id.values())[0], dtype=torch.long)
+# speaker_id must be 1-D so emb_g(sid).unsqueeze(-1) produces a
+# 3-D (B, gin_channels, 1) speaker embedding; 0-D collapses it to
+# 2-D and downstream ops fail with "Dimension out of range".
+dummy_sid = torch.tensor([list(melo.hps.data.spk2id.values())[0]], dtype=torch.long)
 dummy_speed = torch.tensor(1.0)
 
 with torch.no_grad():
