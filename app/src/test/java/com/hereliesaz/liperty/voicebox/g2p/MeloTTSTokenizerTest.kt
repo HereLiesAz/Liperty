@@ -1,5 +1,7 @@
 package com.hereliesaz.liperty.voicebox.g2p
 
+import android.app.Application
+import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -8,13 +10,29 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.annotation.Config
 
 /**
- * Pure JUnit 4 tests for [MeloTTSTokenizer].
+ * Tests for [MeloTTSTokenizer].
  *
  * The G2POnnxPredictor (which requires a live ONNX session) is NOT loaded here —
  * tests exercise the CMU dict path and the rule-based fallback path only.
+ *
+ * Runs under Robolectric because [MeloTTSTokenizer.loadVocab] uses
+ * `org.json.JSONObject`, which is a stub in pure-JVM unit tests.
+ *
+ * Robolectric quirks:
+ * - `@Config(sdk=[34])` works around Robolectric not yet supporting
+ *   `targetSdk=37`; see CLAUDE.md "Robolectric SDK 37 trap".
+ * - `application = android.app.Application::class` substitutes a stub
+ *   Application for [com.hereliesaz.liperty.LipertyApplication], which
+ *   would otherwise crash on `BluetoothAdapter.getProfileProxy()` during
+ *   Robolectric setup. The tokenizer doesn't need any Application state,
+ *   so an empty stub is sufficient.
  */
+@RunWith(AndroidJUnit4::class)
+@Config(sdk = [34], application = Application::class)
 class MeloTTSTokenizerTest {
 
     private lateinit var tokenizer: MeloTTSTokenizer
