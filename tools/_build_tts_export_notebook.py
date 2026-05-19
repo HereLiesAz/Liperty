@@ -206,30 +206,36 @@ sys.path.insert(0, MELOTTS_DIR)
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "unidic-lite"], check=False)
 
 # Configure MeCab to find unidic-lite.
-# Kaggle's mecab-python3 wheel is built with the unidic (full) dict
-# path baked in: /usr/local/lib/python3.12/dist-packages/unidic/dicdir.
-# /usr/local/etc/mecabrc and the MECABRC env var are both ignored.
-# Plant a mecabrc at the hardcoded location pointing at unidic-lite's
-# DICDIR, which has the actual sys.dic/char.bin/etc.
+# Kaggle's mecab-python3 wheel has the unidic (full) dict path baked
+# in at compile time: <site-packages>/unidic/dicdir. MECABRC env var,
+# /usr/local/etc/mecabrc, and the `dicdir = ...` line inside a mecabrc
+# at the hardcoded path are all insufficient — MeCab still resolves
+# dicrc/sys.dic/char.bin at the compile-time path. Symlink that
+# directory to unidic-lite's DICDIR so every dict file MeCab opens
+# resolves to unidic-lite's installed files.
 try:
-    import unidic_lite, sysconfig
+    import unidic_lite, sysconfig, shutil
     sp = sysconfig.get_paths()["purelib"]
-    target_dir = os.path.join(sp, "unidic", "dicdir")
-    os.makedirs(target_dir, exist_ok=True)
-    open(os.path.join(target_dir, "mecabrc"), "w").write(
-        f"dicdir = {unidic_lite.DICDIR}\\n"
-    )
-    # Also write at /usr/local/etc as a belt-and-suspenders fallback
-    # for builds that DO honor that path.
+    target = os.path.join(sp, "unidic", "dicdir")
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    if os.path.lexists(target):
+        if os.path.islink(target):
+            os.unlink(target)
+        elif os.path.isdir(target):
+            shutil.rmtree(target)
+        else:
+            os.remove(target)
+    os.symlink(unidic_lite.DICDIR, target, target_is_directory=True)
+    # Belt-and-suspenders for builds that honor /usr/local/etc/mecabrc.
     os.makedirs("/usr/local/etc", exist_ok=True)
     open("/usr/local/etc/mecabrc", "w").write(
         f"dicdir = {unidic_lite.DICDIR}\\n"
     )
-    print(f"  Wrote mecabrc -> {target_dir}/mecabrc (and /usr/local/etc/mecabrc)")
+    print(f"  Symlinked {target} -> {unidic_lite.DICDIR}")
 except Exception as e:
     # Non-fatal for English-only export; MeloTTS may still fail to import
     # but we'll surface that in the verification step.
-    print(f"  mecabrc setup skipped: {e}")
+    print(f"  mecabrc/dicdir setup skipped: {e}")
 
 print("\\n=== Import verification ===")
 CRITICAL = ["openvoice", "melo", "torch", "onnx", "onnxruntime", "g2p_en"]
