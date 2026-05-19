@@ -201,8 +201,24 @@ sys.path.insert(0, OPENVOICE_DIR)
 sys.path.insert(0, MELOTTS_DIR)
 
 # unidic-lite for MeloTTS Japanese; we only need English but the
-# import chain may pull it.
+# melo.text package imports japanese.py at module top level, which
+# calls MeCab.Tagger() and needs a working dictionary.
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "unidic-lite"], check=False)
+
+# Configure MeCab to find unidic-lite. mecab-python3's bare
+# MeCab.Tagger() reads /usr/local/etc/mecabrc by default; write one
+# that points at unidic-lite's DICDIR so the import chain succeeds.
+try:
+    import unidic_lite
+    mecabrc = "/usr/local/etc/mecabrc"
+    os.makedirs(os.path.dirname(mecabrc), exist_ok=True)
+    open(mecabrc, "w").write(f"dicdir = {unidic_lite.DICDIR}\n")
+    os.environ["MECABRC"] = mecabrc
+    print(f"  Wrote mecabrc -> {mecabrc}")
+except Exception as e:
+    # Non-fatal for English-only export; MeloTTS may still fail to import
+    # but we'll surface that in the verification step.
+    print(f"  mecabrc setup skipped: {e}")
 
 print("\\n=== Import verification ===")
 CRITICAL = ["openvoice", "melo", "torch", "onnx", "onnxruntime", "g2p_en"]
