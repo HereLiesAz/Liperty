@@ -369,6 +369,49 @@ for f in "${AVHUBERT_FILES[@]}"; do
     download_from_hf_repo "$AVHUBERT_HF_REPO" "$f" "${TARGET_ASSETS}/${f}" || true
 done
 
+# --- On-Device Training Artifacts (personalization Step 3) ---
+# ORT Training artifacts for per-user LoRA fine-tuning of the AV-HuBERT
+# visual encoder. Built by tools/kaggle_build_training_artifacts.py and
+# hosted at HereLiesAz/liperty-v3-training-artifacts (~820 MB total).
+# Optional: missing artifacts = training is unavailable; inference works fine.
+TRAINING_HF_REPO="HereLiesAz/liperty-v3-training-artifacts"
+TRAINING_ASSETS="${TARGET_ASSETS}/training"
+mkdir -p "$TRAINING_ASSETS"
+
+TRAINING_FILES=(
+    "training_model.onnx"
+    "eval_model.onnx"
+    "optimizer_model.onnx"
+)
+
+for f in "${TRAINING_FILES[@]}"; do
+    download_from_hf_repo "$TRAINING_HF_REPO" "$f" "${TRAINING_ASSETS}/${f}" || true
+done
+
+# Checkpoint is a directory — use snapshot_download with pattern matching
+if [ ! -d "${TRAINING_ASSETS}/checkpoint" ] || [ -z "$(ls -A "${TRAINING_ASSETS}/checkpoint" 2>/dev/null)" ]; then
+    echo "[+] Pulling training checkpoint from ${TRAINING_HF_REPO}..."
+    if command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; then
+        python -c "
+from huggingface_hub import snapshot_download
+snapshot_download(repo_id='$TRAINING_HF_REPO', repo_type='model',
+                  allow_patterns=['checkpoint/*'],
+                  local_dir='$TRAINING_ASSETS')
+" 2>&1 | tail -2 || true
+    elif command -v huggingface-cli &> /dev/null; then
+        huggingface-cli download "$TRAINING_HF_REPO" \
+            --include "checkpoint/*" \
+            --local-dir "$TRAINING_ASSETS" --quiet 2>&1 | tail -2 || true
+    fi
+    if [ -d "${TRAINING_ASSETS}/checkpoint" ]; then
+        echo "[+] Training checkpoint installed."
+    else
+        echo "[!] Training checkpoint download failed. On-device training will be unavailable."
+    fi
+else
+    echo "[*] Training checkpoint already present."
+fi
+
 # --- KenLM Language Model (shallow-fusion / n-best rescoring) ---
 # LibriSpeech 3-gram pruned 1e-7, KenLM trie+q8 binary (~27 MB).
 # Vocabulary is UPPERCASE — the Kotlin scorer uppercases words before

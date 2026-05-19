@@ -25,7 +25,10 @@ composeBom = "2026.05.00"
 aznavrail = "8.11"
 navCompose = "2.9.8"
 graphicsCore = "1.0.4"
-onnxruntime = "1.26.0"
+# onnxruntime-training-android is a superset of onnxruntime-android:
+# it includes all inference APIs plus OrtTrainingSession for on-device
+# fine-tuning. Latest training AAR on Maven Central is 1.19.2.
+onnxruntimeTraining = "1.19.2"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -77,7 +80,7 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 androidx-test-core = { group = "androidx.test", name = "core", version.ref = "testCore" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 androidx-graphics-core = { group = "androidx.graphics", name = "graphics-core", version.ref = "graphicsCore" }
-onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
+onnxruntime-training-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-training-android", version.ref = "onnxruntimeTraining" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
