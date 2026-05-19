@@ -205,16 +205,27 @@ sys.path.insert(0, MELOTTS_DIR)
 # calls MeCab.Tagger() and needs a working dictionary.
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "unidic-lite"], check=False)
 
-# Configure MeCab to find unidic-lite. mecab-python3's bare
-# MeCab.Tagger() reads /usr/local/etc/mecabrc by default; write one
-# that points at unidic-lite's DICDIR so the import chain succeeds.
+# Configure MeCab to find unidic-lite.
+# Kaggle's mecab-python3 wheel is built with the unidic (full) dict
+# path baked in: /usr/local/lib/python3.12/dist-packages/unidic/dicdir.
+# /usr/local/etc/mecabrc and the MECABRC env var are both ignored.
+# Plant a mecabrc at the hardcoded location pointing at unidic-lite's
+# DICDIR, which has the actual sys.dic/char.bin/etc.
 try:
-    import unidic_lite
-    mecabrc = "/usr/local/etc/mecabrc"
-    os.makedirs(os.path.dirname(mecabrc), exist_ok=True)
-    open(mecabrc, "w").write(f"dicdir = {unidic_lite.DICDIR}\\n")
-    os.environ["MECABRC"] = mecabrc
-    print(f"  Wrote mecabrc -> {mecabrc}")
+    import unidic_lite, sysconfig
+    sp = sysconfig.get_paths()["purelib"]
+    target_dir = os.path.join(sp, "unidic", "dicdir")
+    os.makedirs(target_dir, exist_ok=True)
+    open(os.path.join(target_dir, "mecabrc"), "w").write(
+        f"dicdir = {unidic_lite.DICDIR}\\n"
+    )
+    # Also write at /usr/local/etc as a belt-and-suspenders fallback
+    # for builds that DO honor that path.
+    os.makedirs("/usr/local/etc", exist_ok=True)
+    open("/usr/local/etc/mecabrc", "w").write(
+        f"dicdir = {unidic_lite.DICDIR}\\n"
+    )
+    print(f"  Wrote mecabrc -> {target_dir}/mecabrc (and /usr/local/etc/mecabrc)")
 except Exception as e:
     # Non-fatal for English-only export; MeloTTS may still fail to import
     # but we'll surface that in the verification step.
