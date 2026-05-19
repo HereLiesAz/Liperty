@@ -205,6 +205,20 @@ sys.path.insert(0, MELOTTS_DIR)
 # calls MeCab.Tagger() and needs a working dictionary.
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "unidic-lite"], check=False)
 
+# NLTK resources needed by g2p_en's POS tagger. Without these,
+# g2p_en falls back to rule-based pronunciation for OOV words AND
+# the MeloTTS English g2p (used to extract our ARPABET->symbol map)
+# fails outright.
+try:
+    import nltk
+    for pkg in ("averaged_perceptron_tagger_eng", "averaged_perceptron_tagger", "cmudict", "punkt", "punkt_tab"):
+        try:
+            nltk.download(pkg, quiet=True)
+        except Exception:
+            pass
+except Exception as e:
+    print(f"  NLTK setup skipped: {e}")
+
 # Configure MeCab to find unidic-lite.
 # Kaggle's mecab-python3 wheel has the unidic (full) dict path baked
 # in at compile time: <site-packages>/unidic/dicdir. MECABRC env var,
