@@ -438,6 +438,7 @@ class MainActivity : ComponentActivity() {
                         }
                     } catch (_: Exception) { /* Not bundled — expected for production */ }
                 }
+                Log.i("MainActivity", "KenLM model: ${dst.absolutePath} (${dst.length()} bytes)")
                 if (dst.exists() && dst.length() > 1000) {
                     KenLmScorer.tryLoad(dst.absolutePath).also {
                         Log.i("MainActivity", "KenLM scorer: isNativeLoaded=${it.isNativeLoaded}")

@@ -170,10 +170,39 @@ transcriptionManager.appendText(rescored, ...)
 | `VisemeRescorer` | ✓ shipped |
 | MainActivity wiring | ✓ shipped |
 | Unit tests | ✓ 40 new tests pass |
-| On-device validation that `KenLmScorer.isNativeLoaded` flips true | pending |
+| On-device validation that `KenLmScorer.isNativeLoaded` flips true | instrumented test added (`KenLmScorerDeviceTest`) — run on arm64 device to confirm |
 | On-device WER measurement | pending — Phase A6 |
 
 **The build-side stack is complete.** A fresh checkout that runs `./setup_libs.sh && ./gradlew assembleDebug` produces an APK that ships `libliperty_cv.so` linked against `libkenlm.a`, with the LM scoring path active end-to-end. On-device validation (confirming `KenLmScorer.isNativeLoaded` flips to `true` on a real arm64 device and that the rescorer actually produces different output) is the next concrete step — and the gating step for Phase A6's WER sweep.
+
+### Build-time symbol verification
+
+After `./gradlew assembleDebug`, confirm that the real KenLM JNI bridge (not the stub) was compiled into `libliperty_cv.so`:
+
+```bash
+# Check that KENLM_AVAILABLE was defined and real JNI methods are present:
+nm -gC app/build/intermediates/cxx/RelWithDebInfo/*/obj/arm64-v8a/libliperty_cv.so \
+  | grep -E "nativeLoad|nativeScore|nativeFree"
+
+# You should see three T (text/code) entries — NOT zero-length stubs.
+# If only stub symbols appear, the prebuilt .a files were not found by CMake.
+```
+
+### On-device validation
+
+Run the instrumented test on a connected arm64 device:
+
+```bash
+./gradlew connectedDebugAndroidTest --tests "*.KenLmScorerDeviceTest"
+```
+
+Or inspect logcat after launching the app:
+
+```bash
+adb logcat -s KenLmScorer MainActivity | grep -i kenlm
+# Expected: "KenLM scorer: isNativeLoaded=true"
+# Expected: "KenLM model: /data/.../librispeech_3gram.bin (27405863 bytes)"
+```
 
 ---
 
