@@ -5,6 +5,9 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.util.Log
+import com.hereliesaz.liperty.voicebox.g2p.CMUDictionary
+import com.hereliesaz.liperty.voicebox.g2p.G2POnnxPredictor
+import com.hereliesaz.liperty.voicebox.g2p.MeloTTSTokenizer
 import java.io.File
 import java.io.Serializable
 import java.nio.FloatBuffer
@@ -61,7 +64,9 @@ class PocketTTSEngine(private val context: Context) {
      */
     private var baseSpeakerEmbedding: FloatArray? = null
 
-    /** Tokenizer for MeloTTS input_ids — see class kdoc. */
+    /** Full g2p tokenizer for MeloTTS input_ids — see class kdoc. */
+    private var meloTokenizer: MeloTTSTokenizer? = null
+    private var neuralG2P: G2POnnxPredictor? = null
     private var tokenizerLoaded: Boolean = false
 
     /** True when both the base TTS and SE extractor are loaded. */
@@ -80,6 +85,8 @@ class PocketTTSEngine(private val context: Context) {
         private const val SE_EXTRACTOR_MODEL = "pocket_tts_se_extractor.onnx"
         private const val TONE_CONVERTER_MODEL = "pocket_tts_tone_converter.onnx"
         private const val VOCAB_FILE = "pocket_tts_vocab.json"
+        private const val CMU_DICT_FILE = "cmudict_compact.txt"
+        private const val G2P_MODEL_FILE = "g2p_neural.onnx"
 
         /** Rejects 9-byte HTML stubs left by failed downloads. */
         private const val MIN_MODEL_SIZE_BYTES = 1_000L
@@ -144,17 +151,46 @@ class PocketTTSEngine(private val context: Context) {
      * block the others.
      */
     fun initialize() {
-        // --- Vocab (required for synthesis; cloning works without it) ---
+        // --- Tokenizer (required for synthesis; cloning works without it) ---
         try {
-            val vocab = loadTextFile(VOCAB_FILE)
-            tokenizerLoaded = vocab != null && vocab.isNotEmpty()
-            if (tokenizerLoaded) {
-                Log.i(TAG, "Vocab loaded (${vocab!!.length} bytes).")
+            val vocabJson = loadTextFile(VOCAB_FILE)
+            if (vocabJson != null && vocabJson.isNotEmpty()) {
+                val tokenizer = MeloTTSTokenizer()
+                if (tokenizer.loadVocab(vocabJson)) {
+                    // Load CMU dictionary
+                    val cmuText = loadTextFile(CMU_DICT_FILE)
+                    if (cmuText != null) {
+                        val cmuDict = CMUDictionary()
+                        cmuDict.loadFromText(cmuText)
+                        tokenizer.setCmuDictionary(cmuDict)
+                        Log.i(TAG, "CMU dict loaded (${cmuDict.size} entries)")
+                    }
+                    // Load neural G2P for OOV words (optional)
+                    val g2pFile = deployModel(G2P_MODEL_FILE)
+                    if (g2pFile != null && tokenizer.graphemeVocab.isNotEmpty()) {
+                        val g2p = G2POnnxPredictor(ortEnv)
+                        if (g2p.initialize(
+                                g2pFile.absolutePath,
+                                tokenizer.graphemeVocab,
+                                tokenizer.phonemeVocab
+                            )
+                        ) {
+                            tokenizer.setNeuralG2P(g2p)
+                            neuralG2P = g2p
+                            Log.i(TAG, "Neural G2P loaded")
+                        }
+                    }
+                    meloTokenizer = tokenizer
+                    tokenizerLoaded = true
+                    Log.i(TAG, "Tokenizer ready (vocab=${tokenizer.isLoaded})")
+                } else {
+                    Log.w(TAG, "Vocab JSON parse failed — text→audio disabled.")
+                }
             } else {
                 Log.w(TAG, "Vocab not present — text→audio disabled, cloning still works.")
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Vocab load failed: ${e.message}")
+            Log.w(TAG, "Tokenizer init failed: ${e.message}")
             tokenizerLoaded = false
         }
 
@@ -563,17 +599,16 @@ class PocketTTSEngine(private val context: Context) {
     }
 
     /**
-     * Placeholder tokenizer. The MeloTTS pipeline needs
-     * `g2p_en`-equivalent text→phoneme conversion ported to Kotlin,
-     * keyed by the symbol table in `pocket_tts_vocab.json`.
-     * Returns null until that lands; engine + VoiceManager will
-     * fall back to system TTS in the meantime, preserving
-     * end-to-end voice CLONING (which doesn't need this path).
+     * Tokenizes English text into MeloTTS input_ids via g2p_en Kotlin port.
+     *
+     * Pipeline: text → [TextNormalizer] → [CMUDictionary] lookup (or
+     * [G2POnnxPredictor] for OOV) → MeloTTS symbol table → LongArray.
+     *
+     * Returns null when the tokenizer isn't loaded (missing vocab or
+     * CMU dict). VoiceManager falls back to system TTS in that case.
      */
-    private fun tokenize(@Suppress("UNUSED_PARAMETER") text: String): LongArray? {
-        if (!tokenizerLoaded) return null
-        // TODO(tier-2): port g2p_en to Kotlin and emit MeloTTS input_ids.
-        return null
+    private fun tokenize(text: String): LongArray? {
+        return meloTokenizer?.tokenize(text)
     }
 
     private fun runBaseTts(session: OrtSession, tokens: LongArray): FloatArray? {
@@ -698,9 +733,12 @@ class PocketTTSEngine(private val context: Context) {
         baseTtsSession?.close()
         seExtractorSession?.close()
         toneConverterSession?.close()
+        neuralG2P?.close()
         baseTtsSession = null
         seExtractorSession = null
         toneConverterSession = null
+        neuralG2P = null
+        meloTokenizer = null
         baseSpeakerEmbedding = null
         // OrtEnvironment is a singleton; other engines share it.
     }

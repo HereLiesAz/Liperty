@@ -72,6 +72,7 @@ app/src/main/assets/*.json
 app/src/main/assets/unigram5000_units.txt
 app/src/main/assets/syncvsr_unigram_units.txt
 app/src/main/assets/avhubert_base_vox_433h_dict.txt
+app/src/main/assets/cmudict_compact.txt
 
 # OpenCV Android SDK (re-downloaded by setup_libs.sh)
 app/src/main/cpp/libs/opencv/

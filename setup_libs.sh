@@ -463,12 +463,16 @@ TTS_HF_REPO="HereLiesAz/liperty-pocket-tts"
 #   base.onnx          — MeloTTS English base TTS (~70 MB)
 #   se_extractor.onnx  — Speaker Embedding extractor, 256-d (~20 MB)
 #   tone_converter.onnx — timbre transfer, ref voice → cloned (~50 MB)
-#   vocab.json         — MeloTTS symbol table (~5 KB)
+#   vocab.json         — MeloTTS symbol table + ARPABET mapping (~10 KB)
+#   cmudict_compact.txt — CMU Pronouncing Dictionary for g2p (~3 MB)
+#   g2p_neural.onnx    — Neural G2P for OOV words (~500 KB, optional)
 TTS_MODELS=(
     "pocket_tts_base.onnx"
     "pocket_tts_se_extractor.onnx"
     "pocket_tts_tone_converter.onnx"
     "pocket_tts_vocab.json"
+    "cmudict_compact.txt"
+    "g2p_neural.onnx"
 )
 
 download_tts() {
