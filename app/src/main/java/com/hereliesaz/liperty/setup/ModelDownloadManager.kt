@@ -48,7 +48,14 @@ class ModelDownloadManager(private val context: Context) {
         val description: String,
         val expectedSizeBytes: Long = -1L,
         /** Override HF URL for non-HuggingFace sources (e.g. MediaPipe CDN). */
-        val customUrl: String? = null
+        val customUrl: String? = null,
+        /**
+         * Remote path within the HF repo. Defaults to [fileName]. Use when the
+         * local destination path differs from the file's path on the Hub —
+         * e.g. training artifacts that live at the repo root but are stored
+         * locally under a `training/` subdirectory.
+         */
+        val remotePath: String? = null
     )
 
     val models: List<ModelSpec> = listOf(
@@ -117,6 +124,7 @@ class ModelDownloadManager(private val context: Context) {
         // ~820 MB total; optional — app works fine without them.
         ModelSpec(
             fileName = "training/training_model.onnx",
+            remotePath = "training_model.onnx",
             repo = "HereLiesAz/liperty-v3-training-artifacts",
             required = false,
             description = "Personalization training model",
@@ -124,6 +132,7 @@ class ModelDownloadManager(private val context: Context) {
         ),
         ModelSpec(
             fileName = "training/eval_model.onnx",
+            remotePath = "eval_model.onnx",
             repo = "HereLiesAz/liperty-v3-training-artifacts",
             required = false,
             description = "Personalization evaluation model",
@@ -131,6 +140,7 @@ class ModelDownloadManager(private val context: Context) {
         ),
         ModelSpec(
             fileName = "training/optimizer_model.onnx",
+            remotePath = "optimizer_model.onnx",
             repo = "HereLiesAz/liperty-v3-training-artifacts",
             required = false,
             description = "Personalization optimizer",
@@ -289,6 +299,7 @@ class ModelDownloadManager(private val context: Context) {
 
     private suspend fun downloadModel(spec: ModelSpec) = withContext(Dispatchers.IO) {
         val dest = File(context.filesDir, spec.fileName)
+        dest.parentFile?.mkdirs()
 
         // Already present (from assets copy or previous download)
         if (dest.exists() && dest.length() > 1000) {
@@ -313,13 +324,13 @@ class ModelDownloadManager(private val context: Context) {
         }
 
         // Download from source (custom URL or HuggingFace)
-        val url = spec.customUrl ?: hfUrl(spec.repo, spec.fileName)
+        val url = spec.customUrl ?: hfUrl(spec.repo, spec.remotePath ?: spec.fileName)
 
         updateModelState(spec.fileName) {
             it.copy(status = Status.DOWNLOADING, progressBytes = 0)
         }
 
-        val tempFile = File(dest.parent, "${spec.fileName}.tmp")
+        val tempFile = File(dest.parentFile, "${dest.name}.tmp")
         try {
             downloadFile(url, tempFile, spec.fileName)
             if (tempFile.length() < 1000) {
