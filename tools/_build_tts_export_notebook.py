@@ -212,7 +212,7 @@ try:
     import unidic_lite
     mecabrc = "/usr/local/etc/mecabrc"
     os.makedirs(os.path.dirname(mecabrc), exist_ok=True)
-    open(mecabrc, "w").write(f"dicdir = {unidic_lite.DICDIR}\n")
+    open(mecabrc, "w").write(f"dicdir = {unidic_lite.DICDIR}\\n")
     os.environ["MECABRC"] = mecabrc
     print(f"  Wrote mecabrc -> {mecabrc}")
 except Exception as e:
