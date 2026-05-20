@@ -35,6 +35,15 @@ class ModelDownloadManager(private val context: Context) {
         private fun hfUrl(repo: String, file: String) =
             "$HF_BASE/$repo/resolve/main/$file"
 
+        /**
+         * Floor for "is this file likely a real artifact vs an HTML error page".
+         * HTML error pages from CDNs are typically a few hundred bytes to a
+         * couple KB. The optimizer ONNX is a legitimate 538-byte artifact, so
+         * we can't crank this any higher. The real "did the download finish"
+         * check happens in [downloadFile] against the server's Content-Length.
+         */
+        private const val MIN_FILE_BYTES = 100L
+
         /** Buffer size for streaming downloads. */
         private const val BUFFER_SIZE = 64 * 1024 // 64 KB
     }
@@ -283,32 +292,20 @@ class ModelDownloadManager(private val context: Context) {
 
     // ── Internal ──────────────────────────────────────────────────────
 
-    /**
-     * Minimum acceptable size for a downloaded file. Uses [ModelSpec.expectedSizeBytes]
-     * when set (allowing a 10% short read for variable artifacts), otherwise a small
-     * 100-byte floor to filter out HTML error pages. The optimizer ONNX is a legitimate
-     * 538-byte artifact, so a hardcoded 1 KB floor would reject it.
-     */
-    private fun minAcceptableSize(spec: ModelSpec): Long =
-        if (spec.expectedSizeBytes > 0) (spec.expectedSizeBytes * 9 / 10).coerceAtLeast(100L)
-        else 100L
-
     private fun isModelPresent(spec: ModelSpec): Boolean {
         val file = File(context.filesDir, spec.fileName)
-        val minSize = minAcceptableSize(spec)
-        if (file.exists() && file.length() >= minSize) return true
+        if (file.exists() && file.length() >= MIN_FILE_BYTES) return true
         return try {
-            context.assets.open(spec.fileName).use { it.available() >= minSize }
+            context.assets.open(spec.fileName).use { it.available() >= MIN_FILE_BYTES }
         } catch (_: Exception) { false }
     }
 
     private suspend fun downloadModel(spec: ModelSpec) = withContext(Dispatchers.IO) {
         val dest = File(context.filesDir, spec.fileName)
         dest.parentFile?.mkdirs()
-        val minSize = minAcceptableSize(spec)
 
         // Already present (from assets copy or previous download)
-        if (dest.exists() && dest.length() >= minSize) {
+        if (dest.exists() && dest.length() >= MIN_FILE_BYTES) {
             updateModelState(spec.fileName) { it.copy(status = Status.COMPLETE) }
             return@withContext
         }
@@ -316,9 +313,9 @@ class ModelDownloadManager(private val context: Context) {
         // Try assets first (dev build with setup_libs.sh)
         try {
             context.assets.open(spec.fileName).use { input ->
-                if (input.available() >= minSize) {
+                if (input.available() >= MIN_FILE_BYTES) {
                     dest.outputStream().use { output -> input.copyTo(output) }
-                    if (dest.length() >= minSize) {
+                    if (dest.length() >= MIN_FILE_BYTES) {
                         Log.i(TAG, "Copied ${spec.fileName} from assets (${dest.length()} bytes)")
                         updateModelState(spec.fileName) { it.copy(status = Status.COMPLETE) }
                         return@withContext
@@ -339,10 +336,10 @@ class ModelDownloadManager(private val context: Context) {
         val tempFile = File(dest.parentFile, "${dest.name}.tmp")
         try {
             downloadFile(url, tempFile, spec.fileName)
-            if (tempFile.length() < minSize) {
+            if (tempFile.length() < MIN_FILE_BYTES) {
                 tempFile.delete()
                 throw RuntimeException(
-                    "Downloaded file too small (${tempFile.length()} bytes, expected ≥ $minSize) — likely a stub or error page"
+                    "Downloaded file too small (${tempFile.length()} bytes) — likely a stub or error page"
                 )
             }
             tempFile.renameTo(dest)
@@ -384,10 +381,10 @@ class ModelDownloadManager(private val context: Context) {
             val totalBytes = conn.contentLengthLong
             updateModelState(modelKey) { it.copy(totalBytes = totalBytes) }
 
+            var downloaded = 0L
             conn.inputStream.buffered(BUFFER_SIZE).use { input ->
                 dest.outputStream().buffered(BUFFER_SIZE).use { output ->
                     val buffer = ByteArray(BUFFER_SIZE)
-                    var downloaded = 0L
                     var lastReportedPercent = -1
                     while (true) {
                         val bytesRead = input.read(buffer)
@@ -407,6 +404,15 @@ class ModelDownloadManager(private val context: Context) {
                         }
                     }
                 }
+            }
+
+            // Truncation guard: if the server advertised a length, we must have
+            // received all of it. Catches connection drops that close cleanly
+            // mid-stream without throwing IOException.
+            if (totalBytes > 0 && downloaded < totalBytes) {
+                throw RuntimeException(
+                    "Truncated download for $urlStr: $downloaded of $totalBytes bytes"
+                )
             }
         } finally {
             conn?.disconnect()
