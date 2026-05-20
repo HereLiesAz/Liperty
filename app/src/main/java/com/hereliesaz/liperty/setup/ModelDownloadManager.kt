@@ -290,7 +290,7 @@ class ModelDownloadManager(private val context: Context) {
      * 538-byte artifact, so a hardcoded 1 KB floor would reject it.
      */
     private fun minAcceptableSize(spec: ModelSpec): Long =
-        if (spec.expectedSizeBytes > 0) (spec.expectedSizeBytes * 9 / 10).coerceAtLeast(100L)
+        if (spec.expectedSizeBytes > 0) spec.expectedSizeBytes
         else 100L
 
     private fun isModelPresent(spec: ModelSpec): Boolean {
