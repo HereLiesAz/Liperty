@@ -187,13 +187,7 @@ class ModelDownloadManager(private val context: Context) {
         }
 
         // Check if all required models exist (filesDir or bundled assets)
-        val allRequiredPresent = models.filter { it.required }.all { spec ->
-            val inFilesDir = File(context.filesDir, spec.fileName)
-            val inAssets = try {
-                context.assets.open(spec.fileName).use { it.available() > 1000 }
-            } catch (_: Exception) { false }
-            (inFilesDir.exists() && inFilesDir.length() > 1000) || inAssets
-        }
+        val allRequiredPresent = models.filter { it.required }.all { isModelPresent(it) }
 
         if (allRequiredPresent) {
             prefs.edit()
@@ -211,7 +205,7 @@ class ModelDownloadManager(private val context: Context) {
     suspend fun downloadAll(skipOptional: Boolean = false) {
         // Initialize state
         val initialStates = models.associate { spec ->
-            val alreadyPresent = isModelPresent(spec.fileName)
+            val alreadyPresent = isModelPresent(spec)
             val shouldSkip = skipOptional && !spec.required
             spec.fileName to ModelDownloadState(
                 fileName = spec.fileName,
@@ -289,20 +283,32 @@ class ModelDownloadManager(private val context: Context) {
 
     // ── Internal ──────────────────────────────────────────────────────
 
-    private fun isModelPresent(fileName: String): Boolean {
-        val file = File(context.filesDir, fileName)
-        if (file.exists() && file.length() > 1000) return true
+    /**
+     * Minimum acceptable size for a downloaded file. Uses [ModelSpec.expectedSizeBytes]
+     * when set (allowing a 10% short read for variable artifacts), otherwise a small
+     * 100-byte floor to filter out HTML error pages. The optimizer ONNX is a legitimate
+     * 538-byte artifact, so a hardcoded 1 KB floor would reject it.
+     */
+    private fun minAcceptableSize(spec: ModelSpec): Long =
+        if (spec.expectedSizeBytes > 0) (spec.expectedSizeBytes * 9 / 10).coerceAtLeast(100L)
+        else 100L
+
+    private fun isModelPresent(spec: ModelSpec): Boolean {
+        val file = File(context.filesDir, spec.fileName)
+        val minSize = minAcceptableSize(spec)
+        if (file.exists() && file.length() >= minSize) return true
         return try {
-            context.assets.open(fileName).use { it.available() > 1000 }
+            context.assets.open(spec.fileName).use { it.available() >= minSize }
         } catch (_: Exception) { false }
     }
 
     private suspend fun downloadModel(spec: ModelSpec) = withContext(Dispatchers.IO) {
         val dest = File(context.filesDir, spec.fileName)
         dest.parentFile?.mkdirs()
+        val minSize = minAcceptableSize(spec)
 
         // Already present (from assets copy or previous download)
-        if (dest.exists() && dest.length() > 1000) {
+        if (dest.exists() && dest.length() >= minSize) {
             updateModelState(spec.fileName) { it.copy(status = Status.COMPLETE) }
             return@withContext
         }
@@ -310,9 +316,9 @@ class ModelDownloadManager(private val context: Context) {
         // Try assets first (dev build with setup_libs.sh)
         try {
             context.assets.open(spec.fileName).use { input ->
-                if (input.available() > 1000) {
+                if (input.available() >= minSize) {
                     dest.outputStream().use { output -> input.copyTo(output) }
-                    if (dest.length() > 1000) {
+                    if (dest.length() >= minSize) {
                         Log.i(TAG, "Copied ${spec.fileName} from assets (${dest.length()} bytes)")
                         updateModelState(spec.fileName) { it.copy(status = Status.COMPLETE) }
                         return@withContext
@@ -333,9 +339,11 @@ class ModelDownloadManager(private val context: Context) {
         val tempFile = File(dest.parentFile, "${dest.name}.tmp")
         try {
             downloadFile(url, tempFile, spec.fileName)
-            if (tempFile.length() < 1000) {
+            if (tempFile.length() < minSize) {
                 tempFile.delete()
-                throw RuntimeException("Downloaded file too small (${tempFile.length()} bytes) — likely a stub or error page")
+                throw RuntimeException(
+                    "Downloaded file too small (${tempFile.length()} bytes, expected ≥ $minSize) — likely a stub or error page"
+                )
             }
             tempFile.renameTo(dest)
             Log.i(TAG, "Downloaded ${spec.fileName} (${dest.length()} bytes)")
