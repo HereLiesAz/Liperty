@@ -109,15 +109,34 @@ class VoiceManager(private val context: Context, private val onInit: (Boolean) -
      */
     fun speakStreaming(text: String) {
         val voice = activeVoice ?: return
-        
+
         // Ensure streaming track is ready
         initStreamingTrack()
-        
-        // Sequence processing (should be called from a background thread)
-        pocketTts.generateAudioStreaming(text, voice).forEach { chunk ->
-            streamingAudioTrack?.write(chunk, 0, chunk.size, AudioTrack.WRITE_BLOCKING)
-            streamingAudioTrack?.play() // Ensure it's playing
+        val track = streamingAudioTrack ?: return
+
+        try {
+            // Sequence processing (should be called from a background thread)
+            pocketTts.generateAudioStreaming(text, voice).forEach { chunk ->
+                track.write(chunk, 0, chunk.size, AudioTrack.WRITE_BLOCKING)
+                track.play() // Ensure it's playing
+            }
+        } catch (e: Exception) {
+            // Without this, an exception mid-stream left the AudioTrack
+            // allocated and playing forever (it was only released in
+            // shutdown()). Drop the possibly-wedged track so the next call
+            // rebuilds a clean one.
+            Log.e("VoiceManager", "Streaming playback failed", e)
+            releaseStreamingTrack()
         }
+    }
+
+    /** Stops, releases, and clears the streaming AudioTrack if present. */
+    private fun releaseStreamingTrack() {
+        streamingAudioTrack?.apply {
+            try { stop() } catch (_: IllegalStateException) { /* not started */ }
+            release()
+        }
+        streamingAudioTrack = null
     }
 
     private fun initStreamingTrack() {
@@ -168,7 +187,20 @@ class VoiceManager(private val context: Context, private val onInit: (Boolean) -
                     .setSampleRate(TTS_OUTPUT_SAMPLE_RATE_HZ)
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                     .build())
-                .setBufferSizeInBytes(samples.size * 4)
+                .setBufferSizeInBytes(
+                    // MODE_STATIC needs to hold the whole clip; floor at the
+                    // platform minimum so a tiny clip can't produce an
+                    // under-sized (or, if getMinBufferSize errors, negative)
+                    // buffer.
+                    maxOf(
+                        samples.size * 4,
+                        AudioTrack.getMinBufferSize(
+                            TTS_OUTPUT_SAMPLE_RATE_HZ,
+                            AudioFormat.CHANNEL_OUT_MONO,
+                            AudioFormat.ENCODING_PCM_FLOAT,
+                        ),
+                    )
+                )
                 .setTransferMode(AudioTrack.MODE_STATIC)
                 .build()
         } catch (e: Exception) {
@@ -201,15 +233,14 @@ class VoiceManager(private val context: Context, private val onInit: (Boolean) -
 
     fun stop() {
         systemTts?.stop()
-        // pocketTts?.stop()
+        // Release the streaming track here too: if a caller only ever calls
+        // stop() (not shutdown()) on its lifecycle, the track would otherwise
+        // leak. It's lazily rebuilt on the next speakStreaming().
+        releaseStreamingTrack()
     }
 
     fun shutdown() {
         systemTts?.shutdown()
-        streamingAudioTrack?.apply {
-            stop()
-            release()
-        }
-        streamingAudioTrack = null
+        releaseStreamingTrack()
     }
 }

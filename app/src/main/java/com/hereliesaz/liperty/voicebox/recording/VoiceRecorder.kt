@@ -46,11 +46,10 @@ class VoiceRecorder(private val context: Context) {
             return
         }
 
-        val outputDir = context.getExternalFilesDir(null) ?: run {
-            isRecording.set(false)
-            onError("External storage unavailable")
-            return
-        }
+        // App-private internal storage (NOT getExternalFilesDir): a recorded
+        // voice sample is biometric data, so it must be sandboxed to this app
+        // and wiped on uninstall — never world-readable on shared storage.
+        val outputDir = File(context.filesDir, "voice_samples").apply { mkdirs() }
         val audioFile = File(outputDir, "voice_clone_sample_${System.currentTimeMillis()}.wav")
 
         val minBufSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL, ENCODING)

@@ -42,7 +42,10 @@ class TFLiteEngine(
             Log.i("TFLiteEngine", "Model '$modelName' loaded on CPU (4 threads)")
             true
         } catch (e: Exception) {
-            Log.e("TFLiteEngine", "FAILED to load model '$modelName': ${e.message}")
+            // Pass the throwable so the full stacktrace/cause survives — the
+            // message alone hid whether this was a missing file, a corrupt
+            // model, or a native delegate crash.
+            Log.e("TFLiteEngine", "FAILED to load model '$modelName'", e)
             false
         }
     }

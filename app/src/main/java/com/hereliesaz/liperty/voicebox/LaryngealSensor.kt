@@ -107,6 +107,7 @@ class LaryngealSensor(private val context: Context) {
                 isRunning.set(false)
                 larynx.stop()
                 audioRouter.releaseFullDuplex()
+                voiceConverter.close()
                 return@launch
             }
 
@@ -115,6 +116,7 @@ class LaryngealSensor(private val context: Context) {
                 isRunning.set(false)
                 larynx.stop()
                 audioRouter.releaseFullDuplex()
+                voiceConverter.close()
                 return@launch
             }
 
@@ -127,19 +129,24 @@ class LaryngealSensor(private val context: Context) {
 
             recorder.startRecording()
 
-            // Noise profile estimation
-            val noiseProfile = FloatArray(VibraPhoneDSP.FRAME_SIZE / 2)
+            // Fixed spectral noise floor used by spectralSubtraction. NOTE: true
+            // per-bin noise-profile estimation is not yet implemented — this is a
+            // flat floor. Previously the code captured 10 frames "to estimate the
+            // noise profile" and then overwrote the profile with this constant,
+            // so the estimation was dead code. We keep a short mic warm-up (to
+            // discard frames while the preamp/AGC settle) but no longer pretend
+            // to estimate. TODO(voicebox): estimate the magnitude spectrum here
+            // once VibraPhoneDSP exposes a forward-FFT magnitude.
+            val noiseProfile = FloatArray(VibraPhoneDSP.FRAME_SIZE / 2) { 0.002f }
             val audioBuffer = ShortArray(VibraPhoneDSP.FRAME_SIZE)
 
-            Log.i(TAG, "BC mode: estimating noise profile...")
-            var framesCaptured = 0
-            while (framesCaptured < 10 && isActive && isRunning.get()) {
-                val read = recorder.read(audioBuffer, 0, audioBuffer.size)
-                if (read > 0) framesCaptured++
-            }
-            for (i in noiseProfile.indices) noiseProfile[i] = 0.002f
-
             try {
+                Log.i(TAG, "BC mode: mic warm-up...")
+                var warmupFrames = 0
+                while (warmupFrames < 10 && isActive && isRunning.get()) {
+                    if (recorder.read(audioBuffer, 0, audioBuffer.size) > 0) warmupFrames++
+                }
+
                 while (isActive && isRunning.get()) {
                     val read = recorder.read(audioBuffer, 0, audioBuffer.size)
                     if (read > 0) {
@@ -167,11 +174,20 @@ class LaryngealSensor(private val context: Context) {
                         }
                     }
                 }
+            } catch (e: SecurityException) {
+                // RECORD_AUDIO revoked mid-session — don't crash the coroutine.
+                Log.e(TAG, "BC mode: RECORD_AUDIO revoked during capture", e)
+            } catch (e: Exception) {
+                Log.e(TAG, "BC mode: capture/processing error", e)
             } finally {
-                recorder.stop()
+                runCatching { recorder.stop() }
                 recorder.release()
                 larynx.stop()
                 audioRouter.releaseFullDuplex()
+                // Close here (on the worker thread, after the loop has exited)
+                // rather than from stop() on the caller thread, which raced with
+                // convert() above.
+                voiceConverter.close()
             }
         }
     }
@@ -210,12 +226,14 @@ class LaryngealSensor(private val context: Context) {
             } catch (e: SecurityException) {
                 Log.e(TAG, "EL mode: RECORD_AUDIO permission not granted", e)
                 isRunning.set(false)
+                voiceConverter.close()
                 return@launch
             }
 
             if (recorder.state != AudioRecord.STATE_INITIALIZED) {
                 Log.e(TAG, "EL mode: AudioRecord failed to initialize")
                 isRunning.set(false)
+                voiceConverter.close()
                 return@launch
             }
 
@@ -224,18 +242,19 @@ class LaryngealSensor(private val context: Context) {
 
             recorder.startRecording()
 
-            val noiseProfile = FloatArray(VibraPhoneDSP.FRAME_SIZE / 2)
+            // Fixed spectral noise floor (see BC mode note); a short warm-up
+            // discards initial frames while the mic settles. No real per-bin
+            // estimation yet.
+            val noiseProfile = FloatArray(VibraPhoneDSP.FRAME_SIZE / 2) { 0.002f }
             val audioBuffer = ShortArray(VibraPhoneDSP.FRAME_SIZE)
 
-            Log.i(TAG, "EL mode: estimating noise profile...")
-            var framesCaptured = 0
-            while (framesCaptured < 10 && isActive && isRunning.get()) {
-                val read = recorder.read(audioBuffer, 0, audioBuffer.size)
-                if (read > 0) framesCaptured++
-            }
-            for (i in noiseProfile.indices) noiseProfile[i] = 0.002f
-
             try {
+                Log.i(TAG, "EL mode: mic warm-up...")
+                var warmupFrames = 0
+                while (warmupFrames < 10 && isActive && isRunning.get()) {
+                    if (recorder.read(audioBuffer, 0, audioBuffer.size) > 0) warmupFrames++
+                }
+
                 while (isActive && isRunning.get()) {
                     val read = recorder.read(audioBuffer, 0, audioBuffer.size)
                     if (read > 0) {
@@ -257,9 +276,14 @@ class LaryngealSensor(private val context: Context) {
                         }
                     }
                 }
+            } catch (e: SecurityException) {
+                Log.e(TAG, "EL mode: RECORD_AUDIO revoked during capture", e)
+            } catch (e: Exception) {
+                Log.e(TAG, "EL mode: capture/processing error", e)
             } finally {
-                recorder.stop()
+                runCatching { recorder.stop() }
                 recorder.release()
+                voiceConverter.close()
             }
         }
     }
@@ -271,7 +295,10 @@ class LaryngealSensor(private val context: Context) {
         if (usesBCMode) {
             larynx.stop()
         }
+        // Clearing isRunning lets the worker loop exit on its next iteration;
+        // its finally block stops/releases the recorder and closes
+        // voiceConverter. We deliberately do NOT close voiceConverter here —
+        // doing so from the caller thread raced with convert() on the worker.
         processingJob?.cancel()
-        voiceConverter.close()
     }
 }

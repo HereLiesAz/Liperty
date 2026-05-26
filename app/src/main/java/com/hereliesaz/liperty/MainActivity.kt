@@ -84,6 +84,12 @@ class MainActivity : ComponentActivity() {
         private const val BACKEND_SYNC_VSR = "sync_vsr"
         private const val VSR_BACKEND = BACKEND_SYNC_VSR
 
+        // Silent Speech Recognition (bone-vibration modality) is not shipped:
+        // its model (ssr_model.tflite) is pruned from release and no production
+        // signal source feeds it yet. Disabled so it neither allocates nor
+        // fails at launch. Flip to true once the modality is wired end-to-end.
+        private const val SSR_ENABLED = false
+
         // Not `const val` because the conditional expression isn't a
         // compile-time literal -- but still effectively constant per build.
         // Use the FP16 quantized variant of SyncVSR by default. On Pixel 5's
@@ -222,7 +228,7 @@ class MainActivity : ComponentActivity() {
      *  AI" tailored for visual ASR (swaps in viseme-equivalent words
      *  that score higher under the LM). */
     private var visemeRescorer: VisemeRescorer? = null
-    private lateinit var ssrInference: SSRInference
+    private var ssrInference: SSRInference? = null
     private lateinit var frameBuffer: FrameBuffer
     private val lipBoxFilter = RectKalmanFilter()
     private val opticalFlowTracker = com.hereliesaz.liperty.utils.OpticalFlowTracker()
@@ -475,7 +481,7 @@ class MainActivity : ComponentActivity() {
                 pixelStd = AUTOAVSR_PIXEL_STD,
                 customDecoder = subwordDecoder::decode,
             )
-            ssrInference = SSRInference(TFLiteEngine(this, "ssr_model.tflite"))
+            ssrInference = if (SSR_ENABLED) SSRInference(TFLiteEngine(this, "ssr_model.tflite")) else null
             frameBuffer = FrameBuffer(capacity = 16)
 
             if (USE_V3_BACKEND) {
@@ -530,7 +536,7 @@ class MainActivity : ComponentActivity() {
         if (coreInitialized) {
             lifecycleScope.launch(Dispatchers.Default) {
                 vsrInference.initialize()
-                ssrInference.initialize()
+                ssrInference?.initialize()
                 avhubertV3?.let {
                     if (!it.initialize()) {
                         Log.w("MainActivity", "V3 backend.initialize() returned false; falling back to V2")
@@ -591,6 +597,10 @@ class MainActivity : ComponentActivity() {
             .getBoolean("consent_granted", false)
         if (consentGranted && allPermissionsGranted()) {
             startCamera()
+        } else if (!consentGranted) {
+            // Consent was revoked (e.g. from Settings). Re-engage the gate so
+            // processing can't silently resume without a fresh opt-in.
+            checkConsentAndStart()
         }
         // Restore voice mode if it was active before pause
         if (wasBCActiveBeforePause) {
@@ -688,9 +698,10 @@ class MainActivity : ComponentActivity() {
                 },
                 onTranscriptionData = { audioData ->
                     // SSR inference on the captured audio for simultaneous text display
-                    if (!isInferencing) {
+                    val ssr = ssrInference
+                    if (ssr != null && !isInferencing) {
                         lifecycleScope.launch(Dispatchers.Default) {
-                            val result = ssrInference.runInference(audioData)
+                            val result = ssr.runInference(audioData)
                             if (result.text.isNotEmpty()) {
                                 withContext(Dispatchers.Main) {
                                     transcriptionManager.appendText(result.text, result.confidence)
@@ -970,10 +981,11 @@ class MainActivity : ComponentActivity() {
                 processedMouth = mirrored
             }
 
-            // Diagnostic: dump a MID-buffer frame (size==8 of 16) rather than the
-            // first frame, so we see what the model is being fed at the middle
-            // of an utterance rather than at the boundary where detection may
-            // still be settling.
+            // Diagnostic (non-biometric): log the mid-buffer (size==8 of 16)
+            // mouth-crop mean brightness so we can sanity-check exposure at the
+            // middle of an utterance. We deliberately NEVER persist frames,
+            // crops, or landmarks to disk — biometric data is RAM-only (BIPA /
+            // GDPR; see docs/LEGAL.md and PrivacyTest).
             if (frameBuffer.size() == 8) {
                 val pixels = IntArray(cropSize * cropSize)
                 processedMouth.getPixels(pixels, 0, cropSize, 0, 0, cropSize, cropSize)
@@ -981,63 +993,6 @@ class MainActivity : ComponentActivity() {
                 Log.d("VSRInput", "frame0 mean_brightness=%.1f lipBox=$lipBox " +
                     "expanded=$expandedLipBox srcBitmap=${bitmap.width}x${bitmap.height} " +
                     "rotation=${"%.1f".format(rotation)}".format(mean))
-
-                // Dump the actual 88x88 crop the model is being fed to
-                // /sdcard/Download so we can pull it via `adb pull` and
-                // visually verify whether the crop shows the user's mouth.
-                // One file per inference window (overwrites previous).
-                try {
-                    val dumpFile = java.io.File(
-                        android.os.Environment.getExternalStoragePublicDirectory(
-                            android.os.Environment.DIRECTORY_DOWNLOADS),
-                        "liperty_mouth_crop.png"
-                    )
-                    dumpFile.outputStream().use { out ->
-                        processedMouth.compress(Bitmap.CompressFormat.PNG, 100, out)
-                    }
-                    // Also dump the full source bitmap with the expanded lip box
-                    // overlaid so we can see what region was cropped from where.
-                    val sourceDump = bitmap.copy(Bitmap.Config.ARGB_8888, true)
-                    val canvas = android.graphics.Canvas(sourceDump)
-                    val boxPaint = android.graphics.Paint().apply {
-                        color = android.graphics.Color.RED
-                        style = android.graphics.Paint.Style.STROKE
-                        strokeWidth = 4f
-                    }
-                    canvas.drawRect(expandedLipBox, boxPaint)
-                    // Also dot every detected lip landmark (cyan) and every
-                    // face landmark (faint green) so we can see what MediaPipe
-                    // actually found, not just where our box ended up.
-                    rawLandmarks?.let { lms ->
-                        val allPaint = android.graphics.Paint().apply {
-                            color = android.graphics.Color.argb(180, 100, 255, 100)
-                            style = android.graphics.Paint.Style.FILL
-                        }
-                        val lipPaint = android.graphics.Paint().apply {
-                            color = android.graphics.Color.argb(255, 0, 255, 255)
-                            style = android.graphics.Paint.Style.FILL
-                        }
-                        val lipSet = com.hereliesaz.liperty.ml.FaceLandmarkerHelper.LIP_INDICES.toHashSet()
-                        for ((i, lm) in lms.withIndex()) {
-                            val x = lm.x() * bitmap.width
-                            val y = lm.y() * bitmap.height
-                            canvas.drawCircle(x, y, 2f, allPaint)
-                            if (i in lipSet) canvas.drawCircle(x, y, 5f, lipPaint)
-                        }
-                    }
-                    val sourceFile = java.io.File(
-                        android.os.Environment.getExternalStoragePublicDirectory(
-                            android.os.Environment.DIRECTORY_DOWNLOADS),
-                        "liperty_source_with_box.png"
-                    )
-                    sourceFile.outputStream().use { out ->
-                        sourceDump.compress(Bitmap.CompressFormat.PNG, 100, out)
-                    }
-                    sourceDump.recycle()
-                    Log.d("VSRInput", "dumped crop+source PNGs to /sdcard/Download/")
-                } catch (e: Exception) {
-                    Log.w("VSRInput", "crop dump failed: ${e.message}")
-                }
             }
 
             // Pass an explicitly copied bitmap to calibration to avoid lifecycle conflicts with FrameBuffer
@@ -1165,7 +1120,7 @@ class MainActivity : ComponentActivity() {
         avhubertV3 = null
         syncVsrSeq2Seq?.close()
         syncVsrSeq2Seq = null
-        if (::ssrInference.isInitialized) ssrInference.close()
+        ssrInference?.close()
         if (::frameBuffer.isInitialized) frameBuffer.clearAndRecycle()
         if (::voiceManager.isInitialized) {
             voiceManager.stop()

@@ -82,10 +82,13 @@ class FaceLandmarkerHelper(
     fun detectSynchronously(imageBitmap: Bitmap): FaceLandmarkerResult? {
         if (faceLandmarker == null) return null
 
-        val mpImage = BitmapImageBuilder(imageBitmap).build()
-
         return try {
-            faceLandmarker?.detect(mpImage)
+            // MPImage wraps a native buffer; .use { } guarantees close() on
+            // both the normal and exception paths. Without it we leaked one
+            // native image per detection — and this runs at 25–30 fps.
+            BitmapImageBuilder(imageBitmap).build().use { mpImage ->
+                faceLandmarker?.detect(mpImage)
+            }
         } catch (e: Exception) {
             Log.e("FaceLandmarkerHelper", "Error during detection", e)
             null

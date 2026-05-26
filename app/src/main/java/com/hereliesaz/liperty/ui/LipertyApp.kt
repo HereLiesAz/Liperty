@@ -187,13 +187,14 @@ fun LipertyApp(
                 color   = Color.White
             )
 
-            azRailItem(
-                id      = "calibrate",
-                text    = context.getString(R.string.nav_tweak),
-                route   = "calibrate",
-                content = Icons.Filled.Refresh,
-                color   = Color.White
-            )
+            // Legacy LiteRT phoneme-model calibration ("calibrate" route) is
+            // HIDDEN: on-device training via LiteRT is blocked upstream
+            // (LiteRT 2.x exposes no training signature — see
+            // ml/OnDeviceTrainer.trainStep), so the flow can't actually train
+            // and would be a dead-end affordance. The route composable is left
+            // in place but unreachable from the rail. Use "viseme_calibrate"
+            // (ORT-based personalization) below instead. Re-add this item once
+            // LiteRT training lands.
 
             // Per-user viseme-confusion calibration. Walks the user
             // through a curated list of visually-ambiguous words (built

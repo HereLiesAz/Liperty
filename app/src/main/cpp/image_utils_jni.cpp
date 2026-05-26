@@ -16,65 +16,86 @@ Java_com_hereliesaz_liperty_utils_ImageUtils_pitchSynchronousSpectralSubtraction
 
     jsize length = env->GetArrayLength(inputSignal);
     jfloat* inputElements = env->GetFloatArrayElements(inputSignal, nullptr);
-
-    // Prepare data for DFT
-    cv::Mat inputMat(1, length, CV_32FC1, inputElements);
-
-    // Pad for optimal DFT size
-    int dftSize = cv::getOptimalDFTSize(length);
-    cv::Mat padded;
-    cv::copyMakeBorder(inputMat, padded, 0, 0, 0, dftSize - length, cv::BORDER_CONSTANT, cv::Scalar::all(0));
-
-    // Create complex array (real, imaginary)
-    cv::Mat planes[] = {cv::Mat_<float>(padded), cv::Mat::zeros(padded.size(), CV_32F)};
-    cv::Mat complexI;
-    cv::merge(planes, 2, complexI);
-
-    // Forward DFT
-    cv::dft(complexI, complexI);
-
-    // Split into magnitude and phase
-    cv::split(complexI, planes);
-    cv::Mat mag, phase;
-    cv::cartToPolar(planes[0], planes[1], mag, phase);
-
-    // Estimate Noise Profile: This implementation calculates the mean magnitude
-    // of the current frame and uses a fraction of that as the noiseFloor.
-    // It acts as a dynamic spectral filter based on the current frame's content
-    // rather than stationary background noise subtraction.
-    cv::Scalar meanMag = cv::mean(mag);
-    float noiseFloor = meanMag[0] * 0.1f; // Thresholding factor
-
-    float alpha = 2.0f; // Oversubtraction factor
-    float spectralFloor = 0.01f;
-
-    // Apply Generalized Spectral Subtraction
-    for (int i = 0; i < mag.cols; i++) {
-        float m = mag.at<float>(0, i);
-        float sub = m - (alpha * noiseFloor);
-        mag.at<float>(0, i) = std::max(sub, spectralFloor * m);
+    if (inputElements == nullptr) {
+        // OOM while pinning the array; an exception is already pending.
+        return env->NewFloatArray(0);
     }
 
-    // Reconstruct complex spectrum
-    cv::polarToCart(mag, phase, planes[0], planes[1]);
-    cv::merge(planes, 2, complexI);
+    jfloatArray outputArray = nullptr;
+    // Any OpenCV call below (dft/idft, CV_Assert, allocations) can throw a
+    // cv::Exception. Catch everything so we ALWAYS reach
+    // ReleaseFloatArrayElements — otherwise the pinned input array leaked on
+    // every failing call.
+    try {
+        // Prepare data for DFT
+        cv::Mat inputMat(1, length, CV_32FC1, inputElements);
 
-    // Inverse DFT
-    cv::Mat inverseTransform;
-    cv::idft(complexI, inverseTransform, cv::DFT_SCALE | cv::DFT_REAL_OUTPUT);
+        // Pad for optimal DFT size
+        int dftSize = cv::getOptimalDFTSize(length);
+        cv::Mat padded;
+        cv::copyMakeBorder(inputMat, padded, 0, 0, 0, dftSize - length, cv::BORDER_CONSTANT, cv::Scalar::all(0));
 
-    // Check continuous and expected type to avoid surprises
-    CV_Assert(inverseTransform.isContinuous());
-    CV_Assert(inverseTransform.type() == CV_32FC1);
+        // Create complex array (real, imaginary)
+        cv::Mat planes[] = {cv::Mat_<float>(padded), cv::Mat::zeros(padded.size(), CV_32F)};
+        cv::Mat complexI;
+        cv::merge(planes, 2, complexI);
 
-    // Copy back to JNI array
-    jfloatArray outputArray = env->NewFloatArray(length);
-    if ((jsize)inverseTransform.total() >= length) {
-        env->SetFloatArrayRegion(outputArray, 0, length, inverseTransform.ptr<jfloat>());
+        // Forward DFT
+        cv::dft(complexI, complexI);
+
+        // Split into magnitude and phase
+        cv::split(complexI, planes);
+        cv::Mat mag, phase;
+        cv::cartToPolar(planes[0], planes[1], mag, phase);
+
+        // Estimate Noise Profile: This implementation calculates the mean magnitude
+        // of the current frame and uses a fraction of that as the noiseFloor.
+        // It acts as a dynamic spectral filter based on the current frame's content
+        // rather than stationary background noise subtraction.
+        cv::Scalar meanMag = cv::mean(mag);
+        float noiseFloor = meanMag[0] * 0.1f; // Thresholding factor
+
+        float alpha = 2.0f; // Oversubtraction factor
+        float spectralFloor = 0.01f;
+
+        // Apply Generalized Spectral Subtraction
+        for (int i = 0; i < mag.cols; i++) {
+            float m = mag.at<float>(0, i);
+            float sub = m - (alpha * noiseFloor);
+            mag.at<float>(0, i) = std::max(sub, spectralFloor * m);
+        }
+
+        // Reconstruct complex spectrum
+        cv::polarToCart(mag, phase, planes[0], planes[1]);
+        cv::merge(planes, 2, complexI);
+
+        // Inverse DFT
+        cv::Mat inverseTransform;
+        cv::idft(complexI, inverseTransform, cv::DFT_SCALE | cv::DFT_REAL_OUTPUT);
+
+        // Check continuous and expected type to avoid surprises
+        CV_Assert(inverseTransform.isContinuous());
+        CV_Assert(inverseTransform.type() == CV_32FC1);
+
+        // Copy back to JNI array
+        outputArray = env->NewFloatArray(length);
+        if (outputArray != nullptr && (jsize)inverseTransform.total() >= length) {
+            env->SetFloatArrayRegion(outputArray, 0, length, inverseTransform.ptr<jfloat>());
+        }
+    } catch (const cv::Exception& e) {
+        LOGE("OpenCV exception in spectral subtraction: %s", e.what());
+    } catch (...) {
+        LOGE("Unknown exception in spectral subtraction");
     }
 
+    // JNI_ABORT: we never modified the input, so skip the copy-back.
     env->ReleaseFloatArrayElements(inputSignal, inputElements, JNI_ABORT);
 
+    // On failure, hand back a zero-filled array of the expected length so the
+    // Kotlin caller gets a well-defined (silent) result rather than null/garbage.
+    if (outputArray == nullptr) {
+        outputArray = env->NewFloatArray(length);
+    }
     return outputArray;
 }
 

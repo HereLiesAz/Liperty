@@ -41,6 +41,20 @@ jobs:
       - name: Setup Dependencies (OpenCV & Project Bundle)
         run: chmod +x setup_libs.sh && ./setup_libs.sh
 
+      - name: Verify KenLM prebuilts present
+        # LM rescoring activates only when these arm64 static libs are linked in
+        # (see app/src/main/cpp/CMakeLists.txt KENLM_AVAILABLE). If setup_libs.sh
+        # failed to pull them, the build would silently ship with rescoring as a
+        # no-op. Fail loudly instead so accuracy never regresses unnoticed.
+        run: |
+          KENLM_DIR=app/src/main/cpp/kenlm/android-arm64
+          if [ ! -f "$KENLM_DIR/libkenlm.a" ] || [ ! -f "$KENLM_DIR/libkenlm_util.a" ]; then
+            echo "::error::KenLM arm64 prebuilts missing in $KENLM_DIR — LM rescoring would be a no-op."
+            echo "setup_libs.sh must pull them from HereLiesAz/liperty-lm before assembleRelease."
+            exit 1
+          fi
+          echo "KenLM prebuilts present:"; ls -la "$KENLM_DIR"/*.a
+
       - name: Inject Google Services
         env:
           GOOGLE_SERVICES_API_KEY: ${{ secrets.GOOGLE_SERVICES_API_KEY }}

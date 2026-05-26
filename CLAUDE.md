@@ -10,7 +10,7 @@ This file provides guidance to Claude (and other AI coding assistants) when work
 - **Platform**: Android (Kotlin-first, minSdk 26 / targetSdk 37)
 - **ML Stack**: ONNX Runtime Mobile (primary; serves the Auto-AVSR Conformer encoder), TensorFlow Lite / LiteRT (secondary; legacy + small auxiliary models), MediaPipe Tasks Vision, OpenCV 4.13.0 (C++ via NDK)
 - **UI**: Jetpack Compose + Material 3
-- **Privacy**: Fully offline; zero cloud dependencies. Biometric data lives only in RAM.
+- **Privacy**: Offline *after first-launch setup* — no inference/user data ever leaves the device. The app declares `INTERNET` solely so `setup/ModelDownloadManager.kt` can download ML models from HuggingFace once on first launch into app-private storage; all recognition then runs locally. Biometric data lives only in RAM (never persisted) — the sole exception is the explicitly-consented on-device personalization store, which the user can delete/revoke. Disclose the first-launch network use in the Play Store Data Safety form.
 - **Hardware acceleration**: ONNX Runtime CPU (XNNPACK), TFLite GPU Delegate (primary for TFLite path), NNAPI/Hexagon (fallback), CPU (last resort)
 - **Production VSR model**: `Amanvir/LRS3_V_WER19.1` (ESPnet visual-only Conformer + CTC head, 5050-token unigram SentencePiece vocab) exported to ONNX by `tools/export_autoavsr_to_onnx.ipynb` and pulled at runtime from `HereLiesAz/liperty-autoavsr-onnx`. Lineage: Auto-AVSR / Chaplin.
 
@@ -106,7 +106,7 @@ Liperty/
 │   └── libs.versions.toml            # Centralized version catalog
 ├── build.gradle.kts                   # Root Gradle config
 ├── settings.gradle.kts                # Multi-module (OpenCV included dynamically)
-├── gradle.properties                  # JVM heap = 2 GB
+├── gradle.properties                  # JVM heap = 4 GB (-Xmx4096m)
 ├── version.properties                 # Major=0, Minor=1, Patch=0
 └── setup_libs.sh                      # Downloads OpenCV, MediaPipe, all ML models from HF
 ```
@@ -212,7 +212,7 @@ TranscriptionManager  ──► getCurrentSentence() (raw assembled)
 OverlayView / Compose UI
 ```
 
-**Rescoring stack status:** the LM and viseme paths are wired and unit-tested end-to-end. Their actual effect on output is gated on `KenLmScorer.isNativeLoaded`, which requires `libkenlm.so` packaged in the APK (NDK build pending — see `docs/LM_RESCORING.md`). Until JNI lands, both rescorers run but their scoring is a no-op (input-bias tiebreaker keeps the original CTC output).
+**Rescoring stack status:** the LM and viseme paths are wired and unit-tested end-to-end. The KenLM JNI/native build IS in place (`app/src/main/cpp/kenlm_jni.cpp` + `CMakeLists.txt`; arm64 `.a` prebuilts pulled by `setup_libs.sh` from `HereLiesAz/liperty-lm`). Scoring is active at runtime only when **both** (a) the arm64 prebuilts were present at build time so `KenLmScorer.isNativeLoaded` is true, and (b) the LM model (`librispeech_3gram.bin`) is available (downloaded by `ModelDownloadManager`). Otherwise both rescorers run as a no-op input-bias tiebreaker (original CTC output wins). **CI must run `setup_libs.sh` before `assembleRelease` and fail the release build if the prebuilts are absent**, so a silent no-op can't ship — see `docs/LM_RESCORING.md` and `.github/workflows/build.yml`.
 
 **V3 backend (research-only, off by default):** `MainActivity.USE_V3_BACKEND = false`. Flipping the flag swaps the CTC pipeline above for `AvHubertSeq2SeqInference` — AV-HuBERT encoder ONNX + Transformer-decoder seq2seq + BPE detokenization. See `docs/AVHUBERT_V3_BACKEND.md` for the multi-attempt research log and `app/src/main/java/com/hereliesaz/liperty/ml/AvHubertSeq2SeqInference.kt` for the orchestrator.
 
@@ -329,7 +329,7 @@ All versions are centralized in `gradle/libs.versions.toml`. When adding or upgr
 
 ## Architecture Decisions & Constraints
 
-- **Offline-only at runtime**: There is no network stack in the app. Do not add `INTERNET` permission or HTTP clients. (Training pipelines run off-device on Kaggle/Colab and use HuggingFace Hub as a cross-account state store: `HereLiesAz/liperty-autoavsr-onnx`, `HereLiesAz/liperty-grid-preprocessed`, `HereLiesAz/liperty-tcd-preprocessed`, `e1lephant/lrs3-landmark`. The Android app only consumes the resulting artifacts, embedded via `setup_libs.sh`.)
+- **Offline after first-launch setup**: The app ships with the `INTERNET` permission and a one-time model downloader (`setup/ModelDownloadManager.kt`) that pulls ~370 MB+ of ONNX/`.task` models from HuggingFace into app-private storage on first launch. After that, all inference runs fully offline and no user/inference data ever leaves the device. Do NOT add network calls on the inference/recognition path. The first-launch download must be disclosed in the Play Store Data Safety form. (Training pipelines run off-device on Kaggle/Colab and use HuggingFace Hub as a cross-account state store: `HereLiesAz/liperty-autoavsr-onnx`, `HereLiesAz/liperty-grid-preprocessed`, `HereLiesAz/liperty-tcd-preprocessed`, `e1lephant/lrs3-landmark`. The Android app consumes the resulting artifacts, embedded via `setup_libs.sh` at build time or downloaded at first launch.)
 - **ModelEngine interface**: Keeps inference backends swappable. Production: `OnnxModelEngine` (Auto-AVSR). Legacy/aux: `TFLiteEngine`. Future: ExecuTorch.
 - **Production training pipeline**: Auto-AVSR / Chaplin lineage. The deployed model is fine-tuned from `Amanvir/LRS3_V_WER19.1` (ESPnet visual-only Conformer + CTC head, 5050 unigram SentencePiece tokens). Headline 19.1% WER on LRS3 requires beam search with CTC + attention scorer + external LM — none of which exports cleanly to ONNX. The Android export uses encoder + CTC head only; greedy/beam CTC alone gives roughly 30-50% WER, recovered by the optional `LlmTextCleaner` pass.
 - **Training notebooks** in `tools/` (resumable, run on Kaggle P100 or Colab):

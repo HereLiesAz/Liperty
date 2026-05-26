@@ -91,6 +91,18 @@ object ImageUtils {
         val uvRowStride = image.planes[1].rowStride
         val uvPixelStride = image.planes[1].pixelStride
 
+        // Plane bounds. A malformed ImageProxy (row/pixel strides larger than
+        // the actual plane buffers) would otherwise index past the end of
+        // nv21Array and throw ArrayIndexOutOfBoundsException in this hot
+        // per-pixel loop. We clamp each read to its plane instead of crashing;
+        // the only cost is three int comparisons, negligible beside the YUV
+        // math, and it preserves the zero-allocation fast path.
+        val yLast = ySize - 1
+        val vBase = ySize
+        val uBase = ySize + vSize
+        val vLast = vSize - 1
+        val uLast = uSize - 1
+
         var yp = 0
         for (j in 0 until height) {
             val pY = yRowStride * j
@@ -99,9 +111,13 @@ object ImageUtils {
             for (i in 0 until width) {
                 val uvOffset = pUV + (i shr 1) * uvPixelStride
 
-                val y = nv21Array[pY + i].toInt() and 0xFF
-                val v = nv21Array[ySize + uvOffset].toInt() and 0xFF
-                val u = nv21Array[ySize + vSize + uvOffset].toInt() and 0xFF
+                val yIdx = (pY + i).coerceAtMost(yLast)
+                val vIdx = uvOffset.coerceAtMost(vLast)
+                val uIdx = uvOffset.coerceAtMost(uLast)
+
+                val y = nv21Array[yIdx].toInt() and 0xFF
+                val v = nv21Array[vBase + vIdx].toInt() and 0xFF
+                val u = nv21Array[uBase + uIdx].toInt() and 0xFF
 
                 var r = y + (1.370705 * (v - 128)).toInt()
                 var g = y - (0.698001 * (v - 128)).toInt() - (0.337633 * (u - 128)).toInt()

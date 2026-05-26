@@ -13,7 +13,14 @@ data class VSRResult(
     val text: String,
     val confidence: Float,
     val wordConfidences: List<Float> = emptyList(),
-    val processingTimeMs: Long
+    val processingTimeMs: Long,
+    /**
+     * Non-null when inference failed (bad shape, model error, etc.). This lets
+     * callers distinguish a genuine failure from a successful run that simply
+     * produced no speech (text == "" && error == null). Defaults to null so
+     * existing call sites are unaffected.
+     */
+    val error: String? = null,
 )
 
 /**
@@ -55,7 +62,12 @@ class VSRInference(
     }
 
     private fun allocateBuffersIfNeeded(outputShape: IntArray, landmarkShape: IntArray) {
-        val inputCapacity = 1 * numFrames * inputHeight * inputWidth * numChannels * 4
+        // Capacities are computed in Long to avoid silent Int overflow on
+        // pathological shapes (a wrapped negative/small Int would undersize the
+        // direct buffer and corrupt memory on put()). checkedCapacity() fails
+        // loudly instead.
+        val inputCapacity = checkedCapacity(
+            1L * numFrames * inputHeight * inputWidth * numChannels * 4L, "input")
         if (inputBuffer == null || inputBuffer!!.capacity() != inputCapacity) {
             inputBuffer = ByteBuffer.allocateDirect(inputCapacity).order(ByteOrder.nativeOrder())
         }
@@ -64,19 +76,29 @@ class VSRInference(
             val batchSize = outputShape[0]
             val timeSteps = outputShape[1]
             val vocabSize = outputShape[2]
-            val outputCapacity = batchSize * timeSteps * vocabSize * 4
+            val outputCapacity = checkedCapacity(
+                batchSize.toLong() * timeSteps * vocabSize * 4L, "output")
             if (outputBuffer == null || outputBuffer!!.capacity() != outputCapacity) {
                 outputBuffer = ByteBuffer.allocateDirect(outputCapacity).order(ByteOrder.nativeOrder())
             }
         }
 
         if (landmarkShape.isNotEmpty()) {
-            val landmarkElements = landmarkShape.reduce { acc, i -> acc * i }
-            val landmarkCapacity = landmarkElements * 4
+            val landmarkElements = landmarkShape.fold(1L) { acc, i -> acc * i }
+            val landmarkCapacity = checkedCapacity(landmarkElements * 4L, "landmark")
             if (landmarkBuffer == null || landmarkBuffer!!.capacity() != landmarkCapacity) {
                 landmarkBuffer = ByteBuffer.allocateDirect(landmarkCapacity).order(ByteOrder.nativeOrder())
             }
         }
+    }
+
+    /** Validates a Long byte capacity fits a direct ByteBuffer, else throws. */
+    private fun checkedCapacity(capacity: Long, name: String): Int {
+        require(capacity in 1L..Int.MAX_VALUE.toLong()) {
+            "VSR $name buffer capacity $capacity out of range " +
+                "(numFrames=$numFrames ${inputWidth}x${inputHeight} ch=$numChannels)"
+        }
+        return capacity.toInt()
     }
 
     /**
@@ -102,6 +124,15 @@ class VSRInference(
             // in by the caller, others fall back to the channel/spatial dims
             // the Auto-AVSR Conformer was trained on (1×88×88 grayscale).
             if (numFrames <= 0) numFrames = frames.size
+            // A dynamic (-1) time axis is expected; dynamic spatial/channel axes
+            // are NOT — they mean the model didn't declare its expected input
+            // and we're guessing. Warn loudly so a silent wrong-shape feed (which
+            // collapses the model to blank output) is diagnosable in logcat.
+            if (numChannels <= 0 || inputHeight <= 0 || inputWidth <= 0) {
+                Log.w("VSRInference", "Model left spatial/channel dims dynamic " +
+                    "(ch=$numChannels ${inputWidth}x${inputHeight}); falling back to " +
+                    "1x88x88. If output is empty, verify the model's declared input shape.")
+            }
             if (numChannels <= 0) numChannels = 1
             if (inputHeight <= 0) inputHeight = 88
             if (inputWidth <= 0) inputWidth = 88
@@ -118,9 +149,10 @@ class VSRInference(
 
             Log.d("VSRInference", "outputShape=${outputShape.contentToString()}")
             if (outputShape.size < 3) {
-                Log.e("VSRInference", "Unexpected output shape: ${outputShape.contentToString()}")
+                val msg = "Unexpected output shape: ${outputShape.contentToString()}"
+                Log.e("VSRInference", msg)
                 val processingTime = SystemClock.uptimeMillis() - startTime
-                return VSRResult("", 0f, emptyList(), processingTime)
+                return VSRResult("", 0f, emptyList(), processingTime, error = msg)
             }
 
             // The output shape from ONNX has -1 for batch (N) and time (T_out).
@@ -332,7 +364,10 @@ class VSRInference(
         } catch (e: Exception) {
             Log.e("VSRInference", "Inference Failed", e)
             val processingTime = SystemClock.uptimeMillis() - startTime
-            return VSRResult("", 0f, emptyList(), processingTime)
+            return VSRResult(
+                "", 0f, emptyList(), processingTime,
+                error = e.message ?: e.javaClass.simpleName,
+            )
         }
     }
 
@@ -341,9 +376,18 @@ class VSRInference(
     }
 
     private fun softmax(logits: FloatArray): FloatArray {
+        if (logits.isEmpty()) return logits
         val max = logits.maxOrNull() ?: 0f
         val exps = FloatArray(logits.size) { exp((logits[it] - max).toDouble()).toFloat() }
         val sum = exps.sum()
+        // Guard against degenerate inputs (all -Inf / NaN logits) that would
+        // otherwise divide by zero and poison the whole decode with NaN. Fall
+        // back to a uniform distribution so downstream argmax/beam search stays
+        // well-defined.
+        if (sum == 0f || sum.isNaN() || sum.isInfinite()) {
+            val uniform = 1f / exps.size
+            return FloatArray(exps.size) { uniform }
+        }
         return FloatArray(exps.size) { exps[it] / sum }
     }
 }

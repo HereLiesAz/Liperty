@@ -81,42 +81,56 @@ class PairedImportProcessor(
             )
         }
 
-        val extractor = PairedRecordExtractor(
-            extractVideoFrames = { _, startMs, durationMs ->
-                // === REQUIRED FOLLOW-UP WORK ===
-                // 1. videoFrameExtractor.extractFrames(uri, startMs, durationMs, fps=25)
-                //    returns full-frame Bitmaps.
-                // 2. For each Bitmap, run MediaPipe FaceLandmarker (shared with
-                //    the live camera pipeline) to get lip landmarks.
-                // 3. Apply ImageUtils.alignAndCropMouth() to crop the lip ROI
-                //    to 88×88 grayscale, with the AV-HuBERT-matching
-                //    mean=0.421/std=0.165 normalization.
-                // 4. Flatten each crop to a FloatArray(88*88).
-                //
-                // The integration cost here is not the bitmap-to-FloatArray
-                // conversion (cheap); it's wiring the FaceLandmarker so it
-                // can be invoked from a background thread WITHOUT clobbering
-                // the live-camera pipeline's instance. Either:
-                //   (a) Spin up a separate FaceLandmarker instance for
-                //       offline imports (clean, ~50 MB extra memory).
-                //   (b) Pause the live pipeline, reuse its FaceLandmarker,
-                //       resume — cheaper memory, brittler.
-                //
-                // Until this lands, return empty -> PairedRecordExtractor
-                // drops the segment -> no records saved -> consent works
-                // and stored count stays at 0.
-                emptyList<FloatArray>()
-            },
-            transcriber = transcriber,
-        )
+        // Offline lip-ROI cropping uses a SEPARATE FaceLandmarker instance
+        // (option (a)) so it never clobbers the live camera pipeline's
+        // @Synchronized instance. ~50 MB while an import runs; closed in the
+        // finally below. The crop reproduces the live preprocessing exactly via
+        // [LipCropPipeline] so training data matches the inference distribution.
+        val importLandmarker = com.hereliesaz.liperty.ml.FaceLandmarkerHelper(context)
+        try {
+            val extractor = PairedRecordExtractor(
+                extractVideoFrames = { _, startMs, durationMs ->
+                    videoFrameExtractor.extractFrames(uri, startMs, durationMs, fps = TARGET_FPS)
+                        .mapNotNull { bmp ->
+                            try {
+                                val result = importLandmarker.detectSynchronously(bmp)
+                                    ?: return@mapNotNull null
+                                LipCropPipeline.cropMouthRoi(
+                                    bitmap = bmp,
+                                    result = result,
+                                    helper = importLandmarker,
+                                    cropSize = CROP_SIZE,
+                                    pixelMean = PIXEL_MEAN,
+                                    pixelStd = PIXEL_STD,
+                                    mirror = false,
+                                )
+                            } finally {
+                                // Source frames are full-resolution; recycle each
+                                // immediately so long imports don't OOM.
+                                bmp.recycle()
+                            }
+                        }
+                },
+                transcriber = transcriber,
+            )
 
-        val records = extractor.extract(audioInputs, sourceUri = uri.toString())
-        records.forEach { store.save(it) }
-        Log.i(TAG, "processed $uri: ${records.size} records saved (of ${audioInputs.size} segments)")
-        return records.size
+            val records = extractor.extract(audioInputs, sourceUri = uri.toString())
+            records.forEach { store.save(it) }
+            Log.i(TAG, "processed $uri: ${records.size} records saved (of ${audioInputs.size} segments)")
+            return records.size
+        } finally {
+            importLandmarker.close()
+        }
     }
 
     companion object {
         private const val TAG = "PairedImportProcessor"
+
+        // MUST match MainActivity.AUTOAVSR_* / VSRInference so offline training
+        // data is preprocessed identically to live inference. See LipCropPipeline.
+        private const val CROP_SIZE = 88
+        private const val PIXEL_MEAN = 0.421f
+        private const val PIXEL_STD = 0.165f
+        private const val TARGET_FPS = 25
     }
 }
