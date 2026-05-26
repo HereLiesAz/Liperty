@@ -84,5 +84,28 @@ class VSRInferenceTest {
          val result = vsr.runInference(frames)
 
          assertEquals("", result.text)
+         // A failure must be distinguishable from a successful "no speech" run.
+         assertTrue("Inference failure should populate error", result.error != null)
+    }
+
+    @Test
+    fun softmaxGuardsDegenerateLogitsAgainstNaN() {
+        val vsr = VSRInference(FakeModelEngine())
+        // All -Inf logits make (logit - max) = NaN and the exp-sum 0/NaN — the
+        // pre-fix code divided by that and poisoned the whole decode with NaN.
+        val out = vsr.softmax(FloatArray(5) { Float.NEGATIVE_INFINITY })
+        assertEquals(5, out.size)
+        out.forEach { assertTrue("softmax must never emit NaN/Inf", it.isFinite()) }
+        assertEquals("degenerate input should fall back to uniform", 1f, out.sum(), 1e-3f)
+    }
+
+    @Test
+    fun softmaxNormalCaseIsAValidDistribution() {
+        val vsr = VSRInference(FakeModelEngine())
+        val out = vsr.softmax(floatArrayOf(1f, 2f, 3f))
+        out.forEach { assertTrue(it in 0f..1f) }
+        assertEquals(1f, out.sum(), 1e-4f)
+        // Largest logit -> largest probability.
+        assertTrue(out[2] > out[1] && out[1] > out[0])
     }
 }

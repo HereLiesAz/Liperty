@@ -375,7 +375,8 @@ class VSRInference(
         engine.close()
     }
 
-    private fun softmax(logits: FloatArray): FloatArray {
+    // internal (not private) so the NaN/÷0 guard has a direct regression test.
+    internal fun softmax(logits: FloatArray): FloatArray {
         if (logits.isEmpty()) return logits
         val max = logits.maxOrNull() ?: 0f
         val exps = FloatArray(logits.size) { exp((logits[it] - max).toDouble()).toFloat() }
