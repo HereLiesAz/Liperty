@@ -12,6 +12,10 @@ import com.hereliesaz.liperty.voicebox.cloning.VoiceProfileBuilder
 import com.hereliesaz.liperty.voicebox.cloning.VoiceQualityTier
 import com.hereliesaz.liperty.voicebox.cloning.VoiceStore
 import com.hereliesaz.liperty.voicebox.recording.VoiceRecorder
+import com.hereliesaz.liperty.personalization.PairedImportProcessor
+import com.hereliesaz.liperty.personalization.PairedTrainingStore
+import com.hereliesaz.liperty.personalization.PersonalizationConsentManager
+import com.hereliesaz.liperty.personalization.VideoFrameExtractor
 import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -108,6 +112,21 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
     private val speakerClusterer = SpeakerClusterer()
     private val profileBuilder = VoiceProfileBuilder()
 
+    // Personalization harvesting from imported videos (opt-in, see
+    // startImportProcessing). Roots at the same filesDir/viseme_calibration
+    // store the calibration flow and Settings panel use.
+    private val personalizationConsent = PersonalizationConsentManager(application)
+    private val pairedImportProcessor = PairedImportProcessor(
+        context = application,
+        // Dedicated AudioPreprocessor instance: the harvest runs concurrently
+        // with the voice-clone pipeline (which uses the shared one above), so we
+        // don't share potentially non-thread-safe state across the two.
+        audioPreprocessor = AudioPreprocessor(application),
+        videoFrameExtractor = VideoFrameExtractor(application),
+        store = PairedTrainingStore(File(application.filesDir, "viseme_calibration")),
+        consent = personalizationConsent,
+    )
+
     private val _uiState = MutableStateFlow(VoiceUiState())
     val uiState: StateFlow<VoiceUiState> = _uiState.asStateFlow()
 
@@ -146,6 +165,28 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
      * Steps: extract audio → VAD → segment → extract embeddings → cluster speakers.
      */
     fun startImportProcessing(uris: List<Uri>) {
+        // Opportunistically harvest paired (audio, lip-video) personalization
+        // data from the same imported videos — ONLY when the user has given the
+        // separate on-device personalization consent. Runs independently on IO
+        // so it never blocks or fails the voice-cloning pipeline; the consent
+        // check is also enforced again inside processImport.
+        if (personalizationConsent.hasConsent()) {
+            viewModelScope.launch(Dispatchers.IO) {
+                var saved = 0
+                for (uri in uris) {
+                    saved += try {
+                        pairedImportProcessor.processImport(uri)
+                    } catch (e: Exception) {
+                        Log.w("VoiceViewModel", "personalization harvest failed for $uri: ${e.message}")
+                        0
+                    }
+                }
+                if (saved > 0) {
+                    Log.i("VoiceViewModel", "personalization: harvested $saved paired record(s) from import")
+                }
+            }
+        }
+
         viewModelScope.launch {
             try {
                 _importState.value = ImportState(
