@@ -39,6 +39,11 @@ jobs:
           key: ${{ runner.os }}-bundle-${{ hashFiles('setup_libs.sh') }}
 
       - name: Setup Dependencies (OpenCV & Project Bundle)
+        # HF_TOKEN authenticates Hugging Face downloads — anonymous requests are
+        # rate-limited, which intermittently breaks the model/prebuilt pulls.
+        # Safe when unset (falls back to anonymous, same as before).
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: chmod +x setup_libs.sh && ./setup_libs.sh
 
       - name: Verify KenLM prebuilts present

@@ -237,31 +237,102 @@ AUTOAVSR_HF_REPO="HereLiesAz/liperty-autoavsr-onnx"
 AUTOAVSR_DEST_MODEL="${TARGET_ASSETS}/${AUTOAVSR_MODEL}"
 AUTOAVSR_DEST_VOCAB="${TARGET_ASSETS}/${AUTOAVSR_VOCAB}"
 
-download_from_hf() {
-    local filename="$1"
-    local dest="$2"
+# --- Hugging Face download hardening --------------------------------------
+# Anonymous HF requests are aggressively rate-limited, which is the usual
+# cause of flaky / missing model pulls in CI (e.g. the KenLM arm64 prebuilts
+# verification gate failing intermittently). Authenticate when a token is
+# available — huggingface-cli and huggingface_hub both auto-read HF_TOKEN
+# from the environment; we normalize the two common env var names.
+HF_TOKEN="${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}"
+export HF_TOKEN
+[ -n "$HF_TOKEN" ] && export HUGGING_FACE_HUB_TOKEN="$HF_TOKEN"
+if [ -n "$HF_TOKEN" ]; then
+    echo "[*] HF_TOKEN detected — Hugging Face downloads will be authenticated."
+else
+    echo "[*] No HF_TOKEN set — downloading anonymously (subject to rate limits)."
+fi
+
+# Run a command with up to 4 attempts and exponential backoff (2s, 4s, 8s).
+# Returns the command's exit code from the last attempt. Note: callers must
+# NOT pipe the wrapped command (e.g. through 'tail'), or the pipe's exit
+# status would mask real download failures and defeat the retry.
+hf_retry() {
+    local attempt=1 max=4 delay=2
+    while true; do
+        "$@" && return 0
+        if [ "$attempt" -ge "$max" ]; then
+            echo "[!] still failing after ${max} attempts: $1"
+            return 1
+        fi
+        echo "[~] attempt ${attempt}/${max} failed; retrying in ${delay}s..."
+        sleep "$delay"
+        attempt=$((attempt + 1))
+        delay=$((delay * 2))
+    done
+}
+
+# One download attempt of a single file into <local_dir>. Real exit code is
+# returned (no output pipe) so hf_retry can see failures. Token is read from
+# the environment by both the CLI and the Python client.
+_hf_fetch_attempt() {
+    local repo="$1" filename="$2" local_dir="$3"
+    if command -v huggingface-cli &> /dev/null; then
+        huggingface-cli download "$repo" "$filename" --local-dir "$local_dir" --quiet
+    elif command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; then
+        python - "$repo" "$filename" "$local_dir" <<'PY'
+import os, sys
+from huggingface_hub import hf_hub_download
+hf_hub_download(repo_id=sys.argv[1], filename=sys.argv[2], local_dir=sys.argv[3],
+                token=os.environ.get("HF_TOKEN") or None)
+PY
+    else
+        echo "ERROR: need huggingface-cli or python+huggingface_hub installed." >&2
+        echo "       pip install huggingface_hub  (and set HF_TOKEN for private repos)" >&2
+        return 1
+    fi
+}
+
+# One download attempt of every file matching <pattern> into <local_dir>
+# (multi-file / subdirectory pulls, e.g. android-arm64/*). Real exit code.
+_hf_snapshot_attempt() {
+    local repo="$1" pattern="$2" local_dir="$3"
+    if command -v huggingface-cli &> /dev/null; then
+        huggingface-cli download "$repo" --include "$pattern" --local-dir "$local_dir" --quiet
+    elif command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; then
+        python - "$repo" "$pattern" "$local_dir" <<'PY'
+import os, sys
+from huggingface_hub import snapshot_download
+snapshot_download(repo_id=sys.argv[1], repo_type='model',
+                  allow_patterns=[sys.argv[2]], local_dir=sys.argv[3],
+                  token=os.environ.get("HF_TOKEN") or None)
+PY
+    else
+        echo "ERROR: need huggingface-cli or python+huggingface_hub installed." >&2
+        return 1
+    fi
+}
+
+# Fetch a single file into <local_dir> with auth + retries. Skips if already
+# present; returns non-zero if the file is still missing afterward.
+hf_fetch_file() {
+    local repo="$1" filename="$2" local_dir="$3"
+    local dest="${local_dir}/${filename}"
     if [ -f "$dest" ]; then
         echo "[*] ${dest} already exists."
         return 0
     fi
-    echo "[+] Downloading ${filename} from huggingface.co/${AUTOAVSR_HF_REPO}..."
-    if command -v huggingface-cli &> /dev/null; then
-        huggingface-cli download "$AUTOAVSR_HF_REPO" "$filename" \
-            --local-dir "$TARGET_ASSETS" --quiet 2>&1 | tail -2
-    elif command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; then
-        python -c "
-from huggingface_hub import hf_hub_download
-hf_hub_download(repo_id='$AUTOAVSR_HF_REPO', filename='$filename', local_dir='$TARGET_ASSETS')
-" 2>&1 | tail -2
-    else
-        echo "ERROR: Need either huggingface-cli or python+huggingface_hub installed."
-        echo "       pip install huggingface_hub  &&  huggingface-cli login"
-        return 1
-    fi
+    echo "[+] Downloading ${filename} from huggingface.co/${repo}..."
+    hf_retry _hf_fetch_attempt "$repo" "$filename" "$local_dir" || true
     if [ ! -f "$dest" ]; then
-        echo "ERROR: ${dest} not present after download. Check your HF_TOKEN."
+        echo "[!] ${dest} not present after download (check connectivity / HF_TOKEN)."
         return 1
     fi
+}
+
+download_from_hf() {
+    local filename="$1"
+    local dest="$2"
+    hf_fetch_file "$AUTOAVSR_HF_REPO" "$filename" "$TARGET_ASSETS"
 }
 
 download_from_hf "$AUTOAVSR_MODEL" "$AUTOAVSR_DEST_MODEL" || true
@@ -274,21 +345,7 @@ download_from_hf "$AUTOAVSR_VOCAB" "$AUTOAVSR_DEST_VOCAB" || true
 SYNCVSR_HF_REPO="HereLiesAz/liperty-syncvsr-onnx"
 download_syncvsr() {
     local filename="$1"
-    local dest="${TARGET_ASSETS}/${filename}"
-    if [ -f "$dest" ]; then
-        echo "[*] ${dest} already exists."
-        return 0
-    fi
-    echo "[+] Downloading ${filename} from huggingface.co/${SYNCVSR_HF_REPO}..."
-    if command -v huggingface-cli &> /dev/null; then
-        huggingface-cli download "$SYNCVSR_HF_REPO" "$filename" \
-            --local-dir "$TARGET_ASSETS" --quiet 2>&1 | tail -2
-    elif command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; then
-        python -c "
-from huggingface_hub import hf_hub_download
-hf_hub_download(repo_id='$SYNCVSR_HF_REPO', filename='$filename', local_dir='$TARGET_ASSETS')
-" 2>&1 | tail -2
-    fi
+    hf_fetch_file "$SYNCVSR_HF_REPO" "$filename" "$TARGET_ASSETS"
 }
 download_syncvsr "syncvsr_lrs3_visual_ctc.onnx" || true
 download_syncvsr "syncvsr_lrs3_visual_ctc_fp16.onnx" || true
@@ -312,17 +369,7 @@ download_syncvsr "syncvsr_lrs3_decoder.onnx" || true
 SYNCVSR_PERSONAL_HF_REPO="${SYNCVSR_PERSONAL_HF_REPO:-HereLiesAz/liperty-syncvsr-personal-lora}"
 download_personal_syncvsr() {
     local filename="$1"
-    local dest="${TARGET_ASSETS}/${filename}"
-    if [ -f "$dest" ]; then return 0; fi
-    if command -v huggingface-cli &> /dev/null; then
-        huggingface-cli download "$SYNCVSR_PERSONAL_HF_REPO" "$filename" \
-            --local-dir "$TARGET_ASSETS" --quiet 2>&1 | tail -2 || true
-    elif command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; then
-        python -c "
-from huggingface_hub import hf_hub_download
-hf_hub_download(repo_id='$SYNCVSR_PERSONAL_HF_REPO', filename='$filename', local_dir='$TARGET_ASSETS')
-" 2>&1 | tail -2 || true
-    fi
+    hf_fetch_file "$SYNCVSR_PERSONAL_HF_REPO" "$filename" "$TARGET_ASSETS" || true
 }
 download_personal_syncvsr "syncvsr_lrs3_encoder_personal.onnx" || true
 
@@ -339,30 +386,12 @@ AVHUBERT_FILES=(
 
 download_from_hf_repo() {
     # download_from_hf_repo <repo_id> <filename> <dest>
+    # <dest> must equal <local_dir>/<filename>; we derive local_dir from it so
+    # existing call sites keep working unchanged.
     local repo="$1"
     local filename="$2"
     local dest="$3"
-    if [ -f "$dest" ]; then
-        echo "[*] ${dest} already exists."
-        return 0
-    fi
-    echo "[+] Downloading ${filename} from huggingface.co/${repo}..."
-    if command -v huggingface-cli &> /dev/null; then
-        huggingface-cli download "$repo" "$filename" \
-            --local-dir "$TARGET_ASSETS" --quiet 2>&1 | tail -2
-    elif command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; then
-        python -c "
-from huggingface_hub import hf_hub_download
-hf_hub_download(repo_id='$repo', filename='$filename', local_dir='$TARGET_ASSETS')
-" 2>&1 | tail -2
-    else
-        echo "[!] Need huggingface-cli or python+huggingface_hub for V3 download. Skipping."
-        return 1
-    fi
-    if [ ! -f "$dest" ]; then
-        echo "[!] ${dest} not present after download."
-        return 1
-    fi
+    hf_fetch_file "$repo" "$filename" "$(dirname "$dest")"
 }
 
 for f in "${AVHUBERT_FILES[@]}"; do
@@ -391,18 +420,7 @@ done
 # Checkpoint is a directory — use snapshot_download with pattern matching
 if [ ! -d "${TRAINING_ASSETS}/checkpoint" ] || [ -z "$(ls -A "${TRAINING_ASSETS}/checkpoint" 2>/dev/null)" ]; then
     echo "[+] Pulling training checkpoint from ${TRAINING_HF_REPO}..."
-    if command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; then
-        python -c "
-from huggingface_hub import snapshot_download
-snapshot_download(repo_id='$TRAINING_HF_REPO', repo_type='model',
-                  allow_patterns=['checkpoint/*'],
-                  local_dir='$TRAINING_ASSETS')
-" 2>&1 | tail -2 || true
-    elif command -v huggingface-cli &> /dev/null; then
-        huggingface-cli download "$TRAINING_HF_REPO" \
-            --include "checkpoint/*" \
-            --local-dir "$TRAINING_ASSETS" --quiet 2>&1 | tail -2 || true
-    fi
+    hf_retry _hf_snapshot_attempt "$TRAINING_HF_REPO" "checkpoint/*" "$TRAINING_ASSETS" || true
     if [ -d "${TRAINING_ASSETS}/checkpoint" ]; then
         echo "[+] Training checkpoint installed."
     else
@@ -430,22 +448,14 @@ KENLM_NDK_DIR="app/src/main/cpp/kenlm/android-arm64"
 mkdir -p "$KENLM_NDK_DIR"
 if [ ! -f "${KENLM_NDK_DIR}/libkenlm.a" ]; then
     echo "[+] Pulling KenLM Android prebuilts from ${KENLM_HF_REPO}..."
-    if command -v huggingface-cli &> /dev/null; then
-        huggingface-cli download "$KENLM_HF_REPO" \
-            --include "android-arm64/*" \
-            --local-dir "app/src/main/cpp/kenlm" --quiet 2>&1 | tail -2
-    elif command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; then
-        python -c "
-from huggingface_hub import snapshot_download
-snapshot_download(repo_id='$KENLM_HF_REPO', repo_type='model',
-                  allow_patterns=['android-arm64/*'],
-                  local_dir='app/src/main/cpp/kenlm')
-" 2>&1 | tail -2
-    else
-        echo "[!] Skipping KenLM NDK prebuilts: need huggingface-cli or python+huggingface_hub"
-    fi
+    hf_retry _hf_snapshot_attempt "$KENLM_HF_REPO" "android-arm64/*" "app/src/main/cpp/kenlm" || true
     if [ -f "${KENLM_NDK_DIR}/libkenlm.a" ]; then
         echo "[+] KenLM NDK prebuilts installed ($(du -sh "$KENLM_NDK_DIR" | cut -f1))"
+    else
+        echo "[!] KenLM NDK prebuilts NOT installed after retries — the build's"
+        echo "    'Verify KenLM prebuilts' gate will fail. Check that"
+        echo "    ${KENLM_HF_REPO} has android-arm64/libkenlm.a + libkenlm_util.a,"
+        echo "    and that HF_TOKEN is set if the repo is private/rate-limited."
     fi
 else
     echo "[*] KenLM NDK prebuilts already present at ${KENLM_NDK_DIR}"
@@ -482,18 +492,8 @@ download_tts() {
         echo "[*] ${filename} already exists."
         return 0
     fi
-    rm -f "$dest"   # Drop any old 9-byte stub.
-    echo "[+] Downloading ${filename} from ${TTS_HF_REPO}..."
-    if command -v huggingface-cli &> /dev/null; then
-        huggingface-cli download "$TTS_HF_REPO" "$filename" \
-            --local-dir "$TARGET_ASSETS" --quiet 2>&1 | tail -2 || true
-    elif command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; then
-        python -c "
-from huggingface_hub import hf_hub_download
-hf_hub_download(repo_id='$TTS_HF_REPO', filename='$filename', local_dir='$TARGET_ASSETS')
-" 2>&1 | tail -2 || true
-    fi
-    if [ -f "$dest" ]; then
+    rm -f "$dest"   # Drop any old tiny/HTML stub so it gets re-pulled.
+    if hf_fetch_file "$TTS_HF_REPO" "$filename" "$TARGET_ASSETS"; then
         echo "[+] ${filename} installed ($(stat -c%s "$dest" 2>/dev/null || stat -f%z "$dest" 2>/dev/null) bytes)."
     else
         echo "[!] ${filename} download failed. Generate via tools/export_tts_to_onnx.ipynb on Kaggle."
