@@ -65,6 +65,12 @@ class AvHubertSeq2SeqInference(
         return a && b
     }
 
+    /** True only when both ONNX sessions are loaded and [runInference] is safe.
+     *  The caller must check this before routing frames here — a constructed but
+     *  uninitialized backend (e.g. its model file was never downloaded) would
+     *  otherwise throw inside [runInference] and crash the inference coroutine. */
+    fun isReady(): Boolean = encoder.isReady() && decoder.isReady()
+
     /**
      * Run V3 inference on the supplied frames. Takes the LAST [numFrames]
      * frames if more are provided; pads with zeros if fewer.
@@ -154,7 +160,7 @@ class AvHubertSeq2SeqInference(
         ): AvHubertSeq2SeqInference {
             val enc = AvHubertEncoderSession(context, encoderAsset)
             val dec = AvHubertDecoderSession(context, decoderAsset)
-            val dictText = context.assets.open(dictAsset).bufferedReader().use { it.readText() }
+            val dictText = VocabularyLoader.readTextPreferringFiles(context, dictAsset)
             val dict = VocabularyLoader.parseTokenList(dictText)
             return AvHubertSeq2SeqInference(enc, dec, dict)
         }
@@ -184,7 +190,7 @@ class AvHubertSeq2SeqInference(
         ): AvHubertSeq2SeqInference {
             val enc = AvHubertEncoderSession(context, encoderAsset)
             val dec = AvHubertDecoderSession(context, decoderAsset)
-            val vocabText = context.assets.open(vocabAsset).bufferedReader().use { it.readText() }
+            val vocabText = VocabularyLoader.readTextPreferringFiles(context, vocabAsset)
             val vocab = VocabularyLoader.parseTokenList(vocabText)
             // espnet convention: <eos> doubles as <sos>. SyncVSR's unigram
             // dump ends with <eos> at index (vocab.size - 1).

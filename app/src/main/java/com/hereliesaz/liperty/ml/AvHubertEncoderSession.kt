@@ -24,6 +24,10 @@ import java.nio.FloatBuffer
  *  orchestrator can be unit-tested with deterministic fakes. */
 interface EncoderSession {
     fun initialize(): Boolean
+    /** True once the underlying ONNX session is loaded and [runEncode] is safe
+     *  to call. Non-null construction does NOT imply this — the model file may
+     *  be missing or have failed to load. */
+    fun isReady(): Boolean
     /** input: NCTHW `(1, 1, T, H, W)` float32 row-major;
      *  returns features `(B, T_out, C)` flattened, plus its runtime shape. */
     fun runEncode(input: FloatArray, inputShape: LongArray): Pair<FloatArray, LongArray>
@@ -59,11 +63,16 @@ class AvHubertEncoderSession(
             session = s
             Log.i(TAG, "Encoder '$modelName' loaded; input='$inputName' output='$outputName'")
             true
-        } catch (e: Exception) {
-            Log.e(TAG, "FAILED to load encoder '$modelName': ${e.message}", e)
+        } catch (t: Throwable) {
+            // Throwable (not Exception): loading a multi-hundred-MB ONNX session
+            // can OOM (VirtualMachineError) or hit a native LinkageError. Those
+            // must not escape into the caller's coroutine and force-close the app.
+            Log.e(TAG, "FAILED to load encoder '$modelName': ${t.message}", t)
             false
         }
     }
+
+    override fun isReady(): Boolean = session != null
 
     /**
      * Run the encoder.
@@ -93,10 +102,17 @@ class AvHubertEncoderSession(
 
     private fun ensureModelOnDisk(): String {
         val dst = File(context.filesDir, modelName)
-        // openFd() throws on compressed assets (aapt2's default for .onnx).
-        // available() reports uncompressed size for both compressed and stored.
-        val assetSize = context.assets.open(modelName).use { it.available().toLong() }
-        if (dst.exists() && dst.length() == assetSize) return dst.absolutePath
+
+        // 1. Already on disk — downloaded by ModelDownloadManager (production)
+        //    or copied from assets on a previous launch. This is the common
+        //    case for the large seq2seq encoder, which is fetched at first
+        //    launch, never bundled in the APK.
+        if (dst.exists() && dst.length() > MIN_MODEL_BYTES) return dst.absolutePath
+
+        // 2. Bundled in assets (dev builds with setup_libs.sh) — copy to filesDir
+        //    so ORT can mmap it. Throws if the asset is absent, which is the
+        //    expected signal in production builds that the model wasn't
+        //    downloaded; initialize() catches it and reports the session unready.
         context.assets.open(modelName).use { input ->
             dst.outputStream().use { output -> input.copyTo(output) }
         }
@@ -112,5 +128,9 @@ class AvHubertEncoderSession(
 
     companion object {
         private const val TAG = "AvHubertEncoderSession"
+        /** Floor distinguishing a real model from a truncated/HTML-error stub.
+         *  The encoder is ~759 MB; CDN/HTML error pages can exceed 1 KB, so a
+         *  1 MB floor is a safe lower bound well below any real model. */
+        private const val MIN_MODEL_BYTES = 1_000_000L
     }
 }

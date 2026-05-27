@@ -26,6 +26,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,7 +44,8 @@ fun SetupScreen(
     onStartDownload: () -> Unit,
     onRetryModel: (String) -> Unit,
     onSkipOptional: () -> Unit,
-    onContinue: () -> Unit
+    onContinue: () -> Unit,
+    onSetWifiOnly: (Boolean) -> Unit
 ) {
     val hasStarted = downloadState.modelStates.any {
         it.value.status != ModelDownloadManager.Status.PENDING
@@ -84,7 +86,34 @@ fun SetupScreen(
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(16.dp))
+
+            // Wi-Fi-only preference. Default on: keeps large downloads off the
+            // power-hungry cellular radio and off metered data.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Wi-Fi only",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Recommended — avoids cellular data and saves battery",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = downloadState.wifiOnly,
+                    onCheckedChange = onSetWifiOnly
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
 
             // Overall progress
             if (hasStarted) {
@@ -161,6 +190,27 @@ fun SetupScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Continue to App")
+                }
+            } else if (downloadState.blockedOnNetwork) {
+                Text(
+                    text = "Waiting for Wi-Fi. Connect to a Wi-Fi network to continue, " +
+                        "or download over cellular (uses mobile data).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(8.dp)
+                )
+                Button(
+                    onClick = onStartDownload,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Retry on Wi-Fi")
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { onSetWifiOnly(false) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Download over cellular")
                 }
             } else if (downloadState.error != null) {
                 Text(
@@ -243,6 +293,12 @@ private fun ModelDownloadCard(
                     ModelDownloadManager.Status.SKIPPED ->
                         Text(
                             "Skipped",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                    ModelDownloadManager.Status.WAITING_WIFI ->
+                        Text(
+                            "Waiting for Wi-Fi",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.outline
                         )

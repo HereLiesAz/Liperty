@@ -62,8 +62,11 @@ class OnnxModelEngine(
                     "output shape=${outputShape.contentToString()}"
             )
             true
-        } catch (e: Exception) {
-            Log.e("OnnxModelEngine", "FAILED to load model '$modelName': ${e.message}", e)
+        } catch (t: Throwable) {
+            // Throwable (not Exception): loading a large ONNX session can OOM
+            // (VirtualMachineError) or hit a native LinkageError. These must not
+            // escape into the background-init coroutine and force-close the app.
+            Log.e("OnnxModelEngine", "FAILED to load model '$modelName': ${t.message}", t)
             false
         }
     }

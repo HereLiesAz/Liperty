@@ -1,6 +1,7 @@
 package com.hereliesaz.liperty.ml
 
 import android.content.Context
+import java.io.File
 
 /**
  * Parses Auto-AVSR / ESPnet-style token list files (e.g. `unigram5000_units.txt`)
@@ -23,6 +24,27 @@ object VocabularyLoader {
     fun loadFromAssets(context: Context, assetName: String, blank: String = "_"): List<String> {
         val text = context.assets.open(assetName).bufferedReader().use { it.readText() }
         return withBlankAtZero(parseTokenList(text), blank)
+    }
+
+    /**
+     * Reads `name` preferring [Context.getFilesDir] (where [ModelDownloadManager]
+     * places files at first launch) and falling back to bundled assets (dev
+     * builds). Returns the parsed token list with a blank prepended at index 0.
+     *
+     * Use this instead of [loadFromAssets] for vocabularies that are downloaded
+     * rather than bundled — the assets-only path can't see a downloaded file.
+     */
+    fun load(context: Context, name: String, blank: String = "_"): List<String> =
+        withBlankAtZero(parseTokenList(readTextPreferringFiles(context, name)), blank)
+
+    /**
+     * Raw text read that prefers a downloaded file in [Context.getFilesDir] over
+     * a bundled asset. Throws if the resource is in neither location.
+     */
+    fun readTextPreferringFiles(context: Context, name: String): String {
+        val file = File(context.filesDir, name)
+        if (file.exists() && file.length() > 0) return file.readText()
+        return context.assets.open(name).bufferedReader().use { it.readText() }
     }
 
     /**
