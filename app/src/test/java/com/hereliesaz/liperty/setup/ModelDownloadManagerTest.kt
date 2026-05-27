@@ -27,6 +27,9 @@ class ModelDownloadManagerTest {
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
+        // Clear shared state so tests don't leak setup_complete/version across runs.
+        context.getSharedPreferences("ModelDownloadPrefs", Context.MODE_PRIVATE)
+            .edit().clear().apply()
         manager = ModelDownloadManager(context)
     }
 
@@ -66,7 +69,6 @@ class ModelDownloadManagerTest {
     @Test
     fun freshInstallIsNotSetupComplete() {
         // No models on disk -> setup is not complete (the setup screen must show).
-        clearPrefs()
         assertFalse(manager.isSetupComplete())
     }
 
@@ -88,11 +90,5 @@ class ModelDownloadManagerTest {
             "stale setup_complete at an older version must not short-circuit",
             manager.isSetupComplete()
         )
-    }
-
-    private fun clearPrefs() {
-        ApplicationProvider.getApplicationContext<Context>()
-            .getSharedPreferences("ModelDownloadPrefs", Context.MODE_PRIVATE)
-            .edit().clear().apply()
     }
 }

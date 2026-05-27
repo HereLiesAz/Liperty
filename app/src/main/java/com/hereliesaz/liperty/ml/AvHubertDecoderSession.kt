@@ -172,7 +172,9 @@ class AvHubertDecoderSession(
 
     companion object {
         private const val TAG = "AvHubertDecoderSession"
-        /** Floor distinguishing a real model from a truncated/HTML-error stub. */
-        private const val MIN_MODEL_BYTES = 1000L
+        /** Floor distinguishing a real model from a truncated/HTML-error stub.
+         *  The decoder is ~273 MB; CDN/HTML error pages can exceed 1 KB, so a
+         *  1 MB floor is a safe lower bound well below any real model. */
+        private const val MIN_MODEL_BYTES = 1_000_000L
     }
 }

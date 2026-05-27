@@ -204,6 +204,11 @@ class MainActivity : ComponentActivity() {
         // and shipped in the APK). Cmudict-derived: 126k words across 30k
         // unique viseme sequences. ~2 MB on disk.
         const val VISEME_INDEX = "viseme_index.json"
+
+        // Strips a trailing "(...)" annotation from decoded text. Pre-compiled
+        // once: the inference loop runs on every full frame window, so building
+        // a fresh Regex each time would add needless GC churn.
+        private val PARENTHESES_REGEX = Regex("\\(.*\\)")
     }
 
     private lateinit var cameraManager: CameraManager
@@ -540,12 +545,12 @@ class MainActivity : ComponentActivity() {
         if (coreInitialized) {
             lifecycleScope.launch(Dispatchers.Default) {
                 runCatching { vsrInference.initialize() }
-                    .onFailure { Log.e("MainActivity", "CTC engine init failed", it) }
+                    .onFailure { logInitFailureOrRethrow("CTC engine init failed", it) }
                 runCatching { ssrInference?.initialize() }
-                    .onFailure { Log.e("MainActivity", "SSR engine init failed", it) }
+                    .onFailure { logInitFailureOrRethrow("SSR engine init failed", it) }
                 avhubertV3?.let { v3 ->
                     val ok = runCatching { v3.initialize() }
-                        .onFailure { Log.e("MainActivity", "V3 backend init threw; falling back", it) }
+                        .onFailure { logInitFailureOrRethrow("V3 backend init threw; falling back", it) }
                         .getOrDefault(false)
                     if (!ok) {
                         Log.w("MainActivity", "V3 backend unavailable; falling back to V2")
@@ -554,7 +559,7 @@ class MainActivity : ComponentActivity() {
                 }
                 syncVsrSeq2Seq?.let { sync2 ->
                     val ok = runCatching { sync2.initialize() }
-                        .onFailure { Log.e("MainActivity", "SyncVSR seq2seq init threw; falling back", it) }
+                        .onFailure { logInitFailureOrRethrow("SyncVSR seq2seq init threw; falling back", it) }
                         .getOrDefault(false)
                     if (!ok) {
                         Log.w("MainActivity", "SyncVSR seq2seq unavailable; falling back to CTC")
@@ -584,6 +589,14 @@ class MainActivity : ComponentActivity() {
     private fun onInitFailure(t: Throwable) {
         Log.e("MainActivity", "Failed to initialize components: $t", t)
         Toast.makeText(this, getString(R.string.common_init_error, t.toString()), Toast.LENGTH_LONG).show()
+    }
+
+    /** Logs a background-init failure, but rethrows [CancellationException] so a
+     *  cancelled lifecycleScope (activity destroyed mid-init) unwinds cleanly
+     *  instead of plowing through the remaining backend initializations. */
+    private fun logInitFailureOrRethrow(msg: String, t: Throwable) {
+        if (t is kotlinx.coroutines.CancellationException) throw t
+        Log.e("MainActivity", msg, t)
     }
 
     override fun onPause() {
@@ -1092,7 +1105,7 @@ class MainActivity : ComponentActivity() {
                         } ?: vsrResult.text
 
                         withContext(Dispatchers.Main) {
-                            val rawText = rescoredText.replace("Pred: ", "").replace(Regex("\\(.*\\)"), "")
+                            val rawText = rescoredText.replace("Pred: ", "").replace(PARENTHESES_REGEX, "")
                             Log.d("VSRPipeline", "inference done: ctc='${vsrResult.text.take(80)}' rescored='${rescoredText.take(80)}' final='$rawText' conf=${"%.2f".format(vsrResult.confidence)}")
                             if (rawText.isNotBlank()) {
                                 transcriptionManager.appendText(rawText, vsrResult.confidence)
@@ -1100,6 +1113,10 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     } catch (t: Throwable) {
+                        // Don't swallow coroutine cancellation (activity destroyed
+                        // mid-window) — rethrow so the scope unwinds cleanly and the
+                        // log isn't polluted with a false "inference failed".
+                        if (t is kotlinx.coroutines.CancellationException) throw t
                         Log.e("MainActivity", "Inference failed; dropping this window", t)
                     } finally {
                         // Explicitly recycle the frames this window owns (even on
