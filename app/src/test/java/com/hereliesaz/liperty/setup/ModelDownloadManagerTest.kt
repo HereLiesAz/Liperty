@@ -1,14 +1,20 @@
 package com.hereliesaz.liperty.setup
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowNetworkCapabilities
 
 /**
  * Guards the first-launch download manifest against the regression that caused
@@ -90,5 +96,45 @@ class ModelDownloadManagerTest {
             "stale setup_complete at an older version must not short-circuit",
             manager.isSetupComplete()
         )
+    }
+
+    @Test
+    fun wifiOnlyDefaultsToTrue() {
+        assertTrue("Wi-Fi-only must default on to protect battery/data", manager.isWifiOnly())
+    }
+
+    @Test
+    fun setWifiOnlyPersists() = runBlocking {
+        manager.setWifiOnly(false)
+        assertFalse(manager.isWifiOnly())
+        manager.setWifiOnly(true)
+        assertTrue(manager.isWifiOnly())
+    }
+
+    @Test
+    fun cellularWithWifiOnlyBlocksDownload() = runBlocking {
+        // Active network is cellular; Wi-Fi-only is on (default).
+        setActiveTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+
+        manager.downloadAll(skipOptional = false)
+
+        assertTrue(
+            "cellular + Wi-Fi-only must block, not download",
+            manager.state.value.blockedOnNetwork
+        )
+        // The first required model should be parked waiting for Wi-Fi, never ERROR.
+        assertEquals(
+            ModelDownloadManager.Status.WAITING_WIFI,
+            manager.state.value.modelStates["face_landmarker.task"]?.status
+        )
+    }
+
+    /** Points the active network's capabilities at a single transport type. */
+    private fun setActiveTransport(transport: Int) {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val caps = ShadowNetworkCapabilities.newInstance()
+        shadowOf(caps).addTransportType(transport)
+        shadowOf(cm).setNetworkCapabilities(cm.activeNetwork, caps)
     }
 }

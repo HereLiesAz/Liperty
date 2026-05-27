@@ -1,6 +1,8 @@
 package com.hereliesaz.liperty.setup
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,6 +28,10 @@ class ModelDownloadManager(private val context: Context) {
         private const val PREFS_NAME = "ModelDownloadPrefs"
         private const val KEY_SETUP_COMPLETE = "setup_complete"
         private const val KEY_SETUP_VERSION = "setup_version"
+        /** When true (default), network downloads only run on Wi-Fi/Ethernet —
+         *  not cellular. Saves battery (cellular radio is power-hungry) and
+         *  avoids large transfers over metered data. */
+        private const val KEY_WIFI_ONLY = "download_wifi_only"
 
         /** Bump when the required model manifest changes (forces re-check). */
         private const val CURRENT_SETUP_VERSION = 3
@@ -188,7 +194,12 @@ class ModelDownloadManager(private val context: Context) {
     data class DownloadState(
         val modelStates: Map<String, ModelDownloadState> = emptyMap(),
         val isComplete: Boolean = false,
-        val error: String? = null
+        val error: String? = null,
+        /** Current Wi-Fi-only preference, mirrored here so the UI is state-driven. */
+        val wifiOnly: Boolean = true,
+        /** True when a download is held back because Wi-Fi-only is on and the
+         *  device is on cellular. The UI shows a "waiting for Wi-Fi" prompt. */
+        val blockedOnNetwork: Boolean = false
     )
 
     data class ModelDownloadState(
@@ -204,10 +215,45 @@ class ModelDownloadManager(private val context: Context) {
             get() = if (totalBytes > 0) progressBytes.toFloat() / totalBytes else 0f
     }
 
-    enum class Status { PENDING, DOWNLOADING, COMPLETE, SKIPPED, ERROR }
+    enum class Status { PENDING, DOWNLOADING, COMPLETE, SKIPPED, ERROR, WAITING_WIFI }
 
-    private val _state = MutableStateFlow(DownloadState())
+    private val _state = MutableStateFlow(DownloadState(wifiOnly = isWifiOnly()))
     val state: StateFlow<DownloadState> = _state.asStateFlow()
+
+    private fun prefs() = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    /** Whether downloads are restricted to Wi-Fi/Ethernet. Defaults to true. */
+    fun isWifiOnly(): Boolean = prefs().getBoolean(KEY_WIFI_ONLY, true)
+
+    /**
+     * Persists the Wi-Fi-only preference. When the user switches to allow
+     * cellular while a download is currently blocked, resume it immediately.
+     */
+    suspend fun setWifiOnly(enabled: Boolean) {
+        prefs().edit().putBoolean(KEY_WIFI_ONLY, enabled).apply()
+        val wasBlocked = _state.value.blockedOnNetwork
+        _state.value = _state.value.copy(wifiOnly = enabled)
+        if (!enabled && wasBlocked) {
+            // Cellular now permitted and we were waiting — pick up where we left off.
+            downloadAll(skipOptional = false)
+        }
+    }
+
+    /**
+     * True if the active network satisfies the current download policy. With
+     * Wi-Fi-only on, only WIFI/ETHERNET transports qualify (a metered Wi-Fi
+     * hotspot still counts as Wi-Fi by transport, which matches the user's
+     * "Wi-Fi only" intent of avoiding the cellular radio). With it off, any
+     * validated network is fine.
+     */
+    private fun networkAllowsDownload(): Boolean {
+        if (!isWifiOnly()) return true
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+        return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+    }
 
     /** True if all required models are present on disk. */
     fun isSetupComplete(): Boolean {
@@ -238,7 +284,7 @@ class ModelDownloadManager(private val context: Context) {
      * Call from a coroutine scope (e.g., viewModelScope).
      */
     suspend fun downloadAll(skipOptional: Boolean = false) {
-        // Initialize state
+        // Initialize state (preserve the Wi-Fi-only preference; clear stale block)
         val initialStates = models.associate { spec ->
             val alreadyPresent = isModelPresent(spec)
             val shouldSkip = skipOptional && !spec.required
@@ -253,7 +299,7 @@ class ModelDownloadManager(private val context: Context) {
                 }
             )
         }
-        _state.value = DownloadState(modelStates = initialStates)
+        _state.value = DownloadState(modelStates = initialStates, wifiOnly = isWifiOnly())
 
         // Download each model that isn't already present
         for (spec in models) {
@@ -262,6 +308,14 @@ class ModelDownloadManager(private val context: Context) {
 
             try {
                 downloadModel(spec)
+            } catch (e: NetworkBlockedException) {
+                // Wi-Fi-only is on and we're on cellular. Stop here (the model is
+                // already marked WAITING_WIFI) and let the UI prompt the user.
+                _state.value = _state.value.copy(
+                    blockedOnNetwork = true,
+                    error = "Waiting for Wi-Fi. Connect to Wi-Fi, or allow cellular to continue."
+                )
+                return
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to download ${spec.fileName}", e)
                 updateModelState(spec.fileName) {
@@ -308,6 +362,12 @@ class ModelDownloadManager(private val context: Context) {
                     .apply()
                 _state.value = _state.value.copy(isComplete = true, error = null)
             }
+        } catch (e: NetworkBlockedException) {
+            // Already marked WAITING_WIFI by downloadModel; surface the prompt.
+            _state.value = _state.value.copy(
+                blockedOnNetwork = true,
+                error = "Waiting for Wi-Fi. Connect to Wi-Fi, or allow cellular to continue."
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Retry failed for $fileName", e)
             updateModelState(fileName) {
@@ -315,6 +375,10 @@ class ModelDownloadManager(private val context: Context) {
             }
         }
     }
+
+    /** Thrown by [downloadModel] when a network transfer is needed but the
+     *  Wi-Fi-only policy disallows the current (cellular) connection. */
+    private class NetworkBlockedException : Exception()
 
     // ── Internal ──────────────────────────────────────────────────────
 
@@ -350,6 +414,13 @@ class ModelDownloadManager(private val context: Context) {
             }
         } catch (_: Exception) {
             // Asset not bundled — expected for production builds
+        }
+
+        // A network transfer is required from here (not already on disk or in
+        // assets). Honor the Wi-Fi-only policy before touching the radio.
+        if (!networkAllowsDownload()) {
+            updateModelState(spec.fileName) { it.copy(status = Status.WAITING_WIFI) }
+            throw NetworkBlockedException()
         }
 
         // Download from source (custom URL or HuggingFace)

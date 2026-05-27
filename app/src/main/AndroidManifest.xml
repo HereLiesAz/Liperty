@@ -9,6 +9,9 @@
     <!-- Network access for first-launch model downloads from HuggingFace.
          After initial setup, the app operates fully offline. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Read network transport (Wi-Fi vs cellular) to honor the Wi-Fi-only
+         download preference. Normal permission; granted at install. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />

@@ -347,6 +347,9 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 requestPermissions()
                             }
+                        },
+                        onSetWifiOnly = { enabled ->
+                            lifecycleScope.launch { downloadManager.setWifiOnly(enabled) }
                         }
                     )
                 }
