@@ -17,6 +17,8 @@ class TrainingDataPreparerTest {
     private class FakeEncoder : EncoderSession {
         override fun initialize() = true
 
+        override fun isReady() = true
+
         override fun runEncode(
             input: FloatArray,
             inputShape: LongArray,

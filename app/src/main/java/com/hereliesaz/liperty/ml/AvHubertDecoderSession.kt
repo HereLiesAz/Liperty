@@ -28,6 +28,9 @@ import java.nio.LongBuffer
  *  orchestrator can be unit-tested with deterministic fakes. */
 interface DecoderSession {
     fun initialize(): Boolean
+    /** True once the underlying ONNX session is loaded and [runStep] is safe to
+     *  call. Non-null construction does NOT imply this. */
+    fun isReady(): Boolean
     fun runStep(prevTokens: IntArray, encoderFeatures: FloatArray, encShape: LongArray): FloatArray
     val vocabSize: Int
     fun close()
@@ -80,11 +83,15 @@ class AvHubertDecoderSession(
             session = s
             Log.i(TAG, "Decoder '$modelName' loaded; vocab=$vocabSize")
             true
-        } catch (e: Exception) {
-            Log.e(TAG, "FAILED to load decoder '$modelName': ${e.message}", e)
+        } catch (t: Throwable) {
+            // Throwable (not Exception): a large ONNX session can OOM or hit a
+            // native LinkageError; neither must escape into the caller's coroutine.
+            Log.e(TAG, "FAILED to load decoder '$modelName': ${t.message}", t)
             false
         }
     }
+
+    override fun isReady(): Boolean = session != null
 
     /**
      * One autoregressive step. Returns the `(V,)` logits for the next
@@ -141,10 +148,15 @@ class AvHubertDecoderSession(
 
     private fun ensureModelOnDisk(): String {
         val dst = File(context.filesDir, modelName)
-        // openFd() throws on compressed assets (aapt2's default for .onnx).
-        // available() reports uncompressed size for both compressed and stored.
-        val assetSize = context.assets.open(modelName).use { it.available().toLong() }
-        if (dst.exists() && dst.length() == assetSize) return dst.absolutePath
+
+        // 1. Already on disk — downloaded by ModelDownloadManager (production)
+        //    or copied from assets on a previous launch.
+        if (dst.exists() && dst.length() > MIN_MODEL_BYTES) return dst.absolutePath
+
+        // 2. Bundled in assets (dev builds with setup_libs.sh) — copy to filesDir.
+        //    Throws if the asset is absent, which is the expected signal in
+        //    production builds that the model wasn't downloaded; initialize()
+        //    catches it and reports the session unready.
         context.assets.open(modelName).use { input ->
             dst.outputStream().use { output -> input.copyTo(output) }
         }
@@ -160,5 +172,7 @@ class AvHubertDecoderSession(
 
     companion object {
         private const val TAG = "AvHubertDecoderSession"
+        /** Floor distinguishing a real model from a truncated/HTML-error stub. */
+        private const val MIN_MODEL_BYTES = 1000L
     }
 }

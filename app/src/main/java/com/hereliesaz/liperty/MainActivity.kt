@@ -431,7 +431,7 @@ class MainActivity : ComponentActivity() {
                 modelName = AUTOAVSR_MODEL,
                 expectedInputLayout = VSR_INPUT_LAYOUT,
             )
-            val subwordVocab = VocabularyLoader.loadFromAssets(this, AUTOAVSR_VOCAB, blank = "<blank>")
+            val subwordVocab = VocabularyLoader.load(this, AUTOAVSR_VOCAB, blank = "<blank>")
             val kenLmScorer: KenLmScorer? = try {
                 val dst = java.io.File(filesDir, KENLM_MODEL)
                 if (!dst.exists() || dst.length() < 1000) {
@@ -532,20 +532,32 @@ class MainActivity : ComponentActivity() {
             onInitFailure(e)
         }
 
-        // Background initialization
+        // Background initialization. Each step is independently guarded: model
+        // loading can OOM or hit a native LinkageError (Throwable, not Exception),
+        // and this runs on Dispatchers.Default where an uncaught throwable would
+        // force-close the app. On any failure we drop the affected backend so the
+        // pipeline degrades (seq2seq -> CTC) instead of crashing.
         if (coreInitialized) {
             lifecycleScope.launch(Dispatchers.Default) {
-                vsrInference.initialize()
-                ssrInference?.initialize()
-                avhubertV3?.let {
-                    if (!it.initialize()) {
-                        Log.w("MainActivity", "V3 backend.initialize() returned false; falling back to V2")
+                runCatching { vsrInference.initialize() }
+                    .onFailure { Log.e("MainActivity", "CTC engine init failed", it) }
+                runCatching { ssrInference?.initialize() }
+                    .onFailure { Log.e("MainActivity", "SSR engine init failed", it) }
+                avhubertV3?.let { v3 ->
+                    val ok = runCatching { v3.initialize() }
+                        .onFailure { Log.e("MainActivity", "V3 backend init threw; falling back", it) }
+                        .getOrDefault(false)
+                    if (!ok) {
+                        Log.w("MainActivity", "V3 backend unavailable; falling back to V2")
                         avhubertV3 = null
                     }
                 }
-                syncVsrSeq2Seq?.let {
-                    if (!it.initialize()) {
-                        Log.w("MainActivity", "SyncVSR seq2seq init returned false; falling back to CTC")
+                syncVsrSeq2Seq?.let { sync2 ->
+                    val ok = runCatching { sync2.initialize() }
+                        .onFailure { Log.e("MainActivity", "SyncVSR seq2seq init threw; falling back", it) }
+                        .getOrDefault(false)
+                    if (!ok) {
+                        Log.w("MainActivity", "SyncVSR seq2seq unavailable; falling back to CTC")
                         syncVsrSeq2Seq = null
                     } else {
                         Log.i("MainActivity", "SyncVSR seq2seq backend initialized")
@@ -1039,47 +1051,61 @@ class MainActivity : ComponentActivity() {
                 }
 
                 lifecycleScope.launch(Dispatchers.Default) {
-                    val v3 = avhubertV3
-                    val sync2 = syncVsrSeq2Seq
-                    val vsrResult = when {
-                        v3 != null -> {
-                            // V3 path: AV-HuBERT seq2seq. Doesn't consume the lip
-                            // landmarks — the encoder takes only mouth ROIs.
-                            v3.runInference(framesToProcess)
+                    // Whole body guarded: this runs on Dispatchers.Default, so an
+                    // uncaught throwable here force-closes the app. A backend whose
+                    // model failed to load (encoder/decoder ONNX missing or OOM)
+                    // must degrade, not crash. The finally guarantees frames are
+                    // recycled and the inference latch is released even on failure.
+                    try {
+                        val v3 = avhubertV3
+                        val sync2 = syncVsrSeq2Seq
+                        // Route only to a backend that is actually initialized.
+                        // Non-null is NOT enough: createSyncVsr/create succeed with
+                        // just the vocab, before the (large) ONNX sessions load.
+                        val vsrResult = when {
+                            v3 != null && v3.isReady() -> {
+                                // V3 path: AV-HuBERT seq2seq. Doesn't consume the lip
+                                // landmarks — the encoder takes only mouth ROIs.
+                                v3.runInference(framesToProcess)
+                            }
+                            sync2 != null && sync2.isReady() -> {
+                                // SyncVSR seq2seq: encoder hidden states + attention
+                                // decoder greedy autoregressive loop. Same lip-ROI
+                                // input as the CTC path; landmarks unused.
+                                sync2.runInference(framesToProcess)
+                            }
+                            else -> vsrInference.runInference(framesToProcess, landmarksToProcess)
                         }
-                        sync2 != null -> {
-                            // SyncVSR seq2seq: encoder hidden states + attention
-                            // decoder greedy autoregressive loop. Same lip-ROI
-                            // input as the CTC path; landmarks unused.
-                            sync2.runInference(framesToProcess)
-                        }
-                        else -> vsrInference.runInference(framesToProcess, landmarksToProcess)
-                    }
-                    // Once inference is complete, explicitly recycle the frames
-                    for (frame in framesToProcess) {
-                        BitmapPool.recycle(frame)
-                    }
 
-                    // Viseme-aware rescoring ("Chaplin's second AI" for visual ASR):
-                    // try to swap visually-equivalent words that score higher in
-                    // the LM context. No-op when LM has no signal (Noop or
-                    // missing KenLM JNI). Runs off the UI thread; the result is
-                    // typically near-identical to input until KenLM is wired up.
-                    val rescoredText = visemeRescorer?.let {
-                        try {
-                            it.rescore(vsrResult.text)
-                        } catch (e: Exception) {
-                            Log.w("MainActivity", "visemeRescorer failed: ${e.message}")
-                            vsrResult.text
-                        }
-                    } ?: vsrResult.text
+                        // Viseme-aware rescoring ("Chaplin's second AI" for visual ASR):
+                        // try to swap visually-equivalent words that score higher in
+                        // the LM context. No-op when LM has no signal (Noop or
+                        // missing KenLM JNI). Runs off the UI thread; the result is
+                        // typically near-identical to input until KenLM is wired up.
+                        val rescoredText = visemeRescorer?.let {
+                            try {
+                                it.rescore(vsrResult.text)
+                            } catch (e: Exception) {
+                                Log.w("MainActivity", "visemeRescorer failed: ${e.message}")
+                                vsrResult.text
+                            }
+                        } ?: vsrResult.text
 
-                    withContext(Dispatchers.Main) {
-                        val rawText = rescoredText.replace("Pred: ", "").replace(Regex("\\(.*\\)"), "")
-                        Log.d("VSRPipeline", "inference done: ctc='${vsrResult.text.take(80)}' rescored='${rescoredText.take(80)}' final='$rawText' conf=${"%.2f".format(vsrResult.confidence)}")
-                        if (rawText.isNotBlank()) {
-                            transcriptionManager.appendText(rawText, vsrResult.confidence)
-                            updateTranscriptionUI()
+                        withContext(Dispatchers.Main) {
+                            val rawText = rescoredText.replace("Pred: ", "").replace(Regex("\\(.*\\)"), "")
+                            Log.d("VSRPipeline", "inference done: ctc='${vsrResult.text.take(80)}' rescored='${rescoredText.take(80)}' final='$rawText' conf=${"%.2f".format(vsrResult.confidence)}")
+                            if (rawText.isNotBlank()) {
+                                transcriptionManager.appendText(rawText, vsrResult.confidence)
+                                updateTranscriptionUI()
+                            }
+                        }
+                    } catch (t: Throwable) {
+                        Log.e("MainActivity", "Inference failed; dropping this window", t)
+                    } finally {
+                        // Explicitly recycle the frames this window owns (even on
+                        // failure) and release the latch so the next window can run.
+                        for (frame in framesToProcess) {
+                            BitmapPool.recycle(frame)
                         }
                         isInferencing = false
                     }

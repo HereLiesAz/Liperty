@@ -28,7 +28,7 @@ class ModelDownloadManager(private val context: Context) {
         private const val KEY_SETUP_VERSION = "setup_version"
 
         /** Bump when the required model manifest changes (forces re-check). */
-        private const val CURRENT_SETUP_VERSION = 2
+        private const val CURRENT_SETUP_VERSION = 3
 
         /** HuggingFace CDN pattern — follows redirect to CF/S3 edge. */
         private const val HF_BASE = "https://huggingface.co"
@@ -85,13 +85,39 @@ class ModelDownloadManager(private val context: Context) {
             expectedSizeBytes = 7_900_000L,
             customUrl = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
         ),
-        // Production VSR model
+        // Production VSR model — CTC fallback path (graceful degradation when the
+        // larger seq2seq encoder/decoder can't load, e.g. OOM on low-RAM devices).
         ModelSpec(
             fileName = "syncvsr_lrs3_visual_ctc_fp16.onnx",
             repo = "HereLiesAz/liperty-syncvsr-onnx",
             required = true,
             description = "Visual Speech Recognition model",
             expectedSizeBytes = 370_000_000L
+        ),
+        // SyncVSR seq2seq backend (active production path: VSR_BACKEND ==
+        // BACKEND_SYNC_VSR, SYNCVSR_USE_SEQ2SEQ == true). The vocab is tiny but
+        // required by BOTH the seq2seq and CTC paths; the encoder/decoder are
+        // large and never bundled in the APK, so they MUST be downloaded here.
+        ModelSpec(
+            fileName = "syncvsr_unigram_units.txt",
+            repo = "HereLiesAz/liperty-syncvsr-onnx",
+            required = true,
+            description = "Speech recognition vocabulary",
+            expectedSizeBytes = 65_000L
+        ),
+        ModelSpec(
+            fileName = "syncvsr_lrs3_encoder.onnx",
+            repo = "HereLiesAz/liperty-syncvsr-onnx",
+            required = true,
+            description = "Speech recognition encoder (high accuracy)",
+            expectedSizeBytes = 759_000_000L
+        ),
+        ModelSpec(
+            fileName = "syncvsr_lrs3_decoder.onnx",
+            repo = "HereLiesAz/liperty-syncvsr-onnx",
+            required = true,
+            description = "Speech recognition decoder (high accuracy)",
+            expectedSizeBytes = 273_000_000L
         ),
         ModelSpec(
             fileName = "librispeech_3gram.bin",

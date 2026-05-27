@@ -35,10 +35,13 @@ class AvHubertSeq2SeqInferenceTest {
     private class FakeEncoder(
         /** What runEncode returns, regardless of input. */
         private val out: Pair<FloatArray, LongArray>,
+        /** Simulates whether the underlying ONNX session loaded. */
+        var ready: Boolean = true,
     ) : EncoderSession {
         var encodeCalls = 0
         var lastInputShape: LongArray? = null
-        override fun initialize(): Boolean = true
+        override fun initialize(): Boolean = ready
+        override fun isReady(): Boolean = ready
         override fun runEncode(input: FloatArray, inputShape: LongArray): Pair<FloatArray, LongArray> {
             encodeCalls++
             lastInputShape = inputShape
@@ -52,10 +55,13 @@ class AvHubertSeq2SeqInferenceTest {
          *  the next token. After the plan runs out, emits the eos token (2). */
         private val plan: IntArray,
         override val vocabSize: Int = 6,
+        /** Simulates whether the underlying ONNX session loaded. */
+        var ready: Boolean = true,
     ) : DecoderSession {
         var stepCalls = 0
         val prevTokensSeen = ArrayList<IntArray>()
-        override fun initialize(): Boolean = true
+        override fun initialize(): Boolean = ready
+        override fun isReady(): Boolean = ready
         override fun runStep(
             prevTokens: IntArray,
             encoderFeatures: FloatArray,
@@ -158,6 +164,26 @@ class AvHubertSeq2SeqInferenceTest {
         val seen = fakeEnc.lastInputShape!!
         assertEquals(5, seen.size)
         assertEquals(longArrayOf(1L, 16L, 1L, 88L, 88L).toList(), seen.toList())
+    }
+
+    @Test
+    fun isReadyRequiresBothSessionsLoaded() {
+        val featShape = longArrayOf(1L, 2L, 8L)
+        val enc = FakeEncoder(FloatArray(16) to featShape)
+        val dec = FakeDecoder(plan = intArrayOf(2))
+        val orch = AvHubertSeq2SeqInference(encoder = enc, decoder = dec, dict = dict)
+
+        // Both ready
+        assertTrue(orch.isReady())
+
+        // Encoder failed to load -> not ready (routing must skip this backend)
+        enc.ready = false
+        assertTrue("encoder unready => backend unready", !orch.isReady())
+
+        // Decoder failed to load -> not ready
+        enc.ready = true
+        dec.ready = false
+        assertTrue("decoder unready => backend unready", !orch.isReady())
     }
 
     @Test
