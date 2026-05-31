@@ -104,7 +104,29 @@ torch.onnx.export(
 )
 print(f"[stage2] Exported: {ONNX_PATH} ({ONNX_PATH.stat().st_size/1e6:.1f} MB)")
 
-# Parity check ORT vs PyTorch.
+# Consolidate any external weights into a single self-contained .onnx.
+# torch.onnx.export can spill tensors to a sibling `<model>.onnx.data`
+# (or `<model>.onnx_data`) file; if that file is then dropped at upload
+# time, the model on HF is an unusable ~2 MB proto with dangling
+# external-data references — exactly the bug that broke the FP32 upload
+# (see docs/EVAL_RESULTS_2026-05-13.md, Followups #4). Re-save as a
+# single file so the artifact is self-contained. ~370 MB is well under
+# the 2 GB protobuf limit, so a single file is valid.
+import onnx
+
+print("[stage2] Consolidating external weights into a self-contained ONNX ...")
+_m = onnx.load(str(ONNX_PATH), load_external_data=True)
+onnx.save_model(_m, str(ONNX_PATH), save_as_external_data=False)
+for _stray in ONNX_PATH.parent.glob(ONNX_PATH.name + "*"):
+    if _stray != ONNX_PATH and _stray.suffix != ".onnx":
+        _stray.unlink()
+        print(f"[stage2] removed stray external-data file: {_stray.name}")
+onnx.checker.check_model(str(ONNX_PATH))
+print(f"[stage2] Self-contained ONNX: {ONNX_PATH} ({ONNX_PATH.stat().st_size/1e6:.1f} MB)")
+
+# Parity check ORT vs PyTorch — run AGAINST the consolidated file so we
+# validate the exact artifact that gets uploaded, not a pre-consolidation
+# graph.
 import onnxruntime as ort
 import numpy as np
 
@@ -168,8 +190,11 @@ upload_folder(
     path_in_repo=".",
     repo_id=REPO,
     repo_type="model",
-    allow_patterns=["*.onnx", "*.txt", "*.json"],
-    commit_message="SyncVSR Vox+LRS2+LRS3 -> ONNX (encoder + CTC head)",
+    # Include external-data globs as belt-and-suspenders in case a future
+    # (larger) model legitimately externalizes weights — though the
+    # consolidation step above keeps the current model single-file.
+    allow_patterns=["*.onnx", "*.onnx.data", "*.onnx_data", "*.txt", "*.json"],
+    commit_message="SyncVSR Vox+LRS2+LRS3 -> ONNX (encoder + CTC head, self-contained)",
 )
 print(f"[stage2] Uploaded -> https://huggingface.co/{REPO}")
 print("[stage2] DONE")
