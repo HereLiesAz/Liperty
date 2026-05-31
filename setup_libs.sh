@@ -252,6 +252,21 @@ else
     echo "[*] No HF_TOKEN set — downloading anonymously (subject to rate limits)."
 fi
 
+# Ensure huggingface_hub is available (CLI or importable). GitHub's runner
+# image and fresh dev machines may not ship it; without it EVERY HF pull below
+# (models, KenLM LM + arm64 prebuilts) silently no-ops and the 'Verify KenLM
+# prebuilts' gate fails the whole build. CI was red on exactly this from ~2026-05-14.
+if ! command -v huggingface-cli &> /dev/null \
+   && ! { command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; } \
+   && ! { command -v python3 &> /dev/null && python3 -c "import huggingface_hub" 2>/dev/null; }; then
+    echo "[+] huggingface_hub not found — attempting to install it..."
+    python  -m pip install --quiet --upgrade huggingface_hub 2>/dev/null \
+      || python3 -m pip install --quiet --upgrade huggingface_hub 2>/dev/null \
+      || python  -m pip install --quiet --user --break-system-packages huggingface_hub 2>/dev/null \
+      || python3 -m pip install --quiet --user --break-system-packages huggingface_hub 2>/dev/null \
+      || echo "[!] Could not auto-install huggingface_hub — HF downloads will be skipped."
+fi
+
 # Run a command with up to 4 attempts and exponential backoff (2s, 4s, 8s).
 # Returns the command's exit code from the last attempt. Note: callers must
 # NOT pipe the wrapped command (e.g. through 'tail'), or the pipe's exit
