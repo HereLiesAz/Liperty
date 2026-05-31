@@ -54,7 +54,7 @@ This document serves as the master source of truth for the Liperty project. It m
     - [x] Viseme inverse index asset (126K cmudict words / 30K viseme sequences, 2.1 MB).
     - [x] `VisemeRescorer` with beam search over viseme-equivalent substitutions + input-bias tiebreaker.
     - [x] Wired in MainActivity post-CTC, pre-TranscriptionManager.
-    - [ ] **`libkenlm.so` NDK build (gates all LM scoring effect — Phase A3b/c).**
+    - [x] **`libkenlm.so` NDK build (gated all LM scoring effect — Phase A3b/c).** Build-side complete: `setup_libs.sh` pulls the arm64 `.a` prebuilts and CMake links them into `libliperty_cv.so` (see `docs/LM_RESCORING.md` § "Phase A3b/c: KenLM JNI build (done)"). Still needs **on-device validation** that `KenLmScorer.isNativeLoaded` flips true and the rescorer changes output (`KenLmScorerDeviceTest` on a real arm64 device).
     - [ ] Offline WER sweep V2-no-LM vs V2+KenLM vs V2+KenLM+VisemeRescorer (Phase A6).
 - [ ] **Multi-view robustness:** pose-invariant feature extractors for off-axis (30°-60°) lipreading.
 - [ ] **On-device personalization (see PERSONALIZATION.md):**
@@ -164,7 +164,7 @@ This document serves as the master source of truth for the Liperty project. It m
 
 In rough priority order (latest first):
 
-1. [ ] **KenLM JNI / `libkenlm.so` NDK build.** Gates ALL LM scoring effect — the entire rescoring stack (Phase A) runs as no-op until this lands. ~4-8 hours of NDK work. See `docs/LM_RESCORING.md` § "Phase A3b/c: building libkenlm.so".
+1. [x] **KenLM JNI / `libkenlm.so` NDK build — DONE (build-side).** The rescoring stack is linked: `setup_libs.sh` + `assembleDebug` produces an APK with LM scoring active end-to-end. Remaining: **on-device validation** (`KenLmScorerDeviceTest` confirming `isNativeLoaded=true` + changed output on real arm64) — the gating step for the Phase A6 WER sweep below. See `docs/LM_RESCORING.md`.
 2. [ ] **Step 3 PoC unblock.** Add `onnxruntime-training` to `docker/v3-export/Dockerfile`, re-run `tools/build_avhubert_training_artifacts.py`, confirm the 4 ORT training artifacts generate cleanly for AV-HuBERT. ~1 hour.
 3. [ ] **Step 1c-f: voice import hook + consent dialog + Settings UI.** Foundation for both Step 2 (statistical personalization) and Step 3 (encoder LoRA). See `docs/PERSONALIZATION.md` § "Step 1".
 4. [ ] **Phase A6: offline WER sweep.** Once libkenlm.so works, measure V2-no-LM vs V2+KenLM vs V2+KenLM+VisemeRescorer on a held-out clip set. Pick α weight.

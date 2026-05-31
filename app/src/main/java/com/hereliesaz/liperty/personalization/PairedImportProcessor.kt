@@ -14,28 +14,24 @@ import com.hereliesaz.liperty.voicebox.cloning.AudioPreprocessor
  *     audio/video URI via VAD.
  *   - [VideoFrameExtractor]: pulls raw bitmaps from the same URI at
  *     each speech segment's time window.
- *   - **TODO: lip-ROI cropping** — the missing link. The raw bitmaps
- *     are full-frame faces; we need to run face landmarking and lip
- *     cropping over each to produce the 88×88 grayscale normalized
- *     [FloatArray]s the encoder expects.
+ *   - **lip-ROI cropping**: a per-import [com.hereliesaz.liperty.ml.FaceLandmarkerHelper]
+ *     instance runs face landmarking over each extracted bitmap and
+ *     [LipCropPipeline.cropMouthRoi] produces the 88×88 grayscale
+ *     normalized [FloatArray]s the encoder expects — reproducing the
+ *     live camera preprocessing exactly so training data matches the
+ *     inference distribution.
  *   - [AudioTranscriber]: optional transcript labeling.
  *   - [PairedRecordExtractor] + [PairedTrainingStore]: assembly +
  *     persistence.
  *   - [PersonalizationConsentManager]: gates the whole flow on the
  *     user's explicit opt-in.
  *
- * Current implementation status: **partial**. The audio side, the
- * paired-record assembly, and the storage are working. The lip-ROI
- * cropping step is stubbed (returns empty frame lists, causing
- * [PairedRecordExtractor] to drop the segment). A complete
- * implementation requires sharing the live camera pipeline's
- * MediaPipe FaceLandmarker + `ImageUtils.alignAndCropMouth()` from
- * the offline import path. See the body comment of [processImport]
- * for the engineering required.
- *
- * Until the cropping integration lands, this class is wired in but
- * produces no [PairedTrainingRecord]s — the user can opt in and the
- * Settings UI shows zero records.
+ * Current implementation status: **functional**. The audio side, the
+ * lip-ROI cropping (via [LipCropPipeline]), the paired-record
+ * assembly, and the storage are all wired end-to-end. The remaining
+ * personalization gaps are downstream of this class: the consumer of
+ * the saved [PairedTrainingRecord]s (Step 2 statistical personalization
+ * and Step 3 on-device encoder LoRA training) — see `docs/PERSONALIZATION.md`.
  */
 class PairedImportProcessor(
     private val context: Context,
