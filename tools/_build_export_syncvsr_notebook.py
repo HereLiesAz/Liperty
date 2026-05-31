@@ -402,7 +402,29 @@ torch.onnx.export(
 print(f"Exported: {ONNX_PATH} ({ONNX_PATH.stat().st_size/1e6:.1f} MB)")
 """))
 
-cells.append(md("## 9. Parity check: ONNX vs PyTorch"))
+cells.append(md("""\
+## 8b. Consolidate external weights into a single self-contained file
+
+`torch.onnx.export` can spill tensors to a sibling `<model>.onnx.data`
+file. If that file is dropped at upload time (the `allow_patterns` below
+only matched `*.onnx`), the model on HF becomes an unusable ~2 MB proto
+with dangling external-data references — the bug that broke the FP32
+upload (see `docs/EVAL_RESULTS_2026-05-13.md`). Re-save as a single file
+so the artifact is self-contained (~370 MB < the 2 GB protobuf limit)."""))
+cells.append(code("""\
+import onnx
+
+_m = onnx.load(str(ONNX_PATH), load_external_data=True)
+onnx.save_model(_m, str(ONNX_PATH), save_as_external_data=False)
+for _stray in ONNX_PATH.parent.glob(ONNX_PATH.name + "*"):
+    if _stray != ONNX_PATH and _stray.suffix != ".onnx":
+        _stray.unlink()
+        print(f"removed stray external-data file: {_stray.name}")
+onnx.checker.check_model(str(ONNX_PATH))
+print(f"Self-contained ONNX: {ONNX_PATH} ({ONNX_PATH.stat().st_size/1e6:.1f} MB)")
+"""))
+
+cells.append(md("## 9. Parity check: ONNX vs PyTorch (against the consolidated file)"))
 cells.append(code("""\
 import onnxruntime as ort
 import numpy as np
@@ -480,8 +502,11 @@ upload_folder(
     path_in_repo=".",
     repo_id=REPO,
     repo_type="model",
-    allow_patterns=["*.onnx", "*.txt", "*.json"],
-    commit_message="SyncVSR Vox+LRS2+LRS3 -> ONNX (encoder + CTC head)",
+    # External-data globs included as belt-and-suspenders in case a future
+    # (larger) model legitimately externalizes weights — the consolidation
+    # step in section 8b keeps the current model single-file.
+    allow_patterns=["*.onnx", "*.onnx.data", "*.onnx_data", "*.txt", "*.json"],
+    commit_message="SyncVSR Vox+LRS2+LRS3 -> ONNX (encoder + CTC head, self-contained)",
 )
 print(f"Uploaded -> https://huggingface.co/{REPO}")
 """))
