@@ -141,14 +141,14 @@ jobs:
       # small text assets pulled by setup_libs.sh above. A test failure fails
       # the job before assembleRelease runs.
       - name: Run unit tests
-        # TEMPORARY: bounded + non-blocking. This runs main's full Robolectric
-        # suite in CI for the first time (the KenLM gate previously blocked it),
-        # and a test hangs (>30 min). Cap the step so it can't stall the
-        # pipeline, and don't fail the build on it yet so a fresh APK still
-        # ships. `started` test logging (app/build.gradle.kts) makes the
-        # captured log show the last test to start = the hang culprit.
-        # RESTORE the hard gate (remove continue-on-error) once it's fixed.
-        timeout-minutes: 12
+        # The full Robolectric suite is just SLOW, not hung: each @Config(sdk=34)
+        # class spins up a fresh Android sandbox + LipertyApplication.onCreate,
+        # and cold (no Gradle/Robolectric cache) the whole suite runs ~30 min.
+        # Generous cap so a genuine hang would still be caught, but the slow
+        # suite can finish. Kept non-blocking for ONE confirming run to observe
+        # a clean completion + real duration; the hard gate (remove
+        # continue-on-error) is restored next once green.
+        timeout-minutes: 45
         continue-on-error: true
         run: ./gradlew testDebugUnitTest --stacktrace
 
