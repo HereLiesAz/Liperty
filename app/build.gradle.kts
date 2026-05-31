@@ -320,7 +320,9 @@ dependencies {
 
 tasks.withType<Test> {
     testLogging {
-        events("passed", "skipped", "failed")
+        // "started" included so a hanging test (no passed/failed event) is
+        // still visible as the last "STARTED" line in CI logs.
+        events("started", "passed", "skipped", "failed")
         showStandardStreams = true
     }
 }
