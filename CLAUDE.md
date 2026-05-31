@@ -8,11 +8,12 @@ This file provides guidance to Claude (and other AI coding assistants) when work
 
 ### Key Characteristics
 - **Platform**: Android (Kotlin-first, minSdk 26 / targetSdk 37)
-- **ML Stack**: ONNX Runtime Mobile (primary; serves the Auto-AVSR Conformer encoder), TensorFlow Lite / LiteRT (secondary; legacy + small auxiliary models), MediaPipe Tasks Vision, OpenCV 4.13.0 (C++ via NDK)
+- **ML Stack**: ONNX Runtime Mobile (primary; serves the SyncVSR visual encoder + attention decoder), TensorFlow Lite / LiteRT (secondary; legacy + small auxiliary models), MediaPipe Tasks Vision, OpenCV 4.13.0 (C++ via NDK)
 - **UI**: Jetpack Compose + Material 3
 - **Privacy**: Offline *after first-launch setup* — no inference/user data ever leaves the device. The app declares `INTERNET` solely so `setup/ModelDownloadManager.kt` can download ML models from HuggingFace once on first launch into app-private storage; all recognition then runs locally. Biometric data lives only in RAM (never persisted) — the sole exception is the explicitly-consented on-device personalization store, which the user can delete/revoke. Disclose the first-launch network use in the Play Store Data Safety form.
 - **Hardware acceleration**: ONNX Runtime CPU (XNNPACK), TFLite GPU Delegate (primary for TFLite path), NNAPI/Hexagon (fallback), CPU (last resort)
-- **Production VSR model**: `Amanvir/LRS3_V_WER19.1` (ESPnet visual-only Conformer + CTC head, 5050-token unigram SentencePiece vocab) exported to ONNX by `tools/export_autoavsr_to_onnx.ipynb` and pulled at runtime from `HereLiesAz/liperty-autoavsr-onnx`. Lineage: Auto-AVSR / Chaplin.
+- **Production VSR model**: **SyncVSR** (visual-only E2E, LRS3-trained, 5049-token unigram SentencePiece vocab) — encoder + attention decoder (seq2seq) exported to ONNX and pulled at runtime from `HereLiesAz/liperty-syncvsr-onnx`. Selected by `MainActivity.VSR_BACKEND = BACKEND_SYNC_VSR` with `SYNCVSR_USE_SEQ2SEQ = true`. The **Auto-AVSR** model (`Amanvir/LRS3_V_WER19.1`, ESPnet visual-only Conformer + CTC, 5050-token vocab, `HereLiesAz/liperty-autoavsr-onnx`) is an **alternate/legacy backend** selectable via `VSR_BACKEND = BACKEND_AUTO_AVSR`. Lineage of both: Auto-AVSR / Chaplin.
+  - ⚠️ **Accuracy is not yet validated on in-domain data.** The only eval run (`docs/EVAL_RESULTS_2026-05-13.md`) scored 100% WER on an out-of-distribution dataset (GRID 16-frame clips). Real WER/CER on a SyncVSR-matched (full-utterance LRS3) test set, and an on-device qualitative pass, are still pending — see the audit roadmap.
 
 ---
 
@@ -38,7 +39,7 @@ Liperty/
 │       │   │   ├── ml/
 │       │   │   │   ├── ModelEngine.kt          # Interface for inference backends
 │       │   │   │   ├── TFLiteEngine.kt         # TFLite executor + GPU fallback (legacy/aux)
-│       │   │   │   ├── OnnxModelEngine.kt      # ONNX Runtime executor — Auto-AVSR backend
+│       │   │   │   ├── OnnxModelEngine.kt      # ONNX Runtime executor — SyncVSR / Auto-AVSR backends
 │       │   │   │   ├── VSRInference.kt         # Pipeline orchestrator (parameterized: pixelMean, pixelStd, customDecoder)
 │       │   │   │   ├── FrameBuffer.kt          # Rolling frame window + slideAndGetFrames(retainCount)
 │       │   │   │   ├── FaceLandmarkerHelper.kt # MediaPipe wrapper
@@ -165,7 +166,9 @@ This script:
 
 ## Inference Pipeline (Data Flow)
 
-The production path is the **Auto-AVSR backend**: ESPnet visual-only Conformer + CTC head exported to ONNX, decoded with subword CTC beam search, optionally cleaned by an on-device LLM. The legacy phoneme TFLite path is still wired in `VSRInference` and reachable for experiments.
+The production path is the **SyncVSR backend** (`VSR_BACKEND = BACKEND_SYNC_VSR`). With `SYNCVSR_USE_SEQ2SEQ = true` (the default), the active route is the **encoder + attention decoder (seq2seq)** — `syncvsr_lrs3_encoder.onnx` (~759 MB) feeding `syncvsr_lrs3_decoder.onnx` (~273 MB), driven by `Seq2SeqGreedyDecoder` and `BpeDetokenizer`. The **CTC head** (`syncvsr_lrs3_visual_ctc_fp16.onnx`, ~370 MB, the path drawn in the diagram below) is the graceful-degradation fallback when the seq2seq ONNX can't load (e.g. OOM on low-RAM devices). The **Auto-AVSR** backend (CTC only) and the legacy phoneme TFLite path remain wired in `VSRInference` and are reachable via `VSR_BACKEND` / config flags for experiments. All paths can be optionally cleaned by an on-device LLM.
+
+> Naming caveat: the companion constants are still named `AUTOAVSR_MODEL` / `AUTOAVSR_VOCAB` / `AUTOAVSR_*` for historical reasons, but they **resolve to the SyncVSR files** when `VSR_BACKEND == BACKEND_SYNC_VSR` (see `MainActivity.kt:102-135`).
 
 ```
 CameraX frame (25–30 FPS)
@@ -175,19 +178,21 @@ FaceLandmarkerHelper  ──► 468 MediaPipe landmarks
         │
         ▼
 extractLipBoundingBox + ImageUtils.alignAndCropMouth()  ──► grayscale 88×88 mouth ROI
-                                                            (Auto-AVSR; legacy 96×96 for the phoneme TFLite path)
+                                                            (SyncVSR / Auto-AVSR; legacy 96×96 for the phoneme TFLite path)
         │
         ▼
 FrameBuffer  ──► rolling window; slideAndGetFrames(retainCount=8) yields a copy
                  of the last N frames + retains the tail for streaming inference
         │
         ▼
-OnnxModelEngine (Auto-AVSR)        OR        TFLiteEngine (legacy phoneme path)
+OnnxModelEngine (SyncVSR / Auto-AVSR CTC)   OR  TFLiteEngine (legacy phoneme path)
         │                                              │
         │  per-channel normalize                       │  greyscale normalize
         │  (mean=0.421, std=0.165)                     │
         ▼                                              ▼
-ONNX encoder + CTC head ─► (1, T_out, 5050)    .tflite ─► (1, T_out, V_phonemes)
+ONNX encoder + CTC head ─► (1, T_out, V)       .tflite ─► (1, T_out, V_phonemes)
+  (SyncVSR V=5049, NTCHW; Auto-AVSR V=5050, NCTHW)
+  [seq2seq default routes encoder→attention decoder instead — see prose above]
         │                                              │
         ▼                                              ▼
 SubwordCtcBeamDecoder (beamWidth=8)            BeamSearchDecoder / GreedyDecoder
@@ -222,13 +227,13 @@ OverlayView / Compose UI
 
 ### Machine Learning (ONNX + TFLite)
 
-- **Backend selection**: `OnnxModelEngine` is the production backend (Auto-AVSR Conformer + CTC). `TFLiteEngine` is retained for the legacy phoneme path and small auxiliary models. Both implement `ModelEngine`; new backends must too — never touch a concrete engine class directly from `VSRInference`.
+- **Backend selection**: `OnnxModelEngine` is the production backend, serving **SyncVSR** (seq2seq encoder/decoder by default; CTC head as fallback). `VSR_BACKEND` in the `MainActivity` companion picks SyncVSR vs Auto-AVSR; `SYNCVSR_USE_SEQ2SEQ` picks seq2seq vs CTC within SyncVSR. `TFLiteEngine` is retained for the legacy phoneme path and small auxiliary models. Both implement `ModelEngine`; new backends must too — never touch a concrete engine class directly from `VSRInference`.
 - **Delegate initialization** for TFLite must be wrapped in `try-catch`. Device delegate support varies widely (GPU, NNAPI, Hexagon, CPU). `TFLiteEngine` cascades from GPU → CPU automatically. ONNX Runtime defaults to XNNPACK CPU.
 - **Memory**: Use `ByteBuffer.allocateDirect()` for TFLite I/O. ONNX I/O uses `OnnxTensor.createTensor` with NIO buffers. Reuse `Bitmap` objects through `BitmapPool`.
-- **Frame window**: `FrameBuffer` capacity is configurable at construction time. The Auto-AVSR backend uses streaming inference: `FrameBuffer.slideAndGetFrames(retainCount=8)` returns a copy of the current window and retains the last 8 frames as the seed for the next inference (continuity for the encoder).
-- **Input shape**: The model's expected input shape depends on the loaded model. The Auto-AVSR ONNX expects `(1, 1, T, 88, 88)` NCTHW float32. The legacy TFLite fallback defaults to `(1, 50, 64, 128, 3)` NTHWC. `VSRInference` accepts an `InputLayout` enum (NTHWC, NCTHW, NTCHW) and per-channel `pixelMean`/`pixelStd` so the same orchestrator handles both backends.
-- **Auto-AVSR constants** (in `MainActivity` companion): `AUTOAVSR_MODEL`, `AUTOAVSR_VOCAB`, `AUTOAVSR_CROP_SIZE=88`, `AUTOAVSR_PIXEL_MEAN=0.421f`, `AUTOAVSR_PIXEL_STD=0.165f`, `AUTOAVSR_SLIDE_RETAIN=8`. These mirror Chaplin's `pipelines/data/transforms.py:VideoTransform`. Changing them silently divorces deployment from the trained model.
-- **Decoders**: `SubwordCtcBeamDecoder` (beam width 8, prefix merge via logsumexp) is the production decoder for the Auto-AVSR backend. `SubwordCTCDecoder` is the greedy variant. Both consume the 5050-token list parsed by `VocabularyLoader` from `unigram5000_units.txt` (index 0 = `<blank>`, last = `<eos>`, SentencePiece `▁` = word boundary). `BeamSearchDecoder` / `GreedyDecoder` are the legacy phoneme decoders.
+- **Frame window**: `FrameBuffer` capacity is configurable at construction time (production uses capacity 16). The VSR backends use streaming inference: `FrameBuffer.slideAndGetFrames(retainCount=8)` returns a copy of the current window and retains the last 8 frames as the seed for the next inference (continuity for the encoder).
+- **Input shape**: The model's expected input shape and layout depend on the active backend. **SyncVSR** ONNX is **NTCHW** `(1, T, 1, 88, 88)` float32; **Auto-AVSR** ONNX is **NCTHW** `(1, 1, T, 88, 88)` float32. The legacy TFLite fallback defaults to `(1, 50, 64, 128, 3)` NTHWC. `VSRInference` accepts an `InputLayout` enum (NTHWC, NCTHW, NTCHW) and per-channel `pixelMean`/`pixelStd` so the same orchestrator handles all backends; `MainActivity.VSR_INPUT_LAYOUT` is pre-resolved off `VSR_BACKEND`.
+- **VSR constants** (in `MainActivity` companion — note the legacy `AUTOAVSR_*` names resolve to whichever backend `VSR_BACKEND` selects): `AUTOAVSR_MODEL`, `AUTOAVSR_VOCAB`, `AUTOAVSR_CROP_SIZE=88`, `AUTOAVSR_PIXEL_MEAN=0.421f`, `AUTOAVSR_PIXEL_STD=0.165f`, `AUTOAVSR_SLIDE_RETAIN=8`. SyncVSR and Auto-AVSR share the 88×88 crop and mean/std (both LRS3-trained with Chaplin-equivalent `transforms.VideoTransform` preprocessing). Changing them silently divorces deployment from the trained model.
+- **Decoders**: For SyncVSR seq2seq (the production default), `Seq2SeqGreedyDecoder` + `BpeDetokenizer` drive the autoregressive attention decoder. For the CTC paths (SyncVSR CTC fallback and Auto-AVSR), `SubwordCtcBeamDecoder` (beam width 8, prefix merge via logsumexp) is the production decoder and `SubwordCTCDecoder` is the greedy variant; both consume the token list parsed by `VocabularyLoader` (SyncVSR: `syncvsr_unigram_units.txt`, 5049 tokens, blank=0, eos=5048; Auto-AVSR: `unigram5000_units.txt`, 5050 tokens; SentencePiece `▁` = word boundary). `BeamSearchDecoder` / `GreedyDecoder` are the legacy phoneme decoders.
 - **Optional 2nd-stage cleanup**: `LlmTextCleaner` wraps a small on-device LLM (e.g. Gemma-2B-it via MediaPipe Tasks GenAI's `LlmInference`) to clean noisy CTC output. Wired into `TranscriptionManager` via the optional `transformSentence` constructor callback; result is cached against the assembled transcript so it only re-runs on new content. **Opt-in**: the model file is not bundled in the APK (~1.3 GB); cleaner falls back to raw text when absent.
 
 ### Camera & Computer Vision
@@ -329,9 +334,9 @@ All versions are centralized in `gradle/libs.versions.toml`. When adding or upgr
 
 ## Architecture Decisions & Constraints
 
-- **Offline after first-launch setup**: The app ships with the `INTERNET` permission and a one-time model downloader (`setup/ModelDownloadManager.kt`) that pulls ~370 MB+ of ONNX/`.task` models from HuggingFace into app-private storage on first launch. After that, all inference runs fully offline and no user/inference data ever leaves the device. Do NOT add network calls on the inference/recognition path. The first-launch download must be disclosed in the Play Store Data Safety form. (Training pipelines run off-device on Kaggle/Colab and use HuggingFace Hub as a cross-account state store: `HereLiesAz/liperty-autoavsr-onnx`, `HereLiesAz/liperty-grid-preprocessed`, `HereLiesAz/liperty-tcd-preprocessed`, `e1lephant/lrs3-landmark`. The Android app consumes the resulting artifacts, embedded via `setup_libs.sh` at build time or downloaded at first launch.)
-- **ModelEngine interface**: Keeps inference backends swappable. Production: `OnnxModelEngine` (Auto-AVSR). Legacy/aux: `TFLiteEngine`. Future: ExecuTorch.
-- **Production training pipeline**: Auto-AVSR / Chaplin lineage. The deployed model is fine-tuned from `Amanvir/LRS3_V_WER19.1` (ESPnet visual-only Conformer + CTC head, 5050 unigram SentencePiece tokens). Headline 19.1% WER on LRS3 requires beam search with CTC + attention scorer + external LM — none of which exports cleanly to ONNX. The Android export uses encoder + CTC head only; greedy/beam CTC alone gives roughly 30-50% WER, recovered by the optional `LlmTextCleaner` pass.
+- **Offline after first-launch setup**: The app ships with the `INTERNET` permission and a one-time model downloader (`setup/ModelDownloadManager.kt`) that pulls the ML models from HuggingFace into app-private storage on first launch — currently **~1.4 GB of *required* models** (SyncVSR CTC ~370 MB + encoder ~759 MB + decoder ~273 MB + face landmarker + vocab) plus up to **~1.1 GB optional** (voice-cloning, personalization training artifacts, LM). After that, all inference runs fully offline and no user/inference data ever leaves the device. Do NOT add network calls on the inference/recognition path. The first-launch download must be disclosed in the Play Store Data Safety form. (Training pipelines run off-device on Kaggle/Colab and use HuggingFace Hub as a cross-account state store: `HereLiesAz/liperty-syncvsr-onnx`, `HereLiesAz/liperty-autoavsr-onnx`, `HereLiesAz/liperty-grid-preprocessed`, `HereLiesAz/liperty-tcd-preprocessed`, `e1lephant/lrs3-landmark`. The Android app consumes the resulting artifacts, embedded via `setup_libs.sh` at build time or downloaded at first launch.)
+- **ModelEngine interface**: Keeps inference backends swappable. Production: `OnnxModelEngine` (SyncVSR seq2seq, CTC fallback). Alternate/legacy: Auto-AVSR (also `OnnxModelEngine`), `TFLiteEngine` (phoneme path). Future: ExecuTorch.
+- **Production model & WER status**: The deployed backend is **SyncVSR** (visual-only E2E, LRS3-trained, 5049-token unigram SentencePiece). Its accuracy on Liperty's deployment configuration is **not yet validated** — see the ⚠️ note in Project Overview and `docs/EVAL_RESULTS_2026-05-13.md`. The documented **Auto-AVSR alternate** (`Amanvir/LRS3_V_WER19.1`, ESPnet Conformer + CTC, 5050 tokens) has a headline 19.1% WER on LRS3, but that requires beam search with CTC + attention scorer + external LM — none of which exports cleanly to ONNX; an encoder+CTC-only export gives roughly 30–50% WER, partly recovered by the optional `LlmTextCleaner` pass. Treat all on-device WER numbers as unmeasured until the in-domain eval (audit Phase 1) lands.
 - **Training notebooks** in `tools/` (resumable, run on Kaggle P100 or Colab):
   - `train_grid_tcd_resumable.ipynb` — pixel V1 baseline (GRID + TCD-TIMIT)
   - `train_landmark_lrs3_resumable.ipynb` — landmark-only V2 (uses `e1lephant/lrs3-landmark` shards; the point of the LRS3 landmark releases is exactly that landmark-only training is competitive)
@@ -344,9 +349,9 @@ All versions are centralized in `gradle/libs.versions.toml`. When adding or upgr
 
 ## Common Pitfalls
 
-1. **Building without `setup_libs.sh`**: The OpenCV module won't exist; Gradle sync will fail. Also: the Auto-AVSR ONNX won't be in `assets/`, so the production VSR backend will fall back to the legacy TFLite path.
+1. **Building without `setup_libs.sh`**: The OpenCV module won't exist; Gradle sync will fail. Also: the SyncVSR ONNX models won't be in `assets/` (and aren't bundled in the APK regardless — they're pruned and downloaded at runtime), so on a fresh build the production VSR backend has nothing to load until `ModelDownloadManager` completes the first-launch download.
 2. **GPU delegate on emulator**: Will silently fall back to CPU; inference will be very slow. This is expected.
-3. **Frame count / input shape mismatch**: Changing `FrameBuffer` capacity, the 88×88 crop size, or the per-channel mean/std without re-exporting the model causes silent quality cliffs (or shape errors). The Auto-AVSR pipeline is calibrated to Chaplin's `transforms.VideoTransform` — match those constants or retrain.
+3. **Frame count / input shape mismatch**: Changing `FrameBuffer` capacity, the 88×88 crop size, or the per-channel mean/std without re-exporting the model causes silent quality cliffs (or shape errors). The VSR preprocessing is calibrated to Chaplin-equivalent `transforms.VideoTransform` (SyncVSR and Auto-AVSR share it) — match those constants or retrain.
 4. **Bypassing consent dialog**: Will break BIPA/GDPR compliance and `PrivacyTest` will fail.
 5. **Writing landmarks to SharedPreferences**: Illegal under biometric data laws; `PrivacyTest` catches this.
 6. **Hardcoding back camera**: Breaks telephoto selection; use `CameraManager` API.
@@ -362,7 +367,7 @@ All versions are centralized in `gradle/libs.versions.toml`. When adding or upgr
 |---|---|
 | 1–2: Core infrastructure | Complete |
 | 3: Computer vision pipeline | Partial |
-| 4: ML / model optimization | Auto-AVSR backend wired (ONNX); subword CTC beam search + sliding-window inference live; LLM cleanup hook in place; offline eval notebook ready; training pipelines (GRID/TCD pixel, LRS3 landmark, personal LoRA) running on Kaggle |
+| 4: ML / model optimization | SyncVSR backend wired (ONNX seq2seq encoder/decoder, CTC fallback); Auto-AVSR alternate + legacy phoneme path also wired; subword CTC beam search + sliding-window inference live; KenLM + viseme rescoring build-complete; LLM cleanup hook in place; offline eval notebook ready. **⚠️ In-domain accuracy still unmeasured** (only eval run = 100% WER on out-of-distribution data — see `docs/EVAL_RESULTS_2026-05-13.md`). Training pipelines (GRID/TCD pixel, LRS3 landmark, personal LoRA) running on Kaggle |
 | 5–6: Hardware opt, UI/UX | Partial |
 | 7: Voice Reconstruction (BC/EL) | Complete |
 | 8: Bone Conduction hardware | Partial |

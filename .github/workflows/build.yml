@@ -122,6 +122,16 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # Gate the release on the unit-test suite. ~60 Robolectric/JUnit test
+      # classes live under app/src/test; before this step nothing ran them in
+      # CI, so a broken merge could ship. Tests use fake model sessions (never
+      # the real ONNX/.tflite blobs, which the build prunes from the unit-test
+      # APK), so they don't depend on the large model downloads — only the
+      # small text assets pulled by setup_libs.sh above. A test failure fails
+      # the job before assembleRelease runs.
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace
+
       - name: Build with Gradle
         id: gradle-build
         env:
