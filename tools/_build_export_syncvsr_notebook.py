@@ -398,6 +398,12 @@ torch.onnx.export(
     },
     opset_version=17,
     do_constant_folding=True,
+    # torch 2.10 defaults to the dynamo exporter, which leaves the model
+    # at its native opset (the opset_version=17 downgrade hits a non-fatal
+    # onnxscript version_converter failure). Force the legacy JIT-trace
+    # path so the FP32 export lands at opset 17, matching the FP16 build
+    # and tools/syncvsr_export_stage2.py.
+    dynamo=False,
 )
 print(f"Exported: {ONNX_PATH} ({ONNX_PATH.stat().st_size/1e6:.1f} MB)")
 """))

@@ -125,13 +125,21 @@ In order of immediate utility:
    speaker mouthing real natural-English phrases and see what comes
    out. The eval notebook's job (give a number) won't be doable
    until 1 lands; on-device qualitative is the substitute.
-4. **Re-export the FP32 SyncVSR CTC ONNX as a self-contained file.**
-   The current `syncvsr_lrs3_visual_ctc.onnx` on HF is 2 MB of proto
-   with external-data references but the `.onnx.data` file got
-   filtered out by `tools/syncvsr_export_stage2.py`'s
-   `upload_folder(allow_patterns=["*.onnx", "*.txt", "*.json"])`.
-   FP16 works around it but the FP32 should be valid for the same
-   reason — useful for accuracy-vs-FP16 comparison if ever needed.
-   Fix: rerun stage 2 with `save_as_external_data=False` on the
-   `torch.onnx.export` call, or do an `onnx.save_model` merge of
-   the existing .onnx + .onnx.data files.
+4. ~~**Re-export the FP32 SyncVSR CTC ONNX as a self-contained file.**~~
+   **RESOLVED 2026-05-31.** The FP32 `syncvsr_lrs3_visual_ctc.onnx` on HF
+   was 2 MB of proto with external-data references because the `.onnx.data`
+   file got filtered out by the `upload_folder(allow_patterns=["*.onnx",
+   "*.txt", "*.json"])` call. Fixed by adding a consolidation step to both
+   `tools/syncvsr_export_stage2.py` and the
+   `tools/_build_export_syncvsr_notebook.py` generator: after export,
+   `onnx.load(load_external_data=True)` → `onnx.save_model(
+   save_as_external_data=False)` → strip stray external-data files →
+   `onnx.checker`. Re-ran the export on Kaggle and uploaded: HF now serves
+   a **776 MB self-contained** file (commit `89ae9ff`), parity vs PyTorch
+   max abs diff 2.6e-5, `onnx.checker` clean.
+   - Known caveat: the notebook export landed at the dynamo exporter's
+     native opset (the opset-17 downgrade hit a non-fatal version_converter
+     failure). The generator's `torch.onnx.export` now passes `dynamo=False`
+     to force the legacy JIT-trace path at opset 17 (matching the FP16
+     build); the artifact already on HF predates that change but loads/runs
+     correctly in ORT regardless.
