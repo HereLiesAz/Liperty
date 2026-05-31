@@ -286,22 +286,37 @@ hf_retry() {
     done
 }
 
+# Resolve a python interpreter that can import huggingface_hub. We rely on the
+# version-stable Python API rather than a CLI: the old `huggingface-cli` was
+# hard-deprecated and now EXITS NON-ZERO with "use `hf` instead" (this silently
+# broke every download and kept CI red from ~2026-05-14). `hf` is the new CLI
+# but the Python API is the most stable across versions, so we prefer it.
+_hf_python() {
+    local py
+    for py in python python3; do
+        if command -v "$py" &> /dev/null && "$py" -c "import huggingface_hub" 2>/dev/null; then
+            echo "$py"; return 0
+        fi
+    done
+    return 1
+}
+
 # One download attempt of a single file into <local_dir>. Real exit code is
 # returned (no output pipe) so hf_retry can see failures. Token is read from
-# the environment by both the CLI and the Python client.
+# the environment by the Python client / new CLI.
 _hf_fetch_attempt() {
-    local repo="$1" filename="$2" local_dir="$3"
-    if command -v huggingface-cli &> /dev/null; then
-        huggingface-cli download "$repo" "$filename" --local-dir "$local_dir" --quiet
-    elif command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; then
-        python - "$repo" "$filename" "$local_dir" <<'PY'
+    local repo="$1" filename="$2" local_dir="$3" py
+    if py="$(_hf_python)"; then
+        "$py" - "$repo" "$filename" "$local_dir" <<'PY'
 import os, sys
 from huggingface_hub import hf_hub_download
 hf_hub_download(repo_id=sys.argv[1], filename=sys.argv[2], local_dir=sys.argv[3],
                 token=os.environ.get("HF_TOKEN") or None)
 PY
+    elif command -v hf &> /dev/null; then
+        hf download "$repo" "$filename" --local-dir "$local_dir"
     else
-        echo "ERROR: need huggingface-cli or python+huggingface_hub installed." >&2
+        echo "ERROR: need python+huggingface_hub (or the 'hf' CLI) installed." >&2
         echo "       pip install huggingface_hub  (and set HF_TOKEN for private repos)" >&2
         return 1
     fi
@@ -310,19 +325,19 @@ PY
 # One download attempt of every file matching <pattern> into <local_dir>
 # (multi-file / subdirectory pulls, e.g. android-arm64/*). Real exit code.
 _hf_snapshot_attempt() {
-    local repo="$1" pattern="$2" local_dir="$3"
-    if command -v huggingface-cli &> /dev/null; then
-        huggingface-cli download "$repo" --include "$pattern" --local-dir "$local_dir" --quiet
-    elif command -v python &> /dev/null && python -c "import huggingface_hub" 2>/dev/null; then
-        python - "$repo" "$pattern" "$local_dir" <<'PY'
+    local repo="$1" pattern="$2" local_dir="$3" py
+    if py="$(_hf_python)"; then
+        "$py" - "$repo" "$pattern" "$local_dir" <<'PY'
 import os, sys
 from huggingface_hub import snapshot_download
 snapshot_download(repo_id=sys.argv[1], repo_type='model',
                   allow_patterns=[sys.argv[2]], local_dir=sys.argv[3],
                   token=os.environ.get("HF_TOKEN") or None)
 PY
+    elif command -v hf &> /dev/null; then
+        hf download "$repo" --include "$pattern" --local-dir "$local_dir"
     else
-        echo "ERROR: need huggingface-cli or python+huggingface_hub installed." >&2
+        echo "ERROR: need python+huggingface_hub (or the 'hf' CLI) installed." >&2
         return 1
     fi
 }
