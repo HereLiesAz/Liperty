@@ -27,19 +27,6 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for a deep dive into the technical s
 *   LiteRT (TFLite) for inference and on-device personalization (LoRA).
 *   Multimodal DSP pipeline for laryngeal sensing.
 
-## Setup & Installation
-
-1.  Clone the repository.
-2.  Run the initialization script:
-    ```bash
-    ./setup_libs.sh
-    ```
-    This script downloads the OpenCV Android SDK, project models, and patches dependencies for AGP 9.1+ compatibility.
-3.  Open in Android Studio (Ladybug or newer recommended).
-4.  Sync Gradle project.
-5.  Connect a physical Android device (Emulator support is limited for NPU/CameraX/Vibration).
-6.  Build and Run.
-
 ## Legal & Privacy
 
 This application processes biometric data (facial landmarks). See [LEGAL.md](docs/LEGAL.md) for compliance information regarding Wiretap laws and Biometric Privacy acts (BIPA/GDPR).
