@@ -78,10 +78,13 @@ class ModelDownloadManager(private val context: Context) {
     )
 
     val models: List<ModelSpec> = listOf(
-        // MediaPipe face/hand detection — required for the VSR pipeline
+        // MediaPipe face/hand detection — required for the VSR pipeline.
+        // Primary source is MediaPipe's CDN; `repo` is the HuggingFace mirror
+        // used as a fallback when the CDN is unreachable (DNS sinkhole / ad-blocker
+        // resolving storage.googleapis.com to 0.0.0.0 — see downloadModel()).
         ModelSpec(
             fileName = "face_landmarker.task",
-            repo = "",
+            repo = "HereLiesAz/liperty-mediapipe-tasks",
             required = true,
             description = "Face detection model",
             expectedSizeBytes = 3_800_000L,
@@ -89,7 +92,7 @@ class ModelDownloadManager(private val context: Context) {
         ),
         ModelSpec(
             fileName = "hand_landmarker.task",
-            repo = "",
+            repo = "HereLiesAz/liperty-mediapipe-tasks",
             required = false,
             description = "Hand gesture model",
             expectedSizeBytes = 7_900_000L,
@@ -427,21 +430,42 @@ class ModelDownloadManager(private val context: Context) {
             throw NetworkBlockedException()
         }
 
-        // Download from source (custom URL or HuggingFace)
-        val url = spec.customUrl ?: hfUrl(spec.repo, spec.remotePath ?: spec.fileName)
+        // Download from source. Primary = customUrl when set (e.g. MediaPipe's
+        // storage.googleapis.com CDN), otherwise the HuggingFace mirror.
+        val primaryUrl = spec.customUrl ?: hfUrl(spec.repo, spec.remotePath ?: spec.fileName)
 
         updateModelState(spec.fileName) {
             it.copy(status = Status.DOWNLOADING, progressBytes = 0)
         }
 
         val tempFile = File(dest.parentFile, "${dest.name}.tmp")
-        try {
-            downloadFile(url, tempFile, spec.fileName)
+
+        // Fetch [u] into tempFile, rejecting stubs / error pages.
+        suspend fun fetch(u: String) {
+            downloadFile(u, tempFile, spec.fileName)
             if (tempFile.length() < MIN_FILE_BYTES) {
                 tempFile.delete()
                 throw RuntimeException(
                     "Downloaded file too small (${tempFile.length()} bytes) — likely a stub or error page"
                 )
+            }
+        }
+
+        try {
+            try {
+                fetch(primaryUrl)
+            } catch (e: Exception) {
+                // If the primary was a non-HF custom CDN (e.g. storage.googleapis.com,
+                // which DNS sinkholes / ad-blockers commonly resolve to 0.0.0.0) and a
+                // HuggingFace mirror exists, fall back to it so one blocked CDN can't
+                // brick first-launch setup.
+                val mirror = if (spec.customUrl != null && spec.repo.isNotEmpty())
+                    hfUrl(spec.repo, spec.remotePath ?: spec.fileName) else null
+                if (mirror != null) {
+                    Log.w(TAG, "Primary download of ${spec.fileName} failed (${e.message}); trying HF mirror")
+                    tempFile.delete()
+                    fetch(mirror)
+                } else throw e
             }
             tempFile.renameTo(dest)
             Log.i(TAG, "Downloaded ${spec.fileName} (${dest.length()} bytes)")
