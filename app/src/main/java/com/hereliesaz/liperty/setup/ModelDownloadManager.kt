@@ -52,6 +52,10 @@ class ModelDownloadManager(private val context: Context) {
 
         /** Buffer size for streaming downloads. */
         private const val BUFFER_SIZE = 64 * 1024 // 64 KB
+
+        /** Max manual (cross-protocol) redirect hops before giving up, so a
+         *  misconfigured redirect loop can't recurse into a StackOverflowError. */
+        private const val MAX_REDIRECTS = 5
     }
 
     // ── Model manifest ────────────────────────────────────────────────
@@ -449,7 +453,7 @@ class ModelDownloadManager(private val context: Context) {
     }
 
     private suspend fun downloadFile(
-        urlStr: String, dest: File, modelKey: String
+        urlStr: String, dest: File, modelKey: String, redirectsLeft: Int = MAX_REDIRECTS
     ): Unit = withContext(Dispatchers.IO) {
         var conn: HttpURLConnection? = null
         try {
@@ -463,12 +467,17 @@ class ModelDownloadManager(private val context: Context) {
             if (responseCode != HttpURLConnection.HTTP_OK) {
                 // HuggingFace returns 302 → CDN. HttpURLConnection follows
                 // redirects automatically for same-protocol. For cross-protocol
-                // (http→https) we handle manually.
+                // (http→https) we handle manually — bounded by [redirectsLeft]
+                // so a misconfigured redirect loop can't recurse to a
+                // StackOverflowError.
                 if (responseCode in 300..399) {
                     val redirect = conn.getHeaderField("Location")
                     conn.disconnect()
                     if (redirect != null) {
-                        downloadFile(redirect, dest, modelKey)
+                        if (redirectsLeft <= 0) {
+                            throw RuntimeException("Too many redirects fetching $modelKey (loop?)")
+                        }
+                        downloadFile(redirect, dest, modelKey, redirectsLeft - 1)
                         return@withContext
                     }
                 }

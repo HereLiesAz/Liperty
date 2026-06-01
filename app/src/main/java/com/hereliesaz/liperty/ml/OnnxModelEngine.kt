@@ -10,21 +10,23 @@ import java.nio.ByteBuffer
 import java.nio.FloatBuffer
 
 /**
- * ModelEngine backed by ONNX Runtime. Built for the VALLR VideoMAE → Wav2Vec2-CTC
- * checkpoint exported from PyTorch, which expects NCTHW input
- * (1, 3, 16, 224, 224) and produces (1, 8, 40) phoneme logits.
+ * ModelEngine backed by ONNX Runtime — the production VSR backend. Serves the
+ * SyncVSR visual encoder + CTC head (NTCHW `(1, T, 1, 88, 88)` → `(1, T_out,
+ * 5049)` log-softmax) and, as an alternate, the Auto-AVSR Conformer + CTC
+ * (NCTHW `(1, 1, T, 88, 88)` → `(1, T_out, 5050)`). The concrete model and
+ * layout are passed in by the caller (see `MainActivity`).
  *
- * Loads the .onnx file from app assets — bundled at build time.
+ * Loads the .onnx from filesDir (downloaded by `ModelDownloadManager` on first
+ * launch) or from bundled assets (dev builds with setup_libs.sh).
  */
 class OnnxModelEngine(
     private val context: Context,
-    private val modelName: String = "vallr_model.onnx",
+    private val modelName: String,
     /** Layout the loaded model expects for its primary input tensor.
-     *  Auto-AVSR uses NCTHW; SyncVSR uses NTCHW. Callers pass whichever
-     *  matches the bundled ONNX so VSRInference writes pixels in the
-     *  right axis order. Default NCTHW keeps the historical behaviour
-     *  (VALLR/Auto-AVSR exports). */
-    private val expectedInputLayout: InputLayout = InputLayout.NCTHW,
+     *  SyncVSR uses NTCHW; Auto-AVSR uses NCTHW. Callers pass whichever
+     *  matches the loaded ONNX so VSRInference writes pixels in the
+     *  right axis order. */
+    private val expectedInputLayout: InputLayout = InputLayout.NTCHW,
 ) : ModelEngine {
 
     private var env: OrtEnvironment? = null
