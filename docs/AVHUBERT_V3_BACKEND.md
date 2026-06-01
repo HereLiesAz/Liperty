@@ -7,8 +7,9 @@ visual-only Conformer + CTC, 19.1% headline WER on LRS3)** to
 trained on LRS3 + VoxCeleb2)**.
 
 **Status: research-only. Not deployed. Not on a release timeline.**
-The Auto-AVSR backend stays the production path until V3 demonstrates
-a concrete WER improvement on real Liperty input on real hardware.
+The production path is the **SyncVSR** backend (this V3 AV-HuBERT path stays
+off by default — `USE_V3_BACKEND = false`) until V3 demonstrates a concrete
+WER improvement on real Liperty input on real hardware.
 
 > **Update 2026-05-12.** The seq2seq orchestrator originally built for
 > V3 (`AvHubertSeq2SeqInference`) has been generalized: it now also
@@ -188,7 +189,7 @@ After Phase 3 (V3 seq2seq decoder wired into Android) it was clear the encoder +
 **The Kotlin LM stack**
 
 - [`LanguageModelScorer`](../app/src/main/java/com/hereliesaz/liperty/ml/LanguageModelScorer.kt) — interface + `NoopLanguageModelScorer` for missing-LM degradation.
-- [`KenLmScorer`](../app/src/main/java/com/hereliesaz/liperty/ml/KenLmScorer.kt) — wraps a future `libkenlm.so` via JNI. **JNI not yet built** (`Phase A3b/c` pending); `KenLmScorer.isNativeLoaded` returns false and the scorer no-ops. The rest of the rescoring pipeline is shipped and wired but currently outputs identical text to pure CTC.
+- [`KenLmScorer`](../app/src/main/java/com/hereliesaz/liperty/ml/KenLmScorer.kt) — wraps `libkenlm` via JNI (`kenlm_jni.cpp`). **The native build is in place** (arm64 `.a` prebuilts pulled by `setup_libs.sh`; CI fails the release build if absent). Scoring is active when `KenLmScorer.isNativeLoaded` is true and the LM (`librispeech_3gram.bin`) is present; otherwise the scorer no-ops.
 - [`SubwordCtcBeamDecoder`](../app/src/main/java/com/hereliesaz/liperty/ml/SubwordCtcBeamDecoder.kt) gained optional `lmScorer`/`lmWeight` params. When set, the surviving top-K CTC beams are re-ranked by `CTC_logprob + lmWeight · LM.score(words)`. Backward-compat verified by a test that asserts identical output when LM is absent.
 
 **Viseme-aware rescoring — the "Chaplin's-second-AI" specialized for lip-reading**
@@ -228,7 +229,7 @@ Honest design trade-offs (worth re-evaluating once we have on-device WER numbers
 - **9 viseme classes is a guess**, not measured. Coarser groupings make the rescorer's candidate set richer at the cost of false positives. Bear-Harvey 2017 validates 9 on LRS2; Liperty's deployment may want different.
 - **Single pronunciation per word** — cmudict has variants (e.g. "READ" = /R EH D/ or /R IY D/), but we keep only the first. Costs some candidates for poly-pronunciation words.
 - **No frequency weighting** — alphabetical sort within candidate sets means common words don't always come first. KenLM scoring catches this back on the LM side, but a frequency tiebreaker would tighten the candidate cap.
-- **All rescoring is gated on KenLM being native-loaded.** With the JNI not yet built, the rescorer runs but the LM scores everything 0, so input-bias tiebreaker keeps the original. End-to-end ready; one phase from real WER gains.
+- **All rescoring is gated on KenLM being native-loaded.** The JNI build is now in place; when the prebuilts are linked (`isNativeLoaded` true) and the LM binary is present, the rescorer scores real candidates. Absent either, the LM scores everything 0 and the input-bias tiebreaker keeps the original.
 
 **What's left in Phase A**
 

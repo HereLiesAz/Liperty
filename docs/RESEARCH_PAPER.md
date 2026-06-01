@@ -44,7 +44,7 @@ This paper documents a system architecture and its implementation status; it is 
 
 The field has converged on transformer-based encoders trained on large paired-audio-visual corpora. **Auto-AVSR** [Ma2023] uses an ESPnet visual-only Conformer + Connectionist Temporal Classification (CTC) head trained on LRS3, achieving 19.1% WER with beam search and an external language model scorer. **AV-HuBERT** [Shi2022] is Meta's audio-visual self-supervised encoder, pretrained via masked prediction over LRS3 (433 hours) and VoxCeleb2 (English subset, ~2400 hours), with fine-tuned variants for downstream tasks. **LMD-VSR** [JeongHun2023] reports 12.6% WER on LRS2 by combining AV-HuBERT with a language-model decoder.
 
-Liperty's production backend (V2) deploys Auto-AVSR; a research-mode backend (V3) deploys AV-HuBERT with the publicly-released fine-tuned seq2seq decoder. Both run as on-device ONNX models.
+**SyncVSR** [Ahn2024] is a visual-only end-to-end VSR model (LRS3-trained) whose encoder/attention-decoder export cleanly to ONNX. Liperty's production backend deploys **SyncVSR** (seq2seq encoder + attention decoder, with a CTC head as a low-RAM fallback). Auto-AVSR is retained as a legacy/alternate ONNX backend, and a research-mode backend (V3) deploys AV-HuBERT with the publicly-released fine-tuned seq2seq decoder. All run as on-device ONNX models. (Accuracy on Liperty's deployment configuration is not yet validated — see §6.)
 
 ### 2.2 Rescoring in ASR
 
@@ -66,7 +66,7 @@ Face meshes, lip motion samples, and high-resolution facial video are classified
 
 ## 3. System Architecture
 
-### 3.1 Production pipeline (V2)
+### 3.1 Production pipeline (SyncVSR)
 
 ```
 Camera frame (25–30 FPS, CameraX)
@@ -82,10 +82,10 @@ ImageUtils.alignAndCropMouth() → 88×88 grayscale mouth ROI
 FrameBuffer (rolling window of 16, slideAndGetFrames(retainCount=8))
   │
   ▼
-OnnxModelEngine: Auto-AVSR Conformer + CTC → (1, T_out, 5050)
-  │
-  ▼
-SubwordCtcBeamDecoder (beam_width=8, optional LM rescoring at end of beam)
+SyncVSR encoder → attention decoder (seq2seq, default)
+  → Seq2SeqGreedyDecoder + BpeDetokenizer
+  [CTC fallback: OnnxModelEngine encoder + CTC → (1, T_out, 5049)
+   → SubwordCtcBeamDecoder (beam_width=8, optional LM rescoring at end of beam)]
   │
   ▼
 VisemeRescorer (post-CTC viseme-equivalent substitution, LM-scored)
@@ -145,7 +145,7 @@ Backend output (CTC top-K beams, or seq2seq best path)
 Best sentence under the combined CTC + LM + viseme model.
 ```
 
-Both layers use the same `LanguageModelScorer` interface implementation. The current implementation is KenLM-backed, gated on a JNI bridge (`KenLmScorer.isNativeLoaded`) that requires `libkenlm.so` packaged in the APK. The native build is pending; until shipped, both rescorers run as no-ops via the input-bias tiebreaker.
+Both layers use the same `LanguageModelScorer` interface implementation. The current implementation is KenLM-backed, gated on a JNI bridge (`KenLmScorer.isNativeLoaded`) that requires the `libkenlm` native libraries linked into the APK. The native build is **in place** (arm64 `.a` prebuilts pulled by `setup_libs.sh`; CI fails the release build if absent); scoring is active when both `isNativeLoaded` is true and the LM binary is present, otherwise both rescorers run as no-ops via the input-bias tiebreaker.
 
 ### 3.4 On-device personalization
 
@@ -511,7 +511,7 @@ These constitute the empirical work planned for Phase A6 (offline WER sweep) and
 
 ### 7.1 Why viseme-aware rescoring is the right "second AI" for visual ASR
 
-Auto-AVSR's 19.1% WER on LRS3 requires the external language model scorer during beam search. Liperty's V2 backend strips this out; without it, we estimate WER in the 30-50% range on raw CTC. Re-introducing a generic English LM is the obvious move and is implemented (§4.1).
+As a reference point, Auto-AVSR's headline 19.1% WER on LRS3 requires the external language model scorer during beam search. Liperty's exported CTC paths (the SyncVSR CTC fallback, and the Auto-AVSR alternate) strip this out; without it, raw CTC WER is materially higher (we estimate the 30-50% range, though Liperty's own in-domain WER is still unmeasured — §6). Re-introducing a generic English LM is the obvious move and is implemented (§4.1).
 
 But for visual ASR specifically, **the dominant error mode is the viseme confusion** — a mistake a generic LM cannot recover from in isolation. The encoder commits to a viseme-equivalent word; the language model receives that single word among the top-K beams; both alternatives never get scored against the LM's context. The viseme-aware rescorer's contribution is to *generate* the alternatives during post-decoding, then ask the LM which is more plausible.
 
@@ -586,6 +586,7 @@ We will report follow-up empirical results, including real-user word error rate 
 
 ## References
 
+- [Ahn2024] Ahn, Y., Lee, J., et al. (2024). *SyncVSR: Data-Efficient Visual Speech Recognition with End-to-End Crossmodal Audio Token Synchronization.* INTERSPEECH 2024. (KAIST-AILab)
 - [Bear2017] Bear, H. L., & Harvey, R. (2017). *Phoneme-to-viseme mappings: the good, the bad, and the ugly.* Speech Communication, 95, 40–67.
 - [Fisher1968] Fisher, C. G. (1968). *Confusions among visually perceived consonants.* Journal of Speech and Hearing Research, 11(4), 796–804.
 - [Hannun2014] Hannun, A. Y., Maas, A. L., Jurafsky, D., & Ng, A. Y. (2014). *First-Pass Large Vocabulary Continuous Speech Recognition using Bi-Directional Recurrent DNNs.* arXiv:1408.2873.
@@ -635,13 +636,14 @@ We will report follow-up empirical results, including real-user word error rate 
                                        │
                               ┌────────┴─────────┐
                               │                  │
-                          V2  │                  │  V3 (USE_V3_BACKEND)
+                     default  │                  │  V3 (USE_V3_BACKEND)
                               │                  │
                               ▼                  ▼
                   ┌─────────────────┐  ┌────────────────────────┐
-                  │  Auto-AVSR ONNX │  │ AV-HuBERT encoder ONNX │
-                  │  Conformer+CTC  │  │  → (1, T, 768)         │
-                  │  → (1, T, 5050)│  │                        │
+                  │  SyncVSR ONNX   │  │ AV-HuBERT encoder ONNX │
+                  │  enc→dec seq2seq│  │  → (1, T, 768)         │
+                  │  (CTC fallback: │  │                        │
+                  │   1,T,5049)     │  │                        │
                   └────────┬────────┘  └────────────┬───────────┘
                            │                        │
                            ▼                        ▼

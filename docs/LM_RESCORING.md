@@ -1,17 +1,17 @@
 # LM Rescoring & Viseme-Aware Correction
 
-Liperty's CTC backend (Auto-AVSR) produces a single best-beam transcription per inference window. This document describes the two **rescoring layers** stacked on top of that output to recover from CTC errors that the encoder alone can't avoid:
+Liperty's CTC decode paths (the **SyncVSR** CTC fallback and the legacy/alternate **Auto-AVSR** backend) produce a single best-beam transcription per inference window. This document describes the two **rescoring layers** stacked on top of that output to recover from CTC errors that the encoder alone can't avoid (the production SyncVSR seq2seq path benefits from the same viseme post-rescoring):
 
 1. **Generic English LM (KenLM)** — penalizes ungrammatical English candidates among the top-K CTC beams.
 2. **Viseme-aware rescorer** — specifically attacks the dominant visual-ASR failure mode: confusable viseme-equivalent words (b/p/m, t/n/d, f/v).
 
-Both layers are wired and unit-tested end-to-end. Their actual *effect* is gated on the KenLM native library being packaged in the APK; until that lands, both run as no-ops (input-bias tiebreaker keeps the original CTC output).
+Both layers are wired and unit-tested end-to-end. The KenLM JNI/native build is **in place** (`kenlm_jni.cpp` + arm64 `.a` prebuilts pulled by `setup_libs.sh`; CI fails the release build if they're absent). Scoring is active at runtime when **both** `KenLmScorer.isNativeLoaded` is true (prebuilts linked) **and** the LM (`librispeech_3gram.bin`) is present; otherwise both rescorers run as a no-op input-bias tiebreaker (original CTC output wins).
 
 ---
 
 ## Why this exists
 
-Auto-AVSR's deployed encoder ([`Amanvir/LRS3_V_WER19.1`](https://huggingface.co/Amanvir/LRS3_V_WER19.1)) hits 19.1% WER in the original paper. Liperty's V2 backend strips out the LM scorer that the paper uses during beam search — so we run closer to 30-50% WER on raw CTC. The two layers here are designed to recover most of that gap.
+As a reference point, the Auto-AVSR encoder ([`Amanvir/LRS3_V_WER19.1`](https://huggingface.co/Amanvir/LRS3_V_WER19.1)) hits 19.1% WER in the original paper *with* an external LM scorer during beam search. Liperty's exported CTC paths strip that scorer out, so raw CTC WER is materially higher (estimated 30-50%; Liperty's own in-domain WER is still unmeasured — see `EVAL_RESULTS_2026-05-13.md`). The two layers here are designed to recover most of that gap.
 
 The viseme-aware framing matters: a vanilla text-LM treats "tasty" and "nasty" as unrelated. But /t/ and /n/ share viseme V4 (alveolar) — visually indistinguishable from outside the mouth. If the encoder commits to "tasty" and the user actually said "nasty", a plain LM rescorer can't undo that mistake unless "nasty" happens to make the surviving CTC beams. **The viseme-aware rescorer specifically generates the viseme-equivalent alternatives** as candidates, then asks the LM which is more English-plausible *in context*.
 

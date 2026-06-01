@@ -1,56 +1,33 @@
 # AGENTS.md
 
-This file provides guidance to AI Agents (e.g., WARP, Claude) when working with code in this repository.
+Guidance for AI agents (WARP, Claude, etc.) working in this repo.
 
-## Project Overview
+> **The maintained, authoritative contributor guide is [`CLAUDE.md`](CLAUDE.md).** Read it first — it has the full architecture, conventions, pitfalls, and current model/backend facts. This file is a short orientation only.
 
-**Liperty** is a real-time, on-device Visual Speech Recognition (VSR) and Silent Speech Interface (SSI) application. It converts lip movements or silently articulated vibrations into text or synthesized speech.
+## Project overview
 
-### Key Characteristics
-- **Platform**: Android (Native Kotlin/C++)
-- **ML Stack**: LiteRT (TFLite), MediaPipe, ONNX Runtime (PocketTTS)
-- **Vision**: JNI/OpenCV integration for frame normalization.
-- **SSI**: Multimodal fusion of Contact-mic and Accelerometer data.
-- **Privacy**: No cloud dependencies; ephemeral RAM processing only.
+**Liperty** is a real-time, on-device Visual Speech Recognition (VSR) and Voice Reconstruction app: it converts lip movements into text, or reconstructs speech via bone-conduction / electrolarynx pipelines.
 
-## Development Environment & Setup
+### Key facts
+- **Platform**: Android (Kotlin-first, C++/NDK for OpenCV + KenLM). minSdk 26.
+- **Production VSR**: **SyncVSR** (visual-only, LRS3-trained), served by `OnnxModelEngine` via **ONNX Runtime Mobile** — seq2seq encoder + attention decoder by default, CTC head as a low-RAM fallback. Auto-AVSR is a legacy/alternate ONNX backend; the TFLite phoneme path is legacy/auxiliary only. (Backend selected by `MainActivity.VSR_BACKEND`.)
+  - ⚠️ Accuracy is **not yet validated on in-domain data** (only eval = 100% WER on out-of-distribution GRID — see `docs/EVAL_RESULTS_2026-05-13.md`).
+- **Vision**: MediaPipe face mesh (468 landmarks) + JNI/OpenCV 4.13.0 lip-crop/normalization.
+- **Voice reconstruction / SSI**: multimodal contact-mic + accelerometer fusion; glottal-carrier BC mode + electrolarynx capture.
+- **Privacy**: no cloud inference; biometric data is RAM-only except the explicitly-consented, user-deletable on-device personalization store. The app declares `INTERNET` solely for the one-time first-launch model download (`setup/ModelDownloadManager.kt`).
 
-### 1. Dependency Initialization
-You **must** run the setup script before attempting to build:
+## Setup & build
 ```bash
-./setup_libs.sh
+./setup_libs.sh          # OpenCV SDK + MediaPipe .task + models; patches AGP 9 / JDK 17
+./gradlew assembleDebug  # build (JDK 17)
+./gradlew testDebugUnitTest
 ```
-This script:
-- Configures the OpenCV Android SDK (v4.10.0+).
-- Patches AGP compatibility for Java 17.
-- Downloads models (VALLR, Face Task, Dummy TFLite).
+Large ML models are pruned from the APK and downloaded on first launch. Physical devices are required for real ML/sensor/vibrator testing.
 
-### 2. Build Commands
-- **Build APK**: `./gradlew assembleDebug`
-- **Tests**: `./gradlew testDebugUnitTest`
+## Coding guidelines
+- **Backends are swappable via `ModelEngine`** — never touch a concrete engine from `VSRInference`. Wrap delegate init in try/catch with CPU fallback.
+- **Zero-allocation** camera callbacks: reuse buffers (`BitmapPool`); use JNI for >30 Hz frame work.
+- **Compose** UI; state in `ViewModel`/`TranscriptionManager` (StateFlow).
+- **Legal/BIPA/GDPR**: never write raw frames, landmarks, or audio to persistent storage; never bypass the consent gate. `PrivacyTest` enforces this.
 
-### 3. Hardware Requirements
-- **Physical Devices**: Required for testing ML inference, VibratorManager, and high-frequency sensors.
-- **Permissions**: App enforces strict Legal Consent for biometric data.
-
-## Coding Guidelines
-
-### Machine Learning & Performance
-- **Zero-Allocation**: Reuse buffers (e.g., `BitmapPool`) during camera callbacks.
-- **Native Logic**: Use JNI for operations requiring >30Hz frame rates (Normalization, DSP).
-- **Delegates**: Use GPU/NPU delegates but always implement CPU fallback.
-
-### UI & Interaction
-- **Compose**: Primary UI framework.
-- **Accessibility**: Optimized for one-handed use and hands-free gesture control.
-- **Transcription**: Rendered as word blocks over the camera; supports pinch-to-zoom scaling.
-
-### Implementation Status (Crucial)
-Consult `docs/TODO.md` before starting tasks. The project currently uses **Mock/Dummy** components for:
-- VSR Model weights (character indexing aligned, but random weights).
-- SSI Formant Extrapolation (simple spectral folding).
-- Voice Cloning inference (returns white noise mockup).
-
-## Legal & Privacy (BIPA/GDPR)
-- **Never** write raw frames, landmarks, or audio to persistent storage.
-- Ephemeral processing in RAM is a legal requirement for this project.
+Consult [`docs/TODO.md`](docs/TODO.md) for what's shipped vs planned before starting a task.

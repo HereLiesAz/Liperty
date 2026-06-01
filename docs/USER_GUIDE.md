@@ -1,56 +1,52 @@
 # Liperty User Guide
 
-Liperty is an offline-first Visual Speech Recognition (VSR) and Silent Speech Interface (SSI) application for Android.
+Liperty is an offline-first Visual Speech Recognition (VSR) and Voice Reconstruction app for Android.
+
+> ⚠️ Lipreading accuracy is **experimental and not yet validated** — see the accuracy note in the README. Treat transcriptions as a best-effort draft.
 
 ## Installation
 
-1.  Clone the repository.
-2.  Run `./setup_libs.sh` to download necessary models and SDKs.
-3.  Open in Android Studio and Build/Run the `app` module.
+1. Clone the repository and run `./setup_libs.sh` (downloads the OpenCV SDK + MediaPipe models and patches the build).
+2. Open in Android Studio (JDK 17) and Build/Run the `app` module on a physical device.
+3. On **first launch the app downloads ~1.4 GB of ML models** over Wi-Fi (one time); after that it runs fully offline.
 
 ## Permissions
 
-On first launch, the app will request:
-*   **Camera:** To capture video for lip reading.
-*   **Record Audio:** For voice activity detection and voice cloning.
-*   **Vibrate:** To power the Artificial Larynx functionality.
+On first launch the app requests:
+* **Camera** — capture video for lip reading.
+* **Record Audio** — voice-activity detection and voice cloning.
+* **Vibrate** — power the Artificial Larynx (bone-conduction) mode.
 
-You must also agree to the **Legal Consent** dialog to proceed with biometric processing.
+You must also accept the **Legal Consent** dialog before any biometric processing.
 
-## Usage Modes
+## Usage modes
 
 ### 1. Lip Reading (VSR)
-*   Toggle **Lip-Read ON** in the navigation rail.
-*   Aim the camera at an interlocutor.
-*   **Interactive Text:** Tappable word blocks appear over the camera view.
-*   **Pinch-to-Zoom:** Use two fingers to scale the transcription text size dynamically.
+* Toggle **Lip-Read ON** in the navigation rail.
+* Aim the camera at the speaker, holding the phone in **portrait** with the mouth well-lit and clearly visible.
+* The transcription appears as a text overlay over the camera view.
 
-### 2. Voice Box (SSI)
-*   Toggle **Larynx ON** in the navigation rail.
-*   The phone will vibrate intensely to provide a carrier sound source.
-*   Press the back of the phone firmly against your throat, below the Adam's apple.
-*   Mouth words silently; your articulators will modulate the vibration into a signal the app can process.
-*   **Planned Electrolarynx Translator Mode:** Future integration will support connecting a traditional hardware electrolarynx and using a Bluetooth LE Audio headset (with LC3 support) to transmit audio via C++ Oboe.
-*   **Planned Silent Speech BCM Mode:** Future integration will support pairing compatible Bone Conduction Microphones (BCMs) to capture tissue vibrations and translating them using TRAMBA bandwidth expansion.
+### 2. Voice Box (Artificial Larynx / SSI)
+* Toggle **Larynx ON** in the navigation rail.
+* The phone vibrates to provide a carrier sound source.
+* Press the back of the phone firmly against your throat, below the Adam's apple, and mouth words silently; your articulators modulate the vibration into a signal the app processes.
 
 ### 3. Voice Management
-*   Navigate to the **Voice** screen.
-*   **Clone Voice:** Import a `.wav` file or record a sample to create a personalized TTS profile.
-*   **Select Profile:** Choose from saved voices for the "Speak" functionality.
+* Navigate to the **Voice** screen.
+* **Clone Voice:** import a `.wav` file or record a sample to create a personalized TTS profile.
+* **Select Profile:** choose a saved voice for the "Speak" functionality.
 
-### 4. Personalization (Tweak)
-*   Navigate to **Tweak** in the rail.
-*   Mouth the provided phonetically rich phrases to fine-tune the model to your specific articulatory patterns (LoRA).
+## Planned features (not yet shipped)
 
-## Gestures & Controls
+These are on the roadmap ([`TODO.md`](TODO.md)) and **not available in the current build**:
 
-*   **Wave Gesture:** Rapidly wave your hand in front of the camera to **Pause/Resume** transcription.
-*   **Air Swipes:** Wave horizontally (left/right) to cycle through **Homophene candidates** for the selected word.
-*   **Touch Word:** Tap any word in the transcription to select it for manual correction or gesture-based cycling.
-*   **Sensitivity Sliders:** Use the vertical sliders on the home screen to adjust VSR confidence and LRA pressure thresholds.
+* **Interactive transcription** — tappable word blocks over the camera, pinch-to-zoom font scaling, and per-word confidence shading.
+* **Gesture control** — wave to pause/resume; horizontal air-swipes to cycle homophene candidates.
+* **Personalization ("Tweak")** — mouthing phonetically rich phrases to fine-tune the model to your articulation (on-device LoRA).
+* **Electrolarynx translator & Bone-Conduction (BCM) modes** — hardware electrolarynx buzz suppression and bone-conduction-mic capture with bandwidth expansion, plus Bluetooth LE Audio (LC3) low-latency output.
 
 ## Troubleshooting
 
-*   **Portrait Orientation:** Ensure the phone is held vertically. The recognition engine is optimized for portrait alignment.
-*   **No Face Detected:** Ensure good lighting and that the mouth is clearly visible.
-*   **Weak SSI Signal:** Ensure the phone is pressed firmly against the throat and any thick protective cases are removed.
+* **Portrait orientation:** hold the phone vertically; recognition is tuned for portrait alignment.
+* **No face detected:** ensure good lighting and an unobstructed mouth.
+* **Weak SSI signal:** press the phone firmly against the throat and remove thick cases.

@@ -187,7 +187,6 @@ android {
             excludes += "**/syncvsr_lrs3_decoder.onnx"
             excludes += "**/avhubert_base_vox_433h_visual_encoder.onnx"
             excludes += "**/avhubert_base_vox_433h_decoder.onnx"
-            excludes += "**/vallr_model.onnx"
             excludes += "**/vsr_model.tflite"
             excludes += "**/vsr_lora_model.tflite"
             excludes += "**/ssr_model.tflite"

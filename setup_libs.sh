@@ -146,10 +146,9 @@ fi
 
 # --- Model & Data Setup ---
 
-echo "[+] Setting up Models, Tools, and VALLR Data..."
+echo "[+] Setting up Models and Tools..."
 
 # Google Drive IDs provided by user
-VALLR_GD_ID="1TdthJ9ibfruV5BQ_LWP2go2RWJoXlTrh"
 TOOLS_GD_ID="1YjGOWbhIqBN626vCqZAuSok5uzCiFHyt"
 ASSETS_GD_ID="11ajiCy4skJo5B8K2OrFAipmBGc2Eus_m"
 
@@ -196,17 +195,7 @@ try_extract_or_skip() {
     return 0
 }
 
-# 1. Vallr Bundle (research scaffolding only — VALLR/ Python code is not
-#    compiled into the APK; superseded by the Auto-AVSR backend at runtime.)
-if [ ! -f "VALLR/VALLR.path" ]; then
-    mkdir -p "VALLR"
-    download_from_gdrive "$VALLR_GD_ID" "Vallr.zip"
-    try_extract_or_skip "Vallr.zip" "VALLR/" "VALLR bundle"
-else
-    echo "[*] VALLR data already exists."
-fi
-
-# 2. Tools Bundle (offline notebook helpers — not consumed by the Android build.)
+# 1. Tools Bundle (offline notebook helpers — not consumed by the Android build.)
 if [ ! -d "tools/external" ]; then
     mkdir -p "tools"
     download_from_gdrive "$TOOLS_GD_ID" "tools.zip"

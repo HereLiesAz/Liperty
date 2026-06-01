@@ -1,6 +1,6 @@
 # On-Device Personalization
 
-This document covers Liperty's plan to make the visual ASR pipeline adapt to each user, on-device only. The motivating problem isn't engineering — it's that the pretrained encoder (AV-HuBERT or Auto-AVSR) was trained on demographically biased corpora (LRS3 = TED talks, VoxCeleb2 = YouTube celebrity clips) that systematically under-represent the population Liperty exists to serve.
+This document covers Liperty's plan to make the visual ASR pipeline adapt to each user, on-device only. The motivating problem isn't engineering — it's that the pretrained encoder (SyncVSR in production; the Step-3 LoRA proof-of-concept below was prototyped on AV-HuBERT) was trained on demographically biased corpora (LRS3 = TED talks, VoxCeleb2 = YouTube celebrity clips) that systematically under-represent the population Liperty exists to serve. The paired-recording capture and crop constants (88×88, mean 0.421, std 0.165) are backend-shared, so the captured data applies regardless of which encoder is personalized.
 
 ---
 
