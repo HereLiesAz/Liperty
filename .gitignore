@@ -47,17 +47,17 @@ google-services.json
 *.hprof
 /.kotlin/sessions/
 
-# Research artifacts
-VALLR/
-
 # External data, caches, bundles
 data/
 tools/external/
 tools/.cache/
-avsr_vallr_others.zip
 tools.zip
-VALLR.zip
 app/src/main/assets.zip
+
+# Legacy VALLR research artifacts — no longer used by the app, but keep any
+# local copies out of git (the VALLR/ bundle dir and a stale vallr_model.onnx
+# can still exist on dev machines from older setup_libs.sh runs).
+VALLR/
 vallr_model.onnx
 
 # All ML model assets and binary blobs provisioned by setup_libs.sh.

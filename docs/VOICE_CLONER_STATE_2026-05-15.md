@@ -1,8 +1,9 @@
 # Voice cloner status — 2026-05-15
 
+> Latest voice-cloner status snapshot. (The earlier 2026-05-14 snapshot was removed as superseded.) Point-in-time record; for current roadmap state see `TODO.md`.
+
 Update after pivoting the TTS pipeline to OpenVoice v2 and rewriting
-`PocketTTSEngine.kt` against the new contract. Supersedes the
-2026-05-14 doc on a per-stage basis.
+`PocketTTSEngine.kt` against the new contract.
 
 ## Where this stands
 

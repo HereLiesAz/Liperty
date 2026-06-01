@@ -35,10 +35,12 @@ This document serves as the master source of truth for the Liperty project. It m
 
 *Refs: RESEARCH.md "State-of-the-Art Neural Architectures for Mobile VSR"; AVHUBERT_V3_BACKEND.md; LM_RESCORING.md*
 
-- [x] **Production VSR backend (V2):**
-    - [x] Auto-AVSR ONNX (`Amanvir/LRS3_V_WER19.1`, ESPnet Conformer + CTC, 5050 SentencePiece tokens).
-    - [x] Streaming inference via `FrameBuffer.slideAndGetFrames(retainCount=8)`.
-    - [x] `SubwordCtcBeamDecoder` (beam=8, prefix merge via logsumexp).
+- [x] **Production VSR backend: SyncVSR** (visual-only E2E, LRS3-trained, 5049-token unigram SentencePiece).
+    - [x] Seq2seq encoder + attention decoder ONNX (`syncvsr_lrs3_encoder.onnx` + `syncvsr_lrs3_decoder.onnx`), driven by `Seq2SeqGreedyDecoder` + `BpeDetokenizer`. Active by default (`VSR_BACKEND = BACKEND_SYNC_VSR`, `SYNCVSR_USE_SEQ2SEQ`).
+    - [x] CTC head (`syncvsr_lrs3_visual_ctc_fp16.onnx`) as the low-RAM graceful-degradation fallback.
+    - [x] Streaming inference via `FrameBuffer.slideAndGetFrames(retainCount=8)`; CTC paths use `SubwordCtcBeamDecoder` (beam=8, prefix merge via logsumexp).
+    - [ ] **⚠️ In-domain accuracy unmeasured** (only eval = 100% WER on out-of-distribution GRID — `docs/EVAL_RESULTS_2026-05-13.md`).
+- [x] **Alternate/legacy VSR backend: Auto-AVSR** (`Amanvir/LRS3_V_WER19.1`, ESPnet Conformer + CTC, 5050 tokens, `BACKEND_AUTO_AVSR`). Selectable via `VSR_BACKEND` for experiments.
 - [x] **Research VSR backend (V3, off by default):**
     - [x] AV-HuBERT base+vox+433h encoder exported to ONNX (parity verified, 392 MB).
     - [x] AV-HuBERT seq2seq decoder exported to ONNX (parity vs PyTorch verified text-equivalent on 5/5 clips, 240 MB).

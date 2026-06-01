@@ -36,7 +36,7 @@ The app may use the device vibrator for haptic feedback. No sensor data is store
 - Facial landmarks are extracted, used for lip cropping, and **immediately discarded**
 - No facial geometry, lip images, voice recordings, or raw audio is ever written to persistent storage (disk/NAND)
 - No biometric data is transmitted to any server, cloud service, or third party
-- The app has **no internet permission** and cannot send data off-device
+- The app's only network use is a **one-time, first-launch download of ML model files** from Hugging Face into app-private storage. No biometric data, inference input/output, or user content is ever transmitted off-device — recognition runs fully locally after setup.
 
 ### Compliance
 This handling is designed to comply with:
@@ -67,21 +67,21 @@ Liperty does **not** collect, store, or transmit:
 - Device identifiers or advertising IDs
 - Usage analytics or telemetry
 - Any data to third-party services
-- Crash reports (no network capability)
+- Crash reports, analytics, or telemetry (none are collected or transmitted; the app contains no analytics SDK)
 
-## 7. No Network Access
+## 7. Network Access (first-launch model download only)
 
-Liperty has **no internet permission** (`android.permission.INTERNET` is absent from the manifest). The app is physically incapable of transmitting any data off your device. All machine learning inference runs locally using on-device models.
+Liperty declares `android.permission.INTERNET` for a **single purpose**: downloading the ML model files (~1.4 GB) from Hugging Face into app-private storage the first time you launch the app. These models are too large to bundle in the APK. After this one-time setup the app operates fully offline; no inference data, biometric data, or user content is ever transmitted off your device. The first-launch download is disclosed in the Play Store Data Safety form.
 
 ## 8. On-Device Machine Learning
 
-All ML models run locally on your device:
-- Visual speech recognition model (TensorFlow Lite)
+All ML inference runs locally on your device:
+- Visual speech recognition — **SyncVSR** (ONNX Runtime)
 - Face landmark detection (MediaPipe)
-- Voice conversion model (TensorFlow Lite)
-- Text-to-speech synthesis (ONNX Runtime)
+- Voice reconstruction DSP / voice conversion (on-device)
+- Voice-cloning text-to-speech (ONNX Runtime)
 
-No cloud ML services are used. Model weights are bundled with the app or downloaded once during setup and stored locally.
+No cloud ML services are used. Model weights are downloaded once on first launch and stored locally in app-private storage.
 
 ## 9. Consent
 

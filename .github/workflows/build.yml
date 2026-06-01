@@ -32,7 +32,6 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            VALLR/
             data/
             tools/external/
             app/src/main/cpp/libs/opencv/
