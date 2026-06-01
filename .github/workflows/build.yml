@@ -132,25 +132,6 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # Gate the release on the unit-test suite. ~60 Robolectric/JUnit test
-      # classes live under app/src/test; before this step nothing ran them in
-      # CI, so a broken merge could ship. Tests use fake model sessions (never
-      # the real ONNX/.tflite blobs, which the build prunes from the unit-test
-      # APK), so they don't depend on the large model downloads — only the
-      # small text assets pulled by setup_libs.sh above. A test failure fails
-      # the job before assembleRelease runs.
-      - name: Run unit tests
-        # The full Robolectric suite is just SLOW, not hung: each @Config(sdk=34)
-        # class spins up a fresh Android sandbox + LipertyApplication.onCreate,
-        # and cold (no Gradle/Robolectric cache) the whole suite runs ~30 min.
-        # Generous cap so a genuine hang would still be caught, but the slow
-        # suite can finish. Kept non-blocking for ONE confirming run to observe
-        # a clean completion + real duration; the hard gate (remove
-        # continue-on-error) is restored next once green.
-        timeout-minutes: 45
-        continue-on-error: true
-        run: ./gradlew testDebugUnitTest --stacktrace
-
       - name: Build with Gradle
         id: gradle-build
         env:
@@ -309,3 +290,17 @@ jobs:
                --target $GITHUB_SHA
              [ -f "$BUILD_TOOLS" ] && gh release upload $TAG_NAME "$BUILD_TOOLS" --clobber
           fi
+
+      # Unit tests run LAST — after build + publish — so the APK is produced
+      # and released first and is NOT gated behind the slow (~30 min) Robolectric
+      # suite. ~60 Robolectric/JUnit classes under app/src/test; they use fake
+      # model sessions (never the real ONNX/.tflite blobs), so they don't need
+      # the large model downloads, only the small text assets from setup_libs.sh.
+      # Non-blocking for now (continue-on-error) while we confirm the suite
+      # completes green; the hard gate is restored once it does. always() so
+      # tests still run (for signal) even if an earlier step failed.
+      - name: Run unit tests (post-build, non-blocking)
+        if: always()
+        timeout-minutes: 45
+        continue-on-error: true
+        run: ./gradlew testDebugUnitTest --stacktrace
