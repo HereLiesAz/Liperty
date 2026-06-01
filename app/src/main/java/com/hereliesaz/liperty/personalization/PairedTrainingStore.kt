@@ -113,8 +113,18 @@ class PairedTrainingStore(private val rootDir: File) {
         metaFile(id).delete()
     }
 
-    fun deleteAll() {
-        rootDir.listFiles().orEmpty().forEach { it.delete() }
+    /**
+     * The Settings "delete all biometric data" path (GDPR/BIPA right-to-erasure).
+     * Recursively removes the entire store directory — including any stray
+     * subdirectory or partially-written record — then recreates the empty root,
+     * so nothing biometric can be left behind. Returns true only if the tree was
+     * fully removed; a false result means some file could not be deleted (e.g.
+     * locked) and the caller should surface a failure rather than report success.
+     */
+    fun deleteAll(): Boolean {
+        val removed = rootDir.deleteRecursively()
+        rootDir.mkdirs()
+        return removed
     }
 
     fun totalBytes(): Long =

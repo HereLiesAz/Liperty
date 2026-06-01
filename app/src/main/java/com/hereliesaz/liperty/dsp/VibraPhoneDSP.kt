@@ -284,27 +284,41 @@ class VibraPhoneDSP {
         val complexSpectrum = fft(inputSignal)
         val excitedSpectrum = fft(excitedSignal)
 
-        val n = complexSpectrum.size / 2
-        
-        // 2. Spectral Shaping: Reconstruct components above 3kHz
-        val cutoffIdx = (3000 * FRAME_SIZE / SAMPLE_RATE).toInt()
+        val n = complexSpectrum.size / 2   // FFT length N (== inputSignal.size)
+        val nyquist = n / 2
 
-        for (i in cutoffIdx until n) {
-            // Mix original with excited harmonics (scaled)
+        // 2. Spectral shaping: reconstruct the POSITIVE-frequency components above
+        //    3 kHz, then enforce conjugate symmetry so the IFFT stays real.
+        //
+        // Only the positive half [cutoffIdx .. nyquist] is modified. The
+        // negative-frequency bins (nyquist+1 .. n-1) are derived as conjugates
+        // here. The previous implementation iterated [cutoffIdx until n] and, for
+        // each i, wrote a "mirror" at n-i — but for i > nyquist that mirror lands
+        // in the LOW-frequency half, clobbering the original sub-cutoff content
+        // that must be preserved. Bin i maps to freq i*SAMPLE_RATE/n, so the
+        // cutoff is relative to N (not the fixed FRAME_SIZE).
+        val cutoffIdx = (3000L * n / SAMPLE_RATE).toInt().coerceIn(1, nyquist)
+
+        for (i in cutoffIdx..nyquist) {
+            // Mix original with excited harmonics (scaled).
             val re = complexSpectrum[2 * i] + excitedSpectrum[2 * i] * 0.4f
-            val im = complexSpectrum[2 * i + 1] + excitedSpectrum[2 * i + 1] * 0.4f
-            
+            var im = complexSpectrum[2 * i + 1] + excitedSpectrum[2 * i + 1] * 0.4f
+            // The Nyquist bin (and DC) must be real for a real-valued signal.
+            if (i == nyquist) im = 0f
+
             complexSpectrum[2 * i] = re
             complexSpectrum[2 * i + 1] = im
-            
-            // Mirror for conjugate symmetry (negative frequencies)
+
+            // Mirror to the negative-frequency bin as the complex conjugate.
+            // mirrorIdx is in (nyquist .. n-1) for i in [1 .. nyquist-1], so it
+            // never overwrites a positive/low-frequency bin.
             val mirrorIdx = n - i
-            if (mirrorIdx > 0 && mirrorIdx < n) {
+            if (mirrorIdx in (nyquist + 1) until n) {
                 complexSpectrum[2 * mirrorIdx] = re
                 complexSpectrum[2 * mirrorIdx + 1] = -im
             }
         }
-        
+
         return ifft(complexSpectrum)
     }
 
@@ -322,8 +336,11 @@ class VibraPhoneDSP {
     /**
      * Performs a forward FFT on the input signal.
      * @return Interleaved float array [Re, Im, Re, Im...] of size 2*input.size
+     *
+     * internal (not private) so the TRAMBA below-cutoff-preservation regression
+     * test can inspect the spectrum directly.
      */
-    private fun fft(input: FloatArray): FloatArray {
+    internal fun fft(input: FloatArray): FloatArray {
         val n = input.size
         // Ensure n is power of 2
         if (n and (n - 1) != 0) {

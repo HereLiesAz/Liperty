@@ -353,6 +353,14 @@ class AudioPreprocessor(private val context: Context) {
         buf.position(34)
         val bitsPerSample = buf.short.toInt()
 
+        // Guard against malformed/untrusted WAV headers — voice-import accepts
+        // user-supplied files. channels==0 or bitsPerSample<8 would divide by
+        // zero below (numSamples / channels, chunkSize / (bitsPerSample/8)).
+        if (channels < 1 || bitsPerSample < 8) {
+            Log.w(TAG, "Invalid WAV header (channels=$channels bits=$bitsPerSample); skipping")
+            return floatArrayOf()
+        }
+
         // Find data chunk
         buf.position(36)
         while (buf.remaining() >= 8) {
