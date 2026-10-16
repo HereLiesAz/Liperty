@@ -68,7 +68,7 @@ import com.hereliesaz.liperty.voicebox.cloning.VoiceQualityTier
  *
  * Past Excellent, further gains require Tier-3 LoRA fine-tuning.
  *
- * Captured clips are written to cacheDir as 16 kHz WAVs and
+ * Captured clips are written to app-private filesDir as 16 kHz WAVs and
  * resampled to 24 kHz at SE-extraction time. They're deleted as
  * soon as the profile is saved or the session is cancelled, so
  * no raw audio outlives the session unless the user explicitly

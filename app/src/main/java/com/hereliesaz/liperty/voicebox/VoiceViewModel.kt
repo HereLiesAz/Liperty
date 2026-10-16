@@ -138,7 +138,7 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
 
     private var pendingCloningUris: List<Uri> = emptyList()
     private var pendingRecordedFile: File? = null
-    /** Captured WAV files for the active coached session (cacheDir). */
+    /** Captured WAV files for the active coached session (app-private filesDir). */
     private val coachedClips: MutableList<File> = mutableListOf()
 
     init {
@@ -442,8 +442,8 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Records one clip of [durationMs] for the coached session.
      * On completion the WAV is appended to the in-memory list and
-     * the quality tier is recomputed. Disk writes go to cacheDir
-     * (no biometric data in user-visible storage).
+     * the quality tier is recomputed. Disk writes go to app-private
+     * filesDir (no biometric data in user-visible storage).
      */
     fun recordCoachedClip(durationMs: Long = DEFAULT_CLIP_DURATION_MS) {
         if (_coachState.value.isRecording) return
