@@ -24,6 +24,9 @@ import java.net.URL
 class ModelDownloadManager(private val context: Context) {
 
     companion object {
+        /** Model downloads must never travel over cleartext (tampering). */
+        internal fun isHttpsUrl(url: URL): Boolean = url.protocol.equals("https", ignoreCase = true)
+
         private const val TAG = "ModelDownloadManager"
         private const val PREFS_NAME = "ModelDownloadPrefs"
         private const val KEY_SETUP_COMPLETE = "setup_complete"
@@ -482,6 +485,7 @@ class ModelDownloadManager(private val context: Context) {
         var conn: HttpURLConnection? = null
         try {
             val url = URL(urlStr)
+            require(isHttpsUrl(url)) { "Refusing non-HTTPS download URL for $modelKey: $urlStr" }
             conn = url.openConnection() as HttpURLConnection
             conn.connectTimeout = 30_000
             conn.readTimeout = 60_000
@@ -501,7 +505,9 @@ class ModelDownloadManager(private val context: Context) {
                         if (redirectsLeft <= 0) {
                             throw RuntimeException("Too many redirects fetching $modelKey (loop?)")
                         }
-                        downloadFile(redirect, dest, modelKey, redirectsLeft - 1)
+                        // Resolve relative Location headers against the current URL;
+                        // downloadFile() rejects any non-HTTPS target.
+                        downloadFile(URL(url, redirect).toString(), dest, modelKey, redirectsLeft - 1)
                         return@withContext
                     }
                 }

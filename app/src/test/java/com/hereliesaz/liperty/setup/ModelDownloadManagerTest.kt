@@ -137,4 +137,10 @@ class ModelDownloadManagerTest {
         shadowOf(caps).addTransportType(transport)
         shadowOf(cm).setNetworkCapabilities(cm.activeNetwork, caps)
     }
+
+    @Test
+    fun `isHttpsUrl accepts https and rejects cleartext http`() {
+        assertTrue(ModelDownloadManager.isHttpsUrl(java.net.URL("https://huggingface.co/x")))
+        assertFalse(ModelDownloadManager.isHttpsUrl(java.net.URL("http://huggingface.co/x")))
+    }
 }
