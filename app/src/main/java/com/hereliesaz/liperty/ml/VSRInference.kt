@@ -202,13 +202,18 @@ class VSRInference(
             // For the legacy VideoMAE backend mean=0 std=1 → just pixel/255.
             // For Auto-AVSR mean=0.421 std=0.165.
             fun norm(raw255: Int): Float = (raw255 / 255f - pixelMean) / pixelStd
+            // Rec.601 luma (matches cv2 BGR2GRAY used in training preprocessing and the
+            // seq2seq path); feeding only the red channel is a distribution shift.
+            fun luma(pixel: Int): Int =
+                ((((pixel shr 16) and 0xFF) * 76 + ((pixel shr 8) and 0xFF) * 150 + (pixel and 0xFF) * 30) ushr 8)
+                    .coerceIn(0, 255)
 
             when (inputLayout) {
                 InputLayout.NTHWC -> {
                     for (px in pixelsPerFrame) {
                         for (pixel in px) {
                             when (numChannels) {
-                                1 -> currentInputBuffer.putFloat(norm((pixel shr 16) and 0xFF))
+                                1 -> currentInputBuffer.putFloat(norm(luma(pixel)))
                                 3 -> {
                                     currentInputBuffer.putFloat(norm((pixel shr 16) and 0xFF))
                                     currentInputBuffer.putFloat(norm((pixel shr 8) and 0xFF))
@@ -255,9 +260,11 @@ class VSRInference(
                     // first, then all G, then all B for each frame.
                     for (px in pixelsPerFrame) {
                         for (c in 0 until numChannels) {
-                            val shift = if (numChannels == 1) 16 else (2 - c) * 8
+                            val shift = (2 - c) * 8
                             for (pixel in px) {
-                                currentInputBuffer.putFloat(norm((pixel shr shift) and 0xFF))
+                                currentInputBuffer.putFloat(
+                                    norm(if (numChannels == 1) luma(pixel) else (pixel shr shift) and 0xFF)
+                                )
                             }
                         }
                     }

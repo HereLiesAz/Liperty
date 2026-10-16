@@ -205,6 +205,9 @@ object ImageUtils {
         }
 
         val canvas = Canvas(targetBitmap)
+        // A pooled bitmap still holds the previous frame; areas the transform doesn't
+        // cover (edge/rotated crops) would otherwise leak stale pixels into this frame.
+        canvas.drawColor(android.graphics.Color.BLACK)
         val scale = targetWidth.toFloat() / max(mouthRect.width(), 1) // Base scale on width primarily
 
         val drawingMatrix = android.graphics.Matrix()

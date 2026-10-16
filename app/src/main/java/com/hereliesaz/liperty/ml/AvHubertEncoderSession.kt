@@ -113,8 +113,16 @@ class AvHubertEncoderSession(
         //    so ORT can mmap it. Throws if the asset is absent, which is the
         //    expected signal in production builds that the model wasn't
         //    downloaded; initialize() catches it and reports the session unready.
-        context.assets.open(modelName).use { input ->
-            dst.outputStream().use { output -> input.copyTo(output) }
+        // Copy via temp file + rename so an interrupted copy can't leave a truncated
+        // model at [dst] that the check above would accept forever.
+        val tmp = File(dst.parentFile, "${dst.name}.tmp")
+        try {
+            context.assets.open(modelName).use { input ->
+                tmp.outputStream().use { output -> input.copyTo(output) }
+            }
+            if (!tmp.renameTo(dst)) throw java.io.IOException("Could not move $tmp to $dst")
+        } finally {
+            tmp.delete()
         }
         Log.i(TAG, "Materialised encoder model to ${dst.absolutePath} (${dst.length()} bytes)")
         return dst.absolutePath

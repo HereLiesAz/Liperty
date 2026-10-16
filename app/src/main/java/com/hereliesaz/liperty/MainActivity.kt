@@ -792,89 +792,100 @@ class MainActivity : ComponentActivity() {
         if (!coreInitialized) return
         // We reuse the programmatically created previewView
         val analyzer = ImageAnalysis.Analyzer { imageProxy ->
-            PerformanceMonitor.logFrame()
-            frameCount++
+            // try/finally guarantees the frame is released even if processing throws;
+            // otherwise CameraX stalls waiting for the unreleased ImageProxy.
+            var proxyClosed = false
+            try {
+                PerformanceMonitor.logFrame()
+                frameCount++
             
-            val rotationDegrees = imageProxy.imageInfo.rotationDegrees
+                val rotationDegrees = imageProxy.imageInfo.rotationDegrees
 
-            val rawBitmap = com.hereliesaz.liperty.utils.BitmapPool.get(imageProxy.width, imageProxy.height)
-            com.hereliesaz.liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy, rawBitmap)
+                val rawBitmap = com.hereliesaz.liperty.utils.BitmapPool.get(imageProxy.width, imageProxy.height)
+                com.hereliesaz.liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy, rawBitmap)
             
-            // Rotate bitmap to upright orientation
-            var bitmap = if (rotationDegrees != 0) {
-                val rotated = com.hereliesaz.liperty.utils.ImageUtils.rotateBitmap(rawBitmap, rotationDegrees.toFloat())
-                com.hereliesaz.liperty.utils.BitmapPool.recycle(rawBitmap)
-                rotated
-            } else {
-                rawBitmap
-            }
-
-            // If front camera, mirror to match mirrored preview perception
-            if (currentLensFacing == CameraSelector.LENS_FACING_FRONT) {
-                val mirrored = com.hereliesaz.liperty.utils.ImageUtils.mirrorBitmap(bitmap)
-                if (bitmap === rawBitmap) {
-                    com.hereliesaz.liperty.utils.BitmapPool.recycle(bitmap)
+                // Rotate bitmap to upright orientation
+                var bitmap = if (rotationDegrees != 0) {
+                    val rotated = com.hereliesaz.liperty.utils.ImageUtils.rotateBitmap(rawBitmap, rotationDegrees.toFloat())
+                    com.hereliesaz.liperty.utils.BitmapPool.recycle(rawBitmap)
+                    rotated
                 } else {
-                    bitmap.recycle()
+                    rawBitmap
                 }
-                bitmap = mirrored
-            }
 
-            // Wave-to-Pause hand gesture check
-            if (frameCount % 5 == 0) {
-                val gesture = handGestureHelper.detectSynchronously(bitmap)
-                if (gesture == HandGestureHelper.HandGesture.WAVE_PAUSE) {
-                    runOnUiThread {
-                        isPausedState.value = !isPausedState.value
-                        // Badge UI shows "PAUSED" state
+                // If front camera, mirror to match mirrored preview perception
+                if (currentLensFacing == CameraSelector.LENS_FACING_FRONT) {
+                    val mirrored = com.hereliesaz.liperty.utils.ImageUtils.mirrorBitmap(bitmap)
+                    if (bitmap === rawBitmap) {
+                        com.hereliesaz.liperty.utils.BitmapPool.recycle(bitmap)
+                    } else {
+                        bitmap.recycle()
                     }
-                } else if (gesture == HandGestureHelper.HandGesture.AIR_SWIPE_LEFT) {
-                    runOnUiThread {
-                        transcriptionManager.cycleCurrentWord(-1)
-                        updateTranscriptionUI()
-                    }
-                } else if (gesture == HandGestureHelper.HandGesture.AIR_SWIPE_RIGHT) {
-                    runOnUiThread {
-                        transcriptionManager.cycleCurrentWord(1)
-                        updateTranscriptionUI()
+                    bitmap = mirrored
+                }
+
+                // Wave-to-Pause hand gesture check
+                if (frameCount % 5 == 0) {
+                    val gesture = handGestureHelper.detectSynchronously(bitmap)
+                    if (gesture == HandGestureHelper.HandGesture.WAVE_PAUSE) {
+                        runOnUiThread {
+                            isPausedState.value = !isPausedState.value
+                            // Badge UI shows "PAUSED" state
+                        }
+                    } else if (gesture == HandGestureHelper.HandGesture.AIR_SWIPE_LEFT) {
+                        runOnUiThread {
+                            transcriptionManager.cycleCurrentWord(-1)
+                            updateTranscriptionUI()
+                        }
+                    } else if (gesture == HandGestureHelper.HandGesture.AIR_SWIPE_RIGHT) {
+                        runOnUiThread {
+                            transcriptionManager.cycleCurrentWord(1)
+                            updateTranscriptionUI()
+                        }
                     }
                 }
-            }
 
-            if (isPausedState.value) {
+                if (isPausedState.value) {
+                    proxyClosed = true
+                    imageProxy.close()
+                    if (bitmap === rawBitmap) {
+                        com.hereliesaz.liperty.utils.BitmapPool.recycle(bitmap)
+                    } else {
+                        bitmap.recycle()
+                    }
+                    return@Analyzer
+                }
+
+                // Synchronous detection
+                val result = faceLandmarkerHelper.detectSynchronously(bitmap)
+
+                proxyClosed = true
                 imageProxy.close()
+
+                if (frameCount % 30 == 0) {
+                    val faceCount = result?.faceLandmarks()?.size ?: 0
+                    Log.d("VSRPipeline", "frame=$frameCount lipRead=${isLipReadModeState.value} " +
+                        "faces=$faceCount bufSize=${frameBuffer.size()} paused=${isPausedState.value}")
+                }
+
+                if (result != null) {
+                    processFrame(bitmap, result)
+                } else {
+                    runOnUiThread { overlayView.clear() }
+                    frameBuffer.clearAndRecycle()
+                    lipBoxFilter.reset()
+                    opticalFlowTracker.reset()
+                }
+
                 if (bitmap === rawBitmap) {
                     com.hereliesaz.liperty.utils.BitmapPool.recycle(bitmap)
                 } else {
                     bitmap.recycle()
                 }
-                return@Analyzer
-            }
-
-            // Synchronous detection
-            val result = faceLandmarkerHelper.detectSynchronously(bitmap)
-
-            imageProxy.close()
-
-            if (frameCount % 30 == 0) {
-                val faceCount = result?.faceLandmarks()?.size ?: 0
-                Log.d("VSRPipeline", "frame=$frameCount lipRead=${isLipReadModeState.value} " +
-                    "faces=$faceCount bufSize=${frameBuffer.size()} paused=${isPausedState.value}")
-            }
-
-            if (result != null) {
-                processFrame(bitmap, result)
-            } else {
-                runOnUiThread { overlayView.clear() }
-                frameBuffer.clearAndRecycle()
-                lipBoxFilter.reset()
-                opticalFlowTracker.reset()
-            }
-
-            if (bitmap === rawBitmap) {
-                com.hereliesaz.liperty.utils.BitmapPool.recycle(bitmap)
-            } else {
-                bitmap.recycle()
+            } catch (e: Exception) {
+                Log.e("VSRPipeline", "Frame analysis failed", e)
+            } finally {
+                if (!proxyClosed) imageProxy.close() // early closes release the frame sooner
             }
         }
 
