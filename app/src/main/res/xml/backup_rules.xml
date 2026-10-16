@@ -2,4 +2,8 @@
 <full-backup-content>
     <include domain="sharedpref" path="."/>
     <exclude domain="sharedpref" path="device_specific_settings.xml"/>
+    <!-- Consent (BIPA/GDPR) and download state are per-device and must never be restored onto a device where the user did not see the consent dialog. -->
+    <exclude domain="sharedpref" path="LipertyPrefs.xml"/>
+    <exclude domain="sharedpref" path="liperty_personalization_consent.xml"/>
+    <exclude domain="sharedpref" path="ModelDownloadPrefs.xml"/>
 </full-backup-content>
