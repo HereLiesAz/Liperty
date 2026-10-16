@@ -67,6 +67,21 @@ class PairedTrainingStoreTest {
     }
 
     @Test
+    fun failedSaveLeavesNoOrphanFiles() {
+        val store = PairedTrainingStore(tempDir)
+        val bad = makeRecord("bad").copy(
+            videoFrames = listOf(FloatArray(10), FloatArray(11)), // size mismatch -> throws mid-save
+        )
+        try {
+            store.save(bad)
+            org.junit.Assert.fail("expected save to throw")
+        } catch (_: IllegalArgumentException) {
+            // expected
+        }
+        assertEquals(0, tempDir.listFiles().orEmpty().size)
+    }
+
+    @Test
     fun loadOfMissingIdReturnsNull() {
         val store = PairedTrainingStore(tempDir)
         assertEquals(null, store.load("does-not-exist"))

@@ -61,6 +61,7 @@ class VoiceRecorder(private val context: Context) {
 
         val recorder = AudioRecord(AUDIO_SOURCE, SAMPLE_RATE, CHANNEL, ENCODING, minBufSize * 4)
         if (recorder.state != AudioRecord.STATE_INITIALIZED) {
+            recorder.release()
             isRecording.set(false)
             onError("AudioRecord init failed")
             return
@@ -96,6 +97,9 @@ class VoiceRecorder(private val context: Context) {
                 onComplete(audioFile, pcmBytes.size / BYTES_PER_SAMPLE)
                 Log.i(TAG, "Voice recording complete: ${audioFile.absolutePath}")
             } catch (e: Exception) {
+                // Release the mic on every failure path (start/read/stop/WAV write).
+                try { recorder.release() } catch (_: Exception) {}
+                audioRecord = null
                 isRecording.set(false)
                 onError("Recording error: ${e.message}")
             }
@@ -104,7 +108,7 @@ class VoiceRecorder(private val context: Context) {
 
     fun stopRecording() {
         isRecording.set(false)
-        audioRecord?.stop()
+        try { audioRecord?.stop() } catch (_: IllegalStateException) {}
         recordingJob?.cancel()
     }
 

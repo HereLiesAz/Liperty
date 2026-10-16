@@ -29,6 +29,19 @@ class PairedTrainingStore(private val rootDir: File) {
     }
 
     fun save(rec: PairedTrainingRecord) {
+        try {
+            saveInternal(rec)
+        } catch (e: Throwable) {
+            // A crash/IO error mid-save would otherwise leave orphan .audio/.video
+            // files that listAll()/delete(id) can't see (they key off .json).
+            audioFile(rec.id).delete()
+            videoFile(rec.id).delete()
+            metaFile(rec.id).delete()
+            throw e
+        }
+    }
+
+    private fun saveInternal(rec: PairedTrainingRecord) {
         val audioFile = audioFile(rec.id)
         val videoFile = videoFile(rec.id)
         val metaFile = metaFile(rec.id)
