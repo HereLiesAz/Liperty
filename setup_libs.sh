@@ -156,11 +156,15 @@ download_from_gdrive() {
     local file_id=$1
     local output_file=$2
     echo "[+] Downloading ID: ${file_id} to ${output_file}..."
+    # Private, unpredictable cookie jar (a fixed /tmp name is a symlink/race hazard).
+    local cookie_file
+    cookie_file=$(mktemp)
+    trap 'rm -f "$cookie_file"' RETURN
     if command -v curl &> /dev/null; then
-        CONFIRM=$(curl -sc /tmp/gdrive_cookie.txt "https://drive.google.com/uc?export=download&id=${file_id}" | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/\1/p')
-        curl -Lb /tmp/gdrive_cookie.txt "https://drive.google.com/uc?export=download&confirm=${CONFIRM}&id=${file_id}" -o "$output_file"
+        CONFIRM=$(curl -sc ${cookie_file} "https://drive.google.com/uc?export=download&id=${file_id}" | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/\1/p')
+        curl -Lb ${cookie_file} "https://drive.google.com/uc?export=download&confirm=${CONFIRM}&id=${file_id}" -o "$output_file"
     elif command -v wget &> /dev/null; then
-        wget --load-cookies /tmp/gdrive_cookie.txt "https://docs.google.com/uc?export=download&confirm=$(wget --quiet --save-cookies /tmp/gdrive_cookie.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id='${file_id} -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/\1/p')" -O "$output_file" && rm -rf /tmp/gdrive_cookie.txt
+        wget --load-cookies ${cookie_file} "https://docs.google.com/uc?export=download&confirm=$(wget --quiet --save-cookies ${cookie_file} --keep-session-cookies 'https://docs.google.com/uc?export=download&id='${file_id} -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/\1/p')" -O "$output_file"
     fi
 }
 

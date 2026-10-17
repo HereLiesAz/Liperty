@@ -29,10 +29,47 @@ class PairedTrainingStore(private val rootDir: File) {
     }
 
     fun save(rec: PairedTrainingRecord) {
+        val replacing = metaFile(rec.id).exists()
+        try {
+            saveInternal(rec)
+        } catch (e: Throwable) {
+            // A crash/IO error mid-save would otherwise leave orphan .audio/.video
+            // files that listAll()/delete(id) can't see (they key off .json). When an
+            // existing record is being replaced, its files are only touched by the final
+            // renames, so leave them alone: a failed overwrite keeps the old record.
+            if (!replacing) {
+                audioFile(rec.id).delete()
+                videoFile(rec.id).delete()
+                metaFile(rec.id).delete()
+            }
+            throw e
+        }
+    }
+
+    private fun saveInternal(rec: PairedTrainingRecord) {
         val audioFile = audioFile(rec.id)
         val videoFile = videoFile(rec.id)
         val metaFile = metaFile(rec.id)
+        // Write everything to temp files first and swap them in only once the whole record
+        // has been written, so a failed save never destroys a previously valid record.
+        val tmpAudio = File(audioFile.path + ".tmp")
+        val tmpVideo = File(videoFile.path + ".tmp")
+        val tmpMeta = File(metaFile.path + ".tmp")
+        try {
+            writeRecord(rec, tmpAudio, tmpVideo, tmpMeta)
+            // Meta last: listAll()/load() key off it.
+            for ((tmp, dest) in listOf(tmpAudio to audioFile, tmpVideo to videoFile, tmpMeta to metaFile)) {
+                dest.delete()
+                if (!tmp.renameTo(dest)) throw java.io.IOException("could not move ${tmp.name} into place")
+            }
+        } finally {
+            tmpAudio.delete()
+            tmpVideo.delete()
+            tmpMeta.delete()
+        }
+    }
 
+    private fun writeRecord(rec: PairedTrainingRecord, audioFile: File, videoFile: File, metaFile: File) {
         DataOutputStream(audioFile.outputStream().buffered()).use { out ->
             out.writeInt(rec.audioPcm.size)
             for (v in rec.audioPcm) out.writeFloat(v)

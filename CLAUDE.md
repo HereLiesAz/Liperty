@@ -10,7 +10,7 @@ This file provides guidance to Claude (and other AI coding assistants) when work
 - **Platform**: Android (Kotlin-first, minSdk 26 / targetSdk 37)
 - **ML Stack**: ONNX Runtime Mobile (primary; serves the SyncVSR visual encoder + attention decoder), TensorFlow Lite / LiteRT (secondary; legacy + small auxiliary models), MediaPipe Tasks Vision, OpenCV 4.13.0 (C++ via NDK)
 - **UI**: Jetpack Compose + Material 3
-- **Privacy**: Offline *after first-launch setup* — no inference/user data ever leaves the device. The app declares `INTERNET` solely so `setup/ModelDownloadManager.kt` can download ML models from HuggingFace once on first launch into app-private storage; all recognition then runs locally. Biometric data lives only in RAM (never persisted) — the sole exception is the explicitly-consented on-device personalization store, which the user can delete/revoke. Disclose the first-launch network use in the Play Store Data Safety form.
+- **Privacy**: Offline *after first-launch setup* — no inference/user data ever leaves the device. The app declares `INTERNET` solely so `setup/ModelDownloadManager.kt` can download ML models from HuggingFace once on first launch into app-private storage; all recognition then runs locally. Biometric data lives only in RAM (never persisted) — the exceptions are the explicitly-consented on-device personalization store and the user's own recorded voice-clone samples/profiles (app-private `filesDir`: `viseme_calibration/`, `voice_samples/`, `voices/`, `voice_profiles/`), which the user can delete/revoke. Consent/download-state SharedPreferences are excluded from cloud backup and device transfer so consent can never be restored onto a device that did not show the dialog. Disclose the first-launch network use in the Play Store Data Safety form.
 - **Hardware acceleration**: ONNX Runtime CPU (XNNPACK), TFLite GPU Delegate (primary for TFLite path), NNAPI/Hexagon (fallback), CPU (last resort)
 - **Production VSR model**: **SyncVSR** (visual-only E2E, LRS3-trained, 5049-token unigram SentencePiece vocab) — encoder + attention decoder (seq2seq) exported to ONNX and pulled at runtime from `HereLiesAz/liperty-syncvsr-onnx`. Selected by `MainActivity.VSR_BACKEND = BACKEND_SYNC_VSR` with `SYNCVSR_USE_SEQ2SEQ = true`. The **Auto-AVSR** model (`Amanvir/LRS3_V_WER19.1`, ESPnet visual-only Conformer + CTC, 5050-token vocab, `HereLiesAz/liperty-autoavsr-onnx`) is an **alternate/legacy backend** selectable via `VSR_BACKEND = BACKEND_AUTO_AVSR`. Lineage of both: Auto-AVSR / Chaplin.
   - ⚠️ **Accuracy is not yet validated on in-domain data.** The only eval run (`docs/EVAL_RESULTS_2026-05-13.md`) scored 100% WER on an out-of-distribution dataset (GRID 16-frame clips). Real WER/CER on a SyncVSR-matched (full-utterance LRS3) test set, and an on-device qualitative pass, are still pending — see the audit roadmap.
@@ -108,7 +108,7 @@ Liperty/
 ├── build.gradle.kts                   # Root Gradle config
 ├── settings.gradle.kts                # Multi-module (OpenCV included dynamically)
 ├── gradle.properties                  # JVM heap = 4 GB (-Xmx4096m)
-├── version.properties                 # Major=0, Minor=1, Patch=0
+├── version.properties                 # Major/Minor/Patch/Build (currently 0.4.0.0)
 └── setup_libs.sh                      # Downloads OpenCV, MediaPipe, all ML models from HF
 ```
 
@@ -160,7 +160,7 @@ This script:
 ### 3. Device Testing Notes
 - **Physical device strongly preferred** — emulators lack NPU/GPU delegate support and CameraX telephoto lens enumeration.
 - Minimum API 26 (Android 8.0).
-- Camera, Microphone, and Bluetooth Connect (API 31+) permissions are required at runtime.
+- Camera, Microphone, and Bluetooth Connect (API 31+) permissions are required at runtime. The manifest also declares `INTERNET`/`ACCESS_NETWORK_STATE` (first-launch model download), `HIGH_SAMPLING_RATE_SENSORS`, and `BLUETOOTH_SCAN`/`BLUETOOTH_ADVERTISE` (BLE audio).
 
 ---
 
@@ -261,7 +261,7 @@ OverlayView / Compose UI
 
 - All camera callbacks and ML inference run on background coroutine dispatchers via `lifecycleScope` / `viewModelScope`.
 - Do not perform blocking operations on `Dispatchers.Main`.
-- `FrameBuffer` uses its own `Mutex` for thread-safe access; respect it.
+- `FrameBuffer` guards its state with `@Synchronized` methods; respect it.
 
 ---
 
@@ -318,7 +318,7 @@ All versions are centralized in `gradle/libs.versions.toml`. When adding or upgr
 3. Reference via the generated accessor (e.g., `libs.tensorflow.lite`) in `build.gradle.kts`.
 4. Do not hardcode version strings in `build.gradle.kts`.
 
-### Key Versions (as of v0.1.0)
+### Key Versions (as of v0.1.0; re-check `gradle/libs.versions.toml` for current values)
 | Dependency | Version |
 |---|---|
 | AGP | 9.2.1 |

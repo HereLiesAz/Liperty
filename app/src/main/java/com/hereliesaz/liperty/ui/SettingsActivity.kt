@@ -70,7 +70,20 @@ class SettingsActivity : AppCompatActivity() {
         val storeDir = File(filesDir, "viseme_calibration")
         val store = PairedTrainingStore(storeDir)
         // Enforce "revoke personalization == delete persisted biometric data".
-        personalizationConsent.onRevoke = { store.deleteAll() }
+        // Also wipes recorded voice-clone samples (raw voice biometrics).
+        val wipeBiometrics: () -> Boolean = {
+            val storeOk = store.deleteAll()
+            val samplesOk = File(filesDir, "voice_samples").let { !it.exists() || it.deleteRecursively() }
+            val ok = storeOk && samplesOk
+            if (!ok) {
+                android.widget.Toast.makeText(
+                    this, "Could not delete all stored biometric data. Please try again.",
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+            }
+            ok
+        }
+        personalizationConsent.onRevoke = { wipeBiometrics() }
 
         findViewById<ComposeView>(R.id.compose_settings).setContent {
             MaterialTheme(
@@ -89,7 +102,7 @@ class SettingsActivity : AppCompatActivity() {
                             if (personalizationConsent.hasConsent()) {
                                 personalizationConsent.revokeConsent()
                             } else {
-                                store.deleteAll()
+                                wipeBiometrics()
                             }
                             // Leave Settings; MainActivity.onResume re-engages the
                             // consent gate (camera stays off until re-granted).
@@ -123,7 +136,7 @@ class SettingsActivity : AppCompatActivity() {
                             totalBytes = store.totalBytes()
                         },
                         onDeleteAll = {
-                            store.deleteAll()
+                            wipeBiometrics()
                             recordCount = store.listAll().size
                             totalBytes = store.totalBytes()
                         },

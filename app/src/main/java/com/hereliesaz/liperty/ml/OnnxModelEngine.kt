@@ -73,6 +73,7 @@ class OnnxModelEngine(
         }
     }
 
+    @Synchronized
     override fun run(inputBuffer: ByteBuffer, outputBuffer: ByteBuffer) {
         val s = session ?: run {
             Log.e("OnnxModelEngine", "run() called but '$modelName' is not loaded — skipped")
@@ -150,13 +151,19 @@ class OnnxModelEngine(
 
         // 2. Try bundled assets (dev builds)
         try {
-            val assetSize = context.assets.open(modelName).use { it.available().toLong() }
-            if (assetSize > 1000) {
-                context.assets.open(modelName).use { input ->
-                    dst.outputStream().use { output -> input.copyTo(output) }
+            // Copy to a temp file and rename, so an interrupted copy can never leave a
+            // truncated file at [dst] that the "already on disk" check accepts forever.
+            val tmp = File(dst.parentFile, "${dst.name}.tmp")
+            try {
+                val copied = context.assets.open(modelName).use { input ->
+                    tmp.outputStream().use { output -> input.copyTo(output) }
                 }
-                Log.i("OnnxModelEngine", "Copied model from assets to ${dst.absolutePath} (${dst.length()} bytes)")
-                return dst.absolutePath
+                if (copied > 1000 && tmp.renameTo(dst)) {
+                    Log.i("OnnxModelEngine", "Copied model from assets to ${dst.absolutePath} (${dst.length()} bytes)")
+                    return dst.absolutePath
+                }
+            } finally {
+                tmp.delete()
             }
         } catch (_: Exception) {
             // Asset not bundled — expected for production builds
@@ -178,6 +185,7 @@ class OnnxModelEngine(
 
     override fun getInputLayout(): InputLayout = expectedInputLayout
 
+    @Synchronized
     override fun close() {
         session?.close()
         session = null

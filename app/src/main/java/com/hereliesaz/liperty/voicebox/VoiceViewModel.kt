@@ -138,7 +138,7 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
 
     private var pendingCloningUris: List<Uri> = emptyList()
     private var pendingRecordedFile: File? = null
-    /** Captured WAV files for the active coached session (cacheDir). */
+    /** Captured WAV files for the active coached session (app-private filesDir). */
     private val coachedClips: MutableList<File> = mutableListOf()
 
     init {
@@ -442,8 +442,8 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Records one clip of [durationMs] for the coached session.
      * On completion the WAV is appended to the in-memory list and
-     * the quality tier is recomputed. Disk writes go to cacheDir
-     * (no biometric data in user-visible storage).
+     * the quality tier is recomputed. Disk writes go to app-private
+     * filesDir (no biometric data in user-visible storage).
      */
     fun recordCoachedClip(durationMs: Long = DEFAULT_CLIP_DURATION_MS) {
         if (_coachState.value.isRecording) return
@@ -629,6 +629,8 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
 
     fun cancelCloning() {
         pendingCloningUris = emptyList()
+        // A discarded recording is raw voice data; don't leave it behind.
+        pendingRecordedFile?.let { f -> viewModelScope.launch(Dispatchers.IO) { f.delete() } }
         pendingRecordedFile = null
         _uiState.value = _uiState.value.copy(isNamingVoice = false)
     }
@@ -637,44 +639,62 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(isNamingVoice = false, isCloning = true, statusMessage = "Creating profile: $name...")
 
         viewModelScope.launch {
-            if (pendingRecordedFile != null) {
-                val voiceState = withContext(Dispatchers.IO) {
-                    pocketTts.cloneVoice(name, listOf(pendingRecordedFile!!))
-                }
-                voiceStore.saveVoice(voiceState)
-                pendingRecordedFile = null
-            } else if (pendingCloningUris.isNotEmpty()) {
-                val tempFiles = withContext(Dispatchers.IO) {
-                    pendingCloningUris.mapNotNull { uri ->
-                        val tempFile = File(getApplication<Application>().cacheDir, "imported_${System.currentTimeMillis()}_${uri.lastPathSegment}.wav")
-                        try {
-                            getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
-                                FileOutputStream(tempFile).use { output ->
-                                    input.copyTo(output)
+            try {
+                // Pin the exact file being cloned: a newer recording may replace
+                // pendingRecordedFile while the clone runs.
+                val sample = pendingRecordedFile
+                if (sample != null) {
+                    val voiceState = withContext(Dispatchers.IO) {
+                        pocketTts.cloneVoice(name, listOf(sample))
+                    }
+                    check(voiceStore.saveVoice(voiceState)) { "could not save the voice profile" }
+                    // The raw recorded sample is biometric; the profile is persisted, so drop it.
+                    withContext(Dispatchers.IO) { sample.delete() }
+                    if (pendingRecordedFile == sample) pendingRecordedFile = null
+                } else if (pendingCloningUris.isNotEmpty()) {
+                    val tempFiles = withContext(Dispatchers.IO) {
+                        pendingCloningUris.mapNotNull { uri ->
+                            val tempFile = File(getApplication<Application>().cacheDir, "imported_${System.currentTimeMillis()}_${uri.lastPathSegment}.wav")
+                            try {
+                                getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
+                                    FileOutputStream(tempFile).use { output ->
+                                        input.copyTo(output)
+                                    }
                                 }
+                                tempFile
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Failed to copy URI to temp file: $uri", e)
+                                null
                             }
-                            tempFile
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Failed to copy URI to temp file: $uri", e)
-                            null
                         }
                     }
+
+                    if (tempFiles.isNotEmpty()) {
+                        val voiceState = withContext(Dispatchers.IO) {
+                            pocketTts.cloneVoice(name, tempFiles)
+                        }
+                        voiceStore.saveVoice(voiceState)
+                        withContext(Dispatchers.IO) {
+                            tempFiles.forEach { it.delete() }
+                        }
+                    }
+                    pendingCloningUris = emptyList()
                 }
 
-                if (tempFiles.isNotEmpty()) {
-                    val voiceState = withContext(Dispatchers.IO) {
-                        pocketTts.cloneVoice(name, tempFiles)
-                    }
-                    voiceStore.saveVoice(voiceState)
-                    withContext(Dispatchers.IO) {
-                        tempFiles.forEach { it.delete() }
-                    }
-                }
+                loadVoices()
+                _uiState.value = _uiState.value.copy(isCloning = false, statusMessage = "Voice profile created: $name")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                _uiState.value = _uiState.value.copy(isCloning = false)
+                throw e
+            } catch (e: Exception) {
+                // cloneVoice / saveVoice can throw (missing models, OOM, bad audio);
+                // never leave isCloning stuck or crash the app.
+                Log.e(TAG, "Voice cloning failed for $name", e)
+                // pendingRecordedFile is kept so the user can retry without re-recording;
+                // cancelCloning() discards (and deletes) it.
                 pendingCloningUris = emptyList()
+                _uiState.value = _uiState.value.copy(isCloning = false, statusMessage = "Voice cloning failed: ${e.message}")
             }
-
-            loadVoices()
-            _uiState.value = _uiState.value.copy(isCloning = false, statusMessage = "Voice profile created: $name")
         }
     }
 

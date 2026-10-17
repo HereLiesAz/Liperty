@@ -31,15 +31,18 @@ class VoiceStore(private val context: Context) {
 
     // ── Legacy VoiceState methods ───────────────────────────────────────
 
-    fun saveVoice(voiceState: VoiceState) {
+    /** @return true if the voice was persisted, false if writing it failed. */
+    fun saveVoice(voiceState: VoiceState): Boolean {
         val file = File(storeDir, "${voiceState.name}.vstate")
-        try {
+        return try {
             ObjectOutputStream(file.outputStream()).use { oos ->
                 oos.writeObject(voiceState.name)
                 oos.writeObject(voiceState.embedding)
             }
+            true
         } catch (e: Exception) {
             e.printStackTrace()
+            false
         }
     }
 
