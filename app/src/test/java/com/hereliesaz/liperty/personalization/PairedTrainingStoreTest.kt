@@ -82,6 +82,24 @@ class PairedTrainingStoreTest {
     }
 
     @Test
+    fun failedOverwriteKeepsThePreviousRecord() {
+        val store = PairedTrainingStore(tempDir)
+        val good = makeRecord("same-id")
+        store.save(good)
+        val bad = makeRecord("same-id").copy(
+            videoFrames = listOf(FloatArray(10), FloatArray(11)), // size mismatch -> throws mid-save
+        )
+        try {
+            store.save(bad)
+            org.junit.Assert.fail("expected save to throw")
+        } catch (_: IllegalArgumentException) {
+            // expected
+        }
+        assertNotNull(store.load("same-id"))
+        assertEquals(0, tempDir.listFiles().orEmpty().count { it.name.endsWith(".tmp") })
+    }
+
+    @Test
     fun loadOfMissingIdReturnsNull() {
         val store = PairedTrainingStore(tempDir)
         assertEquals(null, store.load("does-not-exist"))

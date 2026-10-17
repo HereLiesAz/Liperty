@@ -795,6 +795,10 @@ class MainActivity : ComponentActivity() {
             // try/finally guarantees the frame is released even if processing throws;
             // otherwise CameraX stalls waiting for the unreleased ImageProxy.
             var proxyClosed = false
+            // Whichever bitmap is currently live, so the finally block can release it if
+            // processing throws before the normal cleanup below runs.
+            var heldPooled: Bitmap? = null
+            var heldPlain: Bitmap? = null
             try {
                 PerformanceMonitor.logFrame()
                 frameCount++
@@ -802,12 +806,15 @@ class MainActivity : ComponentActivity() {
                 val rotationDegrees = imageProxy.imageInfo.rotationDegrees
 
                 val rawBitmap = com.hereliesaz.liperty.utils.BitmapPool.get(imageProxy.width, imageProxy.height)
+                heldPooled = rawBitmap
                 com.hereliesaz.liperty.utils.ImageUtils.imageProxyToBitmap(imageProxy, rawBitmap)
             
                 // Rotate bitmap to upright orientation
                 var bitmap = if (rotationDegrees != 0) {
                     val rotated = com.hereliesaz.liperty.utils.ImageUtils.rotateBitmap(rawBitmap, rotationDegrees.toFloat())
                     com.hereliesaz.liperty.utils.BitmapPool.recycle(rawBitmap)
+                    heldPooled = null
+                    heldPlain = rotated
                     rotated
                 } else {
                     rawBitmap
@@ -821,6 +828,8 @@ class MainActivity : ComponentActivity() {
                     } else {
                         bitmap.recycle()
                     }
+                    heldPooled = null
+                    heldPlain = mirrored
                     bitmap = mirrored
                 }
 
@@ -853,6 +862,8 @@ class MainActivity : ComponentActivity() {
                     } else {
                         bitmap.recycle()
                     }
+                    heldPooled = null
+                    heldPlain = null
                     return@Analyzer
                 }
 
@@ -882,10 +893,15 @@ class MainActivity : ComponentActivity() {
                 } else {
                     bitmap.recycle()
                 }
+                heldPooled = null
+                heldPlain = null
             } catch (e: Exception) {
                 Log.e("VSRPipeline", "Frame analysis failed", e)
             } finally {
                 if (!proxyClosed) imageProxy.close() // early closes release the frame sooner
+                // A throw after the bitmap was obtained would otherwise abandon it every frame.
+                heldPooled?.let { com.hereliesaz.liperty.utils.BitmapPool.recycle(it) }
+                heldPlain?.let { if (!it.isRecycled) it.recycle() }
             }
         }
 

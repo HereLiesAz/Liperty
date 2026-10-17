@@ -629,6 +629,8 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
 
     fun cancelCloning() {
         pendingCloningUris = emptyList()
+        // A discarded recording is raw voice data; don't leave it behind.
+        pendingRecordedFile?.let { f -> viewModelScope.launch(Dispatchers.IO) { f.delete() } }
         pendingRecordedFile = null
         _uiState.value = _uiState.value.copy(isNamingVoice = false)
     }
@@ -638,14 +640,17 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                if (pendingRecordedFile != null) {
+                // Pin the exact file being cloned: a newer recording may replace
+                // pendingRecordedFile while the clone runs.
+                val sample = pendingRecordedFile
+                if (sample != null) {
                     val voiceState = withContext(Dispatchers.IO) {
-                        pocketTts.cloneVoice(name, listOf(pendingRecordedFile!!))
+                        pocketTts.cloneVoice(name, listOf(sample))
                     }
-                    voiceStore.saveVoice(voiceState)
-                    // The raw recorded sample is biometric; the profile is saved, so drop it.
-                    pendingRecordedFile?.let { f -> withContext(Dispatchers.IO) { f.delete() } }
-                    pendingRecordedFile = null
+                    check(voiceStore.saveVoice(voiceState)) { "could not save the voice profile" }
+                    // The raw recorded sample is biometric; the profile is persisted, so drop it.
+                    withContext(Dispatchers.IO) { sample.delete() }
+                    if (pendingRecordedFile == sample) pendingRecordedFile = null
                 } else if (pendingCloningUris.isNotEmpty()) {
                     val tempFiles = withContext(Dispatchers.IO) {
                         pendingCloningUris.mapNotNull { uri ->
@@ -685,7 +690,8 @@ class VoiceViewModel(application: Application) : AndroidViewModel(application) {
                 // cloneVoice / saveVoice can throw (missing models, OOM, bad audio);
                 // never leave isCloning stuck or crash the app.
                 Log.e(TAG, "Voice cloning failed for $name", e)
-                pendingRecordedFile = null
+                // pendingRecordedFile is kept so the user can retry without re-recording;
+                // cancelCloning() discards (and deletes) it.
                 pendingCloningUris = emptyList()
                 _uiState.value = _uiState.value.copy(isCloning = false, statusMessage = "Voice cloning failed: ${e.message}")
             }
