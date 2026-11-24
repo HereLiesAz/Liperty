@@ -90,6 +90,10 @@ class SettingsActivity : AppCompatActivity() {
                 colorScheme = if (savedDarkTheme) darkColorScheme() else lightColorScheme(),
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(onClick = { checkAppUpdate(this@SettingsActivity) }) {
+                        Text("Check for updates")
+                    }
+
                     BiometricConsentSection(
                         isGranted = sharedPrefs.getBoolean("consent_granted", false),
                         onRevoke = {

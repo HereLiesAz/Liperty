@@ -2,13 +2,13 @@
 
 **Liperty** — Visual Speech Recognition & Voice Reconstruction App
 
-*Last updated: May 8, 2026*
+*Last updated: November 23, 2026*
 
 ## 1. Overview
 
-Liperty is a fully offline Android application that provides visual speech recognition (lipreading) and voice reconstruction for Deaf, Hard-of-Hearing, and speech-impaired users. This privacy policy explains what data the app accesses, how it is used, and how it is protected.
+Liperty is an Android application with fully local inference that provides visual speech recognition (lipreading) and voice reconstruction for Deaf, Hard-of-Hearing, and speech-impaired users. This privacy policy explains what data the app accesses, how it is used, and how it is protected.
 
-**The core principle: all processing happens on your device. No data is transmitted to any server.**
+**The core principle: all processing happens on your device. No user or biometric data is transmitted by recognition.**
 
 ## 2. Data We Access
 
@@ -36,7 +36,7 @@ The app may use the device vibrator for haptic feedback. No sensor data is store
 - Facial landmarks are extracted, used for lip cropping, and **immediately discarded**
 - No facial geometry, lip images, voice recordings, or raw audio is ever written to persistent storage (disk/NAND)
 - No biometric data is transmitted to any server, cloud service, or third party
-- The app's only network use is a **one-time, first-launch download of ML model files** from Hugging Face into app-private storage. No biometric data, inference input/output, or user content is ever transmitted off-device — recognition runs fully locally after setup.
+- The app uses the network for a **one-time, first-launch download of ML model files** from Hugging Face into app-private storage. No biometric data, inference input/output, or user content is ever transmitted off-device — recognition runs fully locally after setup. A separate manual update action in Settings checks public release metadata or Google Play availability.
 
 ### Compliance
 This handling is designed to comply with:
@@ -66,12 +66,12 @@ Liperty does **not** collect, store, or transmit:
 - Location data
 - Device identifiers or advertising IDs
 - Usage analytics or telemetry
-- Any data to third-party services
+- User or biometric data to third-party services during update checks
 - Crash reports, analytics, or telemetry (none are collected or transmitted; the app contains no analytics SDK)
 
-## 7. Network Access (first-launch model download only)
+## 7. Network Access (model download and manual updates)
 
-Liperty declares `android.permission.INTERNET` for a **single purpose**: downloading the ML model files (~1.4 GB) from Hugging Face into app-private storage the first time you launch the app. These models are too large to bundle in the APK. After this one-time setup the app operates fully offline; no inference data, biometric data, or user content is ever transmitted off your device. The first-launch download is disclosed in the Play Store Data Safety form.
+Liperty declares `android.permission.INTERNET` to download the ML model files (~1.4 GB) from Hugging Face into app-private storage the first time you launch the app. These models are too large to bundle in the APK. After this one-time setup recognition operates fully offline; no inference data, biometric data, or user content is ever transmitted off your device. The first-launch download is disclosed in the Play Store Data Safety form. Only when you select Check for updates in Settings, AzNavRail contacts GitHub or Google Play for update availability. No biometric, transcription, or personalization data is sent. GitHub receives the ordinary connection IP address. No automatic update check runs.
 
 ## 8. On-Device Machine Learning
 
