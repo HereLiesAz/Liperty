@@ -11,6 +11,12 @@ plugins {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        maven("https://raw.githubusercontent.com/HereLiesAz/AzNavRail/update-maven/") {
+            content {
+                includeModule("com.github.HereLiesAz.AzNavRail", "aznavrail-updates")
+                includeModule("com.github.HereLiesAz.AzNavRail", "aznavrail-updates-play")
+            }
+        }
         google()
         mavenCentral()
         maven { url = uri("https://jitpack.io") }

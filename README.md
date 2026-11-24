@@ -1,6 +1,6 @@
 # Liperty
 
-**Liperty** is a real-time, on-device Visual Speech Recognition (VSR) and Voice Reconstruction application for the Deaf, Hard-of-Hearing, and speech-impaired communities. It converts lip movements into text (lipreading) or reconstructed speech, running **fully offline after a one-time first-launch model download** to protect privacy.
+**Liperty** is a real-time, on-device Visual Speech Recognition (VSR) and Voice Reconstruction application for the Deaf, Hard-of-Hearing, and speech-impaired communities. It converts lip movements into text (lipreading) or reconstructed speech, running **offline for all recognition after a one-time first-launch model download** to protect privacy.
 
 > ⚠️ **Accuracy status:** The production lipreading model (SyncVSR) is **not yet validated on in-domain data.** The only evaluation run scored 100% WER on an out-of-distribution dataset (GRID 16-frame clips) — see [`docs/EVAL_RESULTS_2026-05-13.md`](docs/EVAL_RESULTS_2026-05-13.md). Real WER/CER on a SyncVSR-matched (full-utterance LRS3) test set is still pending. Treat lipreading output as experimental.
 
@@ -36,7 +36,7 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full technical breakd
    ```bash
    ./setup_libs.sh
    ```
-   The large ML models are **pruned from the APK** and downloaded into app-private storage on first launch by `setup/ModelDownloadManager.kt` (~1.4 GB required; the app declares `INTERNET` solely for this).
+   The large ML models are **pruned from the APK** and downloaded into app-private storage on first launch by `setup/ModelDownloadManager.kt` (~1.4 GB required; the app declares `INTERNET` for this and explicit update checks).
 3. Open in Android Studio (JDK 17), sync Gradle.
 4. Connect a **physical Android device** (minSdk 26; emulators lack NPU/GPU-delegate and telephoto-lens support).
 5. Build & run: `./gradlew assembleDebug`.
@@ -48,3 +48,5 @@ Liperty processes biometric data (facial landmarks). See [`docs/LEGAL.md`](docs/
 ## Research
 
 Architecture and methods: [`docs/RESEARCH_PAPER.md`](docs/RESEARCH_PAPER.md). Literature surveys: [`docs/RESEARCH.md`](docs/RESEARCH.md).
+
+The Settings screen includes a manual **Check for updates** action using AzNavRail 12.5. No automatic update network requests occur. For local Play bundles use `-PazPlayUpdates=true`.

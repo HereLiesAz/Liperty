@@ -34,7 +34,15 @@ val vPatch = run {
     }
 }
 
+// GitHub is the default; local Play builds explicitly opt into the Play adapter.
+val playUpdates = providers.gradleProperty("azPlayUpdates").map { it.toBooleanStrict() }
+    .orElse(providers.gradleProperty("releaseVersionCode").map { true }).orElse(false)
+
 android {
+    sourceSets.getByName("main").kotlin.srcDir(
+        if (playUpdates.get()) "src/playUpdates/kotlin" else "src/githubUpdates/kotlin"
+    )
+
     namespace = "com.hereliesaz.liperty"
     compileSdk = 37
 
@@ -240,6 +248,8 @@ configurations.all {
 }
 
 dependencies {
+    implementation("com.github.HereLiesAz.AzNavRail:aznavrail-updates:12.5")
+    if (playUpdates.get()) implementation("com.github.HereLiesAz.AzNavRail:aznavrail-updates-play:12.5")
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)

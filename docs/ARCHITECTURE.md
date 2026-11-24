@@ -163,3 +163,5 @@ Bias rationale and full details: [`PERSONALIZATION.md`](PERSONALIZATION.md).
 - [`PRIVACY_POLICY.md`](PRIVACY_POLICY.md) — privacy contract and consent flows.
 - [`LEGAL.md`](LEGAL.md) — BIPA/GDPR posture for biometric data.
 - [`TODO.md`](TODO.md) — full roadmap.
+
+The Android Settings update action is a manual-only distribution metadata request, separate from inference, consent, and model management.

@@ -14,7 +14,7 @@ Guidance for AI agents (WARP, Claude, etc.) working in this repo.
   - ⚠️ Accuracy is **not yet validated on in-domain data** (only eval = 100% WER on out-of-distribution GRID — see `docs/EVAL_RESULTS_2026-05-13.md`).
 - **Vision**: MediaPipe face mesh (468 landmarks) + JNI/OpenCV 4.13.0 lip-crop/normalization.
 - **Voice reconstruction / SSI**: multimodal contact-mic + accelerometer fusion; glottal-carrier BC mode + electrolarynx capture.
-- **Privacy**: no cloud inference; biometric data is RAM-only except the explicitly-consented, user-deletable on-device personalization store. The app declares `INTERNET` solely for the one-time first-launch model download (`setup/ModelDownloadManager.kt`).
+- **Privacy**: no cloud inference; biometric data is RAM-only except the explicitly-consented, user-deletable on-device personalization store. The app declares `INTERNET` for the one-time first-launch model download (`setup/ModelDownloadManager.kt`) and explicit Settings update checks. Recognition never uses the network.
 
 ## Setup & build
 ```bash
